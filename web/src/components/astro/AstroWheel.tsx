@@ -527,27 +527,6 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             fill="#9EE8FF"
           />
         ))}
-
-        {/* Uranus-style accent curve as a glint over the pupil */}
-        <path
-          d={`
-            M ${center - 18} ${center + 8}
-            Q ${center} ${center - 18} ${center + 18} ${center + 8}
-            `}
-          fill="none"
-          stroke={palette.accentTeal}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeOpacity={0.9}
-        />
-        <circle
-          cx={center}
-          cy={center - 4}
-          r={4}
-          fill={palette.accentTeal}
-          stroke={palette.centerVoid}
-          strokeWidth={1}
-        />
       </svg>
     </div>
   );
