@@ -24,8 +24,7 @@ const palette = {
   bg: "#141417", // deep soot
   outerRimStone: "#7A5E43",
   outerRimHighlight: "#CBB89D",
-  // softer, cooler zodiac band
-  zodiacRingLight: "#D9CFBA",
+  zodiacRingLight: "#D9CFBA", // softer band
   zodiacRingDark: "#3F3A32",
   houseLine: "#C2A463",
   planetSun: "#F9D77C",
@@ -55,7 +54,8 @@ const radii = {
 // --- GEOMETRY HELPERS ---
 
 function degreeToXY(deg: number, radius: number) {
-  const rad = ((deg - 90) * Math.PI) / 180; // shift so 0° = top
+  // 0° = top, degrees increase clockwise
+  const rad = ((deg - 90) * Math.PI) / 180;
   const x = center + radius * Math.cos(rad);
   const y = center + radius * Math.sin(rad);
   return { x, y };
@@ -78,20 +78,20 @@ function arcPath(rOuter: number, rInner: number, startDeg: number, endDeg: numbe
   ].join(" ");
 }
 
-// real glyphs
+// standard order
 const zodiacGlyphs = [
-  "♈︎",
-  "♉︎",
-  "♊︎",
-  "♋︎",
-  "♌︎",
-  "♍︎",
-  "♎︎",
-  "♏︎",
-  "♐︎",
-  "♑︎",
-  "♒︎",
-  "♓︎",
+  "♈︎", // Aries
+  "♉︎", // Taurus
+  "♊︎", // Gemini
+  "♋︎", // Cancer
+  "♌︎", // Leo
+  "♍︎", // Virgo
+  "♎︎", // Libra
+  "♏︎", // Scorpio
+  "♐︎", // Sagittarius
+  "♑︎", // Capricorn
+  "♒︎", // Aquarius
+  "♓︎", // Pisces
 ];
 
 // --- COMPONENT ---
@@ -105,6 +105,12 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
 
   const sun = planets.sun;
   const moon = planets.moon;
+
+  // derived angles for full cross
+  const ascDeg = ascendant;
+  const mcDeg = mc;
+  const dscDeg = (ascendant + 180) % 360;
+  const icDeg = (mc + 180) % 360;
 
   return (
     <div
@@ -150,6 +156,14 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             <stop offset="0%" stopColor={`${palette.accentTeal}55`} />
             <stop offset="40%" stopColor={`${palette.accentTealSoft}11`} />
             <stop offset="100%" stopColor="#00000000" />
+          </radialGradient>
+
+          {/* iris gradient for the eye */}
+          <radialGradient id="eye-iris" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#020711" />
+            <stop offset="40%" stopColor="#102334" />
+            <stop offset="75%" stopColor="#1b4d54" />
+            <stop offset="100%" stopColor="#02060b" />
           </radialGradient>
         </defs>
 
@@ -212,8 +226,8 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
           fill="url(#uranus-accent)"
         />
 
-        {/* ZODIAC RING – hybrid carved + painted with glyphs */}
-        {zodiacGlyphs.map((glyph, i) => {
+        {/* ZODIAC RING – glyph order inverted so signs read counter-clockwise */}
+        {Array.from({ length: 12 }).map((_, i) => {
           const startDeg = i * 30;
           const endDeg = (i + 1) * 30;
           const path = arcPath(
@@ -223,6 +237,10 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             endDeg
           );
           const isCardinal = i % 3 === 0;
+
+          // map clockwise wedge index -> CCW sign order
+          const glyphIndex = (12 - i) % 12;
+          const glyph = zodiacGlyphs[glyphIndex];
 
           const midDeg = startDeg + 15;
           const labelPos = degreeToXY(
@@ -296,39 +314,39 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
           );
         })}
 
-        {/* ASC / MC full radial lines + markers */}
+        {/* FULL ANGULAR CROSS: ASC / DSC / MC / IC lines + markers */}
         {(() => {
-          const ascInner = degreeToXY(ascendant, radii.centerVoid);
-          const ascOuter = degreeToXY(ascendant, radii.outerRimOuter);
-          const mcInner = degreeToXY(mc, radii.centerVoid);
-          const mcOuter = degreeToXY(mc, radii.outerRimOuter);
-
-          return (
-            <>
-              {/* ASC line */}
+          const makeLine = (deg: number, color: string, width: number) => {
+            const inner = degreeToXY(deg, radii.centerVoid);
+            const outer = degreeToXY(deg, radii.outerRimOuter);
+            return (
               <line
-                x1={ascInner.x}
-                y1={ascInner.y}
-                x2={ascOuter.x}
-                y2={ascOuter.y}
-                stroke={palette.accentTeal}
-                strokeWidth={1.8}
-                strokeLinecap="round"
-                opacity={0.9}
-              />
-              {/* MC line */}
-              <line
-                x1={mcInner.x}
-                y1={mcInner.y}
-                x2={mcOuter.x}
-                y2={mcOuter.y}
-                stroke={palette.outerRimHighlight}
-                strokeWidth={1.6}
+                x1={inner.x}
+                y1={inner.y}
+                x2={outer.x}
+                y2={outer.y}
+                stroke={color}
+                strokeWidth={width}
                 strokeLinecap="round"
                 opacity={0.95}
               />
+            );
+          };
 
-              {/* small circles + labels near rim */}
+          const ascOuter = degreeToXY(ascDeg, radii.outerRimOuter);
+          const dscOuter = degreeToXY(dscDeg, radii.outerRimOuter);
+          const mcOuter = degreeToXY(mcDeg, radii.outerRimOuter);
+          const icOuter = degreeToXY(icDeg, radii.outerRimOuter);
+
+          return (
+            <>
+              {/* lines */}
+              {makeLine(ascDeg, palette.accentTeal, 1.8)}
+              {makeLine(dscDeg, palette.accentTeal, 1.4)}
+              {makeLine(mcDeg, palette.outerRimHighlight, 1.8)}
+              {makeLine(icDeg, palette.outerRimHighlight, 1.4)}
+
+              {/* rim markers + labels */}
               <circle
                 cx={ascOuter.x}
                 cy={ascOuter.y}
@@ -349,12 +367,31 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
               </text>
 
               <circle
-                cx={mcOuter.x}
-                cy={mcOuter.y}
+                cx={dscOuter.x}
+                cy={dscOuter.y}
                 r={5}
-                fill={palette.outerRimHighlight}
+                fill={palette.accentTeal}
                 stroke={palette.accentTealSoft}
                 strokeWidth={1.2}
+              />
+              <text
+                x={dscOuter.x}
+                y={dscOuter.y - 10}
+                fill={palette.accentTeal}
+                fontSize={10}
+                textAnchor="middle"
+                style={{ fontFamily: "system-ui, sans-serif" }}
+              >
+                DSC
+              </text>
+
+              <circle
+                cx={mcOuter.x}
+                cy={mcOuter.y}
+                r={5.5}
+                fill={palette.outerRimHighlight}
+                stroke={palette.accentTealSoft}
+                strokeWidth={1.3}
               />
               <text
                 x={mcOuter.x}
@@ -365,6 +402,25 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
                 style={{ fontFamily: "system-ui, sans-serif" }}
               >
                 MC
+              </text>
+
+              <circle
+                cx={icOuter.x}
+                cy={icOuter.y}
+                r={5}
+                fill={palette.outerRimHighlight}
+                stroke={palette.houseLine}
+                strokeWidth={1.2}
+              />
+              <text
+                x={icOuter.x}
+                y={icOuter.y - 10}
+                fill={palette.outerRimHighlight}
+                fontSize={10}
+                textAnchor="middle"
+                style={{ fontFamily: "system-ui, sans-serif" }}
+              >
+                IC
               </text>
             </>
           );
@@ -424,29 +480,69 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
           })()
         )}
 
-        {/* CENTER VOID – cosmic well */}
+        {/* CENTER "EYE" – cosmic iris + pupil with stars */}
+
+        {/* iris */}
         <circle
           cx={center}
           cy={center}
           r={radii.centerVoid}
+          fill="url(#eye-iris)"
+          stroke="#18222C"
+          strokeWidth={2}
+        />
+
+        {/* subtle inner ring to feel carved */}
+        <circle
+          cx={center}
+          cy={center}
+          r={radii.centerVoid * 0.72}
+          fill="none"
+          stroke="#263746"
+          strokeWidth={1.2}
+          strokeDasharray="3 6"
+          opacity={0.7}
+        />
+
+        {/* pupil */}
+        <circle
+          cx={center}
+          cy={center}
+          r={radii.centerVoid * 0.45}
           fill={palette.centerVoid}
         />
 
-        {/* subtle asymmetrical Uranus glyph / accent inside the void */}
+        {/* star specks inside the pupil */}
+        {[
+          { dx: -10, dy: -6, r: 1.4 },
+          { dx: 6, dy: -3, r: 1.1 },
+          { dx: -4, dy: 7, r: 1.2 },
+          { dx: 11, dy: 5, r: 1.5 },
+        ].map((s, idx) => (
+          <circle
+            key={`star-${idx}`}
+            cx={center + s.dx}
+            cy={center + s.dy}
+            r={s.r}
+            fill="#9EE8FF"
+          />
+        ))}
+
+        {/* Uranus-style accent curve as a glint over the pupil */}
         <path
           d={`
-            M ${center - 18} ${center + 10}
-            Q ${center} ${center - 25} ${center + 18} ${center + 10}
+            M ${center - 18} ${center + 8}
+            Q ${center} ${center - 18} ${center + 18} ${center + 8}
             `}
           fill="none"
           stroke={palette.accentTeal}
           strokeWidth={2}
           strokeLinecap="round"
-          strokeOpacity={0.8}
+          strokeOpacity={0.9}
         />
         <circle
           cx={center}
-          cy={center - 6}
+          cy={center - 4}
           r={4}
           fill={palette.accentTeal}
           stroke={palette.centerVoid}
