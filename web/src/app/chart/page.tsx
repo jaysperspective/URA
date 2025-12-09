@@ -14,65 +14,134 @@ type ChartResponse = {
 };
 
 export default function ChartPage() {
+  // Natal input state
+  const [birthDate, setBirthDate] = useState("1990-01-24"); // YYYY-MM-DD
+  const [birthTime, setBirthTime] = useState("01:39"); // HH:MM 24h
+  const [latitude, setLatitude] = useState("36.585");
+  const [longitude, setLongitude] = useState("-79.395");
+
+  // Transit date state (moves with controls)
+  const [transitDate, setTransitDate] = useState<Date>(() => new Date());
+
+  // Chart data state
   const [natalChartRes, setNatalChartRes] = useState<ChartResponse | null>(null);
   const [transitChartRes, setTransitChartRes] = useState<ChartResponse | null>(
     null
   );
-  const [loading, setLoading] = useState(true);
+  const [loadingNatal, setLoadingNatal] = useState(true);
+  const [loadingTransit, setLoadingTransit] = useState(true);
 
+  const loading = loadingNatal || loadingTransit;
+
+  // Helper: parse birth date/time
+  function parseBirth() {
+    const [yStr, mStr, dStr] = birthDate.split("-");
+    const [hStr, minStr] = birthTime.split(":");
+    const year = Number(yStr);
+    const month = Number(mStr);
+    const day = Number(dStr);
+    const hour = Number(hStr);
+    const minute = Number(minStr);
+    const lat = parseFloat(latitude);
+    const lon = parseFloat(longitude);
+
+    if (!year || !month || !day || Number.isNaN(lat) || Number.isNaN(lon)) {
+      return null;
+    }
+
+    return { year, month, day, hour: hour || 0, minute: minute || 0, lat, lon };
+  }
+
+  // Fetch natal chart whenever birth inputs change
   useEffect(() => {
-    async function loadCharts() {
-      setLoading(true);
+    const parsed = parseBirth();
+    if (!parsed) {
+      setNatalChartRes({
+        ok: false,
+        error: "Invalid birth data. Check date, time, latitude, and longitude.",
+      });
+      setLoadingNatal(false);
+      return;
+    }
+
+    async function loadNatal() {
+      setLoadingNatal(true);
       try {
-        const natalBody = {
-          year: 1990,
-          month: 1,
-          day: 24,
-          hour: 1,
-          minute: 39,
-          latitude: 36.585,
-          longitude: -79.395,
-        };
-
-        const now = new Date();
-        const transitBody = {
-          year: now.getUTCFullYear(),
-          month: now.getUTCMonth() + 1,
-          day: now.getUTCDate(),
-          hour: now.getUTCHours(),
-          minute: now.getUTCMinutes(),
-          latitude: 36.585, // same coords for now
-          longitude: -79.395,
-        };
-
-        const [natalRes, transitRes] = await Promise.all([
-          fetch("/api/chart", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(natalBody),
+        const res = await fetch("/api/chart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            year: parsed.year,
+            month: parsed.month,
+            day: parsed.day,
+            hour: parsed.hour,
+            minute: parsed.minute,
+            latitude: parsed.lat,
+            longitude: parsed.lon,
           }),
-          fetch("/api/chart", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(transitBody),
-          }),
-        ]);
+        });
 
-        const natalJson = await natalRes.json();
-        const transitJson = await transitRes.json();
-
-        setNatalChartRes(natalJson);
-        setTransitChartRes(transitJson);
+        const json = await res.json();
+        setNatalChartRes(json);
       } catch (e: any) {
-        setNatalChartRes({ ok: false, error: e.message || "Failed to load chart" });
-        setTransitChartRes({ ok: false, error: e.message || "Failed to load chart" });
+        setNatalChartRes({
+          ok: false,
+          error: e.message || "Failed to load natal chart",
+        });
       } finally {
-        setLoading(false);
+        setLoadingNatal(false);
       }
     }
 
-    loadCharts();
-  }, []);
+    loadNatal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [birthDate, birthTime, latitude, longitude]);
+
+  // Fetch transits whenever transitDate or location changes
+  useEffect(() => {
+    const parsed = parseBirth();
+    if (!parsed) {
+      setTransitChartRes({
+        ok: false,
+        error: "Invalid location for transit calculation.",
+      });
+      setLoadingTransit(false);
+      return;
+    }
+
+    async function loadTransits() {
+      setLoadingTransit(true);
+      try {
+        const d = transitDate;
+        const res = await fetch("/api/chart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            year: d.getUTCFullYear(),
+            month: d.getUTCMonth() + 1,
+            day: d.getUTCDate(),
+            hour: d.getUTCHours(),
+            minute: d.getUTCMinutes(),
+            latitude: parsed.lat,
+            longitude: parsed.lon,
+          }),
+        });
+
+        const json = await res.json();
+        setTransitChartRes(json);
+      } catch (e: any) {
+        setTransitChartRes({
+          ok: false,
+          error: e.message || "Failed to load transits",
+        });
+      } finally {
+        setLoadingTransit(false);
+      }
+    }
+
+    loadTransits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transitDate, latitude, longitude]);
 
   const natalChart =
     natalChartRes?.ok && natalChartRes.data ? natalChartRes.data : null;
@@ -102,6 +171,25 @@ export default function ChartPage() {
           )
       : [];
 
+  // Time control helpers
+  const shiftTransitDays = (delta: number) => {
+    setTransitDate((prev) => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + delta);
+      return d;
+    });
+  };
+
+  const shiftTransitMonths = (delta: number) => {
+    setTransitDate((prev) => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() + delta);
+      return d;
+    });
+  };
+
+  const transitDateLabel = transitDate.toISOString().slice(0, 10);
+
   return (
     <div
       style={{
@@ -119,11 +207,107 @@ export default function ChartPage() {
           maxWidth: 960,
           display: "flex",
           flexDirection: "column",
-          gap: 32,
+          gap: 24,
         }}
       >
-        {/* WHEEL – natal chart */}
-        <div style={{ display: "flex", justifyContent: "center" }}>
+        {/* NATAL INPUT BAR */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: "system-ui, sans-serif",
+            fontSize: 12,
+            color: "#EDE3CC",
+            background: "#222933",
+            padding: "10px 14px",
+            borderRadius: 999,
+          }}
+        >
+          <span style={{ opacity: 0.8 }}>Natal data:</span>
+
+          <label>
+            <span style={{ marginRight: 4, opacity: 0.7 }}>Date</span>
+            <input
+              type="date"
+              value={birthDate}
+              onChange={(e) => setBirthDate(e.target.value)}
+              style={{
+                background: "#1B1F24",
+                border: "1px solid #3a4550",
+                borderRadius: 6,
+                padding: "3px 6px",
+                color: "#EDE3CC",
+                fontSize: 12,
+              }}
+            />
+          </label>
+
+          <label>
+            <span style={{ marginRight: 4, opacity: 0.7 }}>Time</span>
+            <input
+              type="time"
+              value={birthTime}
+              onChange={(e) => setBirthTime(e.target.value)}
+              style={{
+                background: "#1B1F24",
+                border: "1px solid #3a4550",
+                borderRadius: 6,
+                padding: "3px 6px",
+                color: "#EDE3CC",
+                fontSize: 12,
+              }}
+            />
+          </label>
+
+          <label>
+            <span style={{ marginRight: 4, opacity: 0.7 }}>Lat</span>
+            <input
+              type="text"
+              value={latitude}
+              onChange={(e) => setLatitude(e.target.value)}
+              style={{
+                width: 80,
+                background: "#1B1F24",
+                border: "1px solid #3a4550",
+                borderRadius: 6,
+                padding: "3px 6px",
+                color: "#EDE3CC",
+                fontSize: 12,
+              }}
+            />
+          </label>
+
+          <label>
+            <span style={{ marginRight: 4, opacity: 0.7 }}>Lon</span>
+            <input
+              type="text"
+              value={longitude}
+              onChange={(e) => setLongitude(e.target.value)}
+              style={{
+                width: 80,
+                background: "#1B1F24",
+                border: "1px solid #3a4550",
+                borderRadius: 6,
+                padding: "3px 6px",
+                color: "#EDE3CC",
+                fontSize: 12,
+              }}
+            />
+          </label>
+        </div>
+
+        {/* WHEEL – bigger via scale */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            transform: "scale(1.2)",
+            transformOrigin: "top center",
+          }}
+        >
           {loading && (
             <div
               style={{
@@ -151,6 +335,60 @@ export default function ChartPage() {
               Error: {natalChartRes?.error || "Unknown error"}
             </div>
           )}
+        </div>
+
+        {/* TRANSIT CONTROLS */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 8,
+            fontFamily: "system-ui, sans-serif",
+            fontSize: 12,
+            color: "#EDE3CC",
+          }}
+        >
+          <span style={{ opacity: 0.8 }}>Transits for</span>
+          <span
+            style={{
+              padding: "3px 8px",
+              borderRadius: 999,
+              background: "#222933",
+              border: "1px solid #3a4550",
+            }}
+          >
+            {transitDateLabel}
+          </span>
+
+          <button
+            onClick={() => shiftTransitDays(-1)}
+            style={buttonStyle}
+            type="button"
+          >
+            −1 day
+          </button>
+          <button
+            onClick={() => shiftTransitDays(1)}
+            style={buttonStyle}
+            type="button"
+          >
+            +1 day
+          </button>
+          <button
+            onClick={() => shiftTransitMonths(-1)}
+            style={buttonStyle}
+            type="button"
+          >
+            −1 month
+          </button>
+          <button
+            onClick={() => shiftTransitMonths(1)}
+            style={buttonStyle}
+            type="button"
+          >
+            +1 month
+          </button>
         </div>
 
         {/* HORIZONTAL STRIP – natal (bottom) + transits (top) */}
@@ -197,7 +435,8 @@ export default function ChartPage() {
             >
               The upper wheel shows your natal analog–cosmic chart. The strip in
               the middle unwraps the zodiac into a straight line: natal planets
-              travel along the bottom, and today&apos;s sky moves along the top.
+              ride the bottom track, while today&apos;s sky (or any date you
+              choose) moves along the top.
             </p>
 
             <div
@@ -226,15 +465,15 @@ export default function ChartPage() {
 
               {transitChart && typeof transitChart.julianDay === "number" && (
                 <div style={{ marginTop: 10, opacity: 0.85 }}>
-                  <strong>Today&apos;s Julian Day:</strong>{" "}
+                  <strong>Transit Julian Day:</strong>{" "}
                   {transitChart.julianDay.toFixed(5)}
                 </div>
               )}
 
               <div style={{ marginTop: 12, opacity: 0.8 }}>
-                Next step is to add time controls (+1 day / +1 month) so you can
-                scrub the top row forward and backward while the natal layer
-                stays anchored.
+                From here, we can add aspect overlays, tap / hover to inspect
+                specific planets, and eventually hook this into the broader URA
+                reading engine.
               </div>
             </div>
           </div>
@@ -243,3 +482,14 @@ export default function ChartPage() {
     </div>
   );
 }
+
+// Small helper for control buttons
+const buttonStyle: React.CSSProperties = {
+  background: "transparent",
+  border: "1px solid #3a4550",
+  borderRadius: 999,
+  padding: "3px 10px",
+  color: "#EDE3CC",
+  fontSize: 11,
+  cursor: "pointer",
+};
