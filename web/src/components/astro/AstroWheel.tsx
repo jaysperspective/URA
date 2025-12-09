@@ -67,6 +67,7 @@ function arcPath(
   startDeg: number,
   endDeg: number
 ) {
+  const sweep = 1;
   const largeArc = endDeg - startDeg <= 180 ? 0 : 1;
 
   const outerStart = degreeToXY(startDeg, rOuter);
@@ -76,9 +77,9 @@ function arcPath(
 
   return [
     `M ${outerStart.x} ${outerStart.y}`,
-    `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${outerEnd.x} ${outerEnd.y}`,
+    `A ${rOuter} ${rOuter} 0 ${largeArc} ${sweep} ${outerEnd.x} ${outerEnd.y}`,
     `L ${innerEnd.x} ${innerEnd.y}`,
-    `A ${rInner} ${rInner} 0 ${largeArc} 0 ${innerStart.x} ${innerStart.y}`,
+    `A ${rInner} ${rInner} 0 ${largeArc} ${1 - sweep} ${innerStart.x} ${innerStart.y}`,
     "Z",
   ].join(" ");
 }
@@ -164,13 +165,31 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             <stop offset="100%" stopColor="#02060b" />
           </radialGradient>
 
-          {/* Papyrus-style texture for zodiac band */}
-          <filter id="papyrusTexture" x="0%" y="0%" width="100%" height="100%">
+          {/* higher-contrast shading for each zodiac slice */}
+          <radialGradient id="zodiacShade" cx="50%" cy="50%" r="75%">
+            <stop offset="0%" stopColor="#f5efe0" stopOpacity="0.85" />
+            <stop offset="55%" stopColor="#d3c5a5" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="#a89472" stopOpacity="1" />
+          </radialGradient>
+
+          {/* Clip mask for the whole zodiac band */}
+          <clipPath id="zodiacBandClip">
+            <path d={arcPath(radii.zodiacOuter, radii.zodiacInner, 0, 359.9)} />
+          </clipPath>
+
+          {/* Smooth papyrus texture to overlay across the whole band */}
+          <filter
+            id="papyrusTextureFull"
+            x="0%"
+            y="0%"
+            width="100%"
+            height="100%"
+          >
             <feTurbulence
               type="fractalNoise"
-              baseFrequency="0.7"
-              numOctaves={4}
-              seed={3}
+              baseFrequency="0.35"
+              numOctaves={3}
+              seed={8}
               result="noise"
             />
             <feColorMatrix
@@ -180,19 +199,12 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
                 1 0 0 0 0
                 0 0.9 0 0 0
                 0 0 0.8 0 0
-                0 0 0 0.35 0
+                0 0 0 0.25 0
               "
               result="papyrusTint"
             />
             <feBlend in="SourceGraphic" in2="papyrusTint" mode="multiply" />
           </filter>
-
-          {/* higher-contrast shading for each zodiac slice */}
-          <radialGradient id="zodiacShade" cx="50%" cy="50%" r="75%">
-            <stop offset="0%" stopColor="#f5efe0" stopOpacity="0.85" />
-            <stop offset="55%" stopColor="#d3c5a5" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="#a89472" stopOpacity="1" />
-          </radialGradient>
         </defs>
 
         {/* BACKDROP */}
@@ -281,7 +293,6 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
               <path
                 d={path}
                 fill="url(#zodiacShade)"
-                filter="url(#papyrusTexture)"
                 opacity={0.98}
                 stroke={isCardinal ? palette.outerRimHighlight : "#00000066"}
                 strokeWidth={isCardinal ? 1.4 : 0.6}
@@ -322,6 +333,19 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             </g>
           );
         })}
+
+        {/* Continuous papyrus texture over the whole zodiac band */}
+        <g clipPath="url(#zodiacBandClip)">
+          <rect
+            x={0}
+            y={0}
+            width={viewBoxSize}
+            height={viewBoxSize}
+            fill="#d2c7af"
+            filter="url(#papyrusTextureFull)"
+            opacity={0.24} // tweak for stronger/weaker texture
+          />
+        </g>
 
         {/* HOUSES – carved inner spokes */}
         {houses.map((deg, idx) => {
