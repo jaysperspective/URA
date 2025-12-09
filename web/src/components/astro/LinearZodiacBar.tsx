@@ -9,19 +9,20 @@ export type PlanetPos = {
   longitude: number; // 0–360° ecliptic longitude
 };
 
+// Unicode zodiac glyphs, in order Aries → Pisces
 const ZODIAC_SIGNS = [
-  "Aries",
-  "Taurus",
-  "Gemini",
-  "Cancer",
-  "Leo",
-  "Virgo",
-  "Libra",
-  "Scorpio",
-  "Sagittarius",
-  "Capricorn",
-  "Aquarius",
-  "Pisces",
+  { name: "Aries", glyph: "♈︎" },
+  { name: "Taurus", glyph: "♉︎" },
+  { name: "Gemini", glyph: "♊︎" },
+  { name: "Cancer", glyph: "♋︎" },
+  { name: "Leo", glyph: "♌︎" },
+  { name: "Virgo", glyph: "♍︎" },
+  { name: "Libra", glyph: "♎︎" },
+  { name: "Scorpio", glyph: "♏︎" },
+  { name: "Sagittarius", glyph: "♐︎" },
+  { name: "Capricorn", glyph: "♑︎" },
+  { name: "Aquarius", glyph: "♒︎" },
+  { name: "Pisces", glyph: "♓︎" },
 ];
 
 function normalizeToAsc(deg: number, ascDeg: number) {
@@ -74,7 +75,15 @@ export const LinearZodiacBar: React.FC<Props> = ({
     const y = row === "transit" ? 20 : height - 16;
 
     return (
-      <g key={`${row}-${p.name}`} transform={`translate(${x},${y})`}>
+      <g
+        key={`${row}-${p.name}`}
+        transform={`translate(${x},${y})`}
+        style={{ transition: "transform 0.35s ease-out" }}
+      >
+        <title>
+          {row === "transit" ? `Transit ${p.name}` : `Natal ${p.name}`} –{" "}
+          {normalized.toFixed(2)}°
+        </title>
         <circle
           r={5}
           className={row === "transit" ? "fill-yellow-300" : "fill-slate-200"}
@@ -103,7 +112,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
 
       {/* zodiac tiles */}
       {ZODIAC_SIGNS.map((sign, i) => (
-        <g key={sign}>
+        <g key={sign.name}>
           <rect
             x={i * signWidth}
             y={(height - barHeight) / 2}
@@ -115,9 +124,9 @@ export const LinearZodiacBar: React.FC<Props> = ({
             x={i * signWidth + signWidth / 2}
             y={height / 2 + 4}
             textAnchor="middle"
-            className="text-[11px] fill-slate-50"
+            className="text-[13px] fill-slate-50"
           >
-            {sign[0]}
+            {sign.glyph}
           </text>
         </g>
       ))}
