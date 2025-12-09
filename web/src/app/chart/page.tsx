@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { AstroWheel } from "@/components/astro/AstroWheel";
 import { LinearZodiacBar } from "@/components/astro/LinearZodiacBar";
 
@@ -64,6 +64,8 @@ export default function ChartPage() {
       return;
     }
 
+    const { year, month, day, hour, minute, lat, lon } = parsed;
+
     async function loadNatal() {
       setLoadingNatal(true);
       try {
@@ -71,13 +73,13 @@ export default function ChartPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            year: parsed.year,
-            month: parsed.month,
-            day: parsed.day,
-            hour: parsed.hour,
-            minute: parsed.minute,
-            latitude: parsed.lat,
-            longitude: parsed.lon,
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            latitude: lat,
+            longitude: lon,
           }),
         });
 
@@ -94,7 +96,6 @@ export default function ChartPage() {
     }
 
     loadNatal();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [birthDate, birthTime, latitude, longitude]);
 
   // Fetch transits whenever transitDate or location changes
@@ -109,6 +110,8 @@ export default function ChartPage() {
       return;
     }
 
+    const { lat, lon } = parsed;
+
     async function loadTransits() {
       setLoadingTransit(true);
       try {
@@ -122,8 +125,8 @@ export default function ChartPage() {
             day: d.getUTCDate(),
             hour: d.getUTCHours(),
             minute: d.getUTCMinutes(),
-            latitude: parsed.lat,
-            longitude: parsed.lon,
+            latitude: lat,
+            longitude: lon,
           }),
         });
 
@@ -140,8 +143,7 @@ export default function ChartPage() {
     }
 
     loadTransits();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transitDate, latitude, longitude]);
+  }, [transitDate, latitude, longitude, birthDate, birthTime]);
 
   const natalChart =
     natalChartRes?.ok && natalChartRes.data ? natalChartRes.data : null;
@@ -234,14 +236,7 @@ export default function ChartPage() {
               type="date"
               value={birthDate}
               onChange={(e) => setBirthDate(e.target.value)}
-              style={{
-                background: "#1B1F24",
-                border: "1px solid #3a4550",
-                borderRadius: 6,
-                padding: "3px 6px",
-                color: "#EDE3CC",
-                fontSize: 12,
-              }}
+              style={inputStyle}
             />
           </label>
 
@@ -251,14 +246,7 @@ export default function ChartPage() {
               type="time"
               value={birthTime}
               onChange={(e) => setBirthTime(e.target.value)}
-              style={{
-                background: "#1B1F24",
-                border: "1px solid #3a4550",
-                borderRadius: 6,
-                padding: "3px 6px",
-                color: "#EDE3CC",
-                fontSize: 12,
-              }}
+              style={inputStyle}
             />
           </label>
 
@@ -268,15 +256,7 @@ export default function ChartPage() {
               type="text"
               value={latitude}
               onChange={(e) => setLatitude(e.target.value)}
-              style={{
-                width: 80,
-                background: "#1B1F24",
-                border: "1px solid #3a4550",
-                borderRadius: 6,
-                padding: "3px 6px",
-                color: "#EDE3CC",
-                fontSize: 12,
-              }}
+              style={{ ...inputStyle, width: 80 }}
             />
           </label>
 
@@ -286,15 +266,7 @@ export default function ChartPage() {
               type="text"
               value={longitude}
               onChange={(e) => setLongitude(e.target.value)}
-              style={{
-                width: 80,
-                background: "#1B1F24",
-                border: "1px solid #3a4550",
-                borderRadius: 6,
-                padding: "3px 6px",
-                color: "#EDE3CC",
-                fontSize: 12,
-              }}
+              style={{ ...inputStyle, width: 80 }}
             />
           </label>
         </div>
@@ -483,8 +455,16 @@ export default function ChartPage() {
   );
 }
 
-// Small helper for control buttons
-const buttonStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
+  background: "#1B1F24",
+  border: "1px solid #3a4550",
+  borderRadius: 6,
+  padding: "3px 6px",
+  color: "#EDE3CC",
+  fontSize: 12,
+};
+
+const buttonStyle: CSSProperties = {
   background: "transparent",
   border: "1px solid #3a4550",
   borderRadius: 999,
