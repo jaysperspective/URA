@@ -2,11 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { AstroWheel } from "@/components/astro/AstroWheel";
+import {
+  LinearZodiacBar,
+  PlanetPos,
+} from "@/components/astro/LinearZodiacBar";
+
+type ChartData = {
+  julianDay: number;
+  ascendant: number;
+  mc: number;
+  planets: PlanetPos[]; // assuming /api/chart returns { name, longitude }[]
+};
 
 type ChartResponse = {
   ok: boolean;
   input?: any;
-  data?: any;
+  data?: ChartData;
   error?: string;
 };
 
@@ -44,6 +55,8 @@ export default function ChartPage() {
     loadChart();
   }, []);
 
+  const chart = chartRes?.ok && chartRes.data ? chartRes.data : null;
+
   return (
     <div
       style={{
@@ -64,39 +77,59 @@ export default function ChartPage() {
           gap: 24,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          {loading && (
-            <div
-              style={{
-                color: "#EDE3CC",
-                fontFamily: "system-ui, sans-serif",
-                fontSize: 14,
-                letterSpacing: 1,
-                textTransform: "uppercase",
-              }}
-            >
-              Calculating chart…
-            </div>
-          )}
+        {/* LEFT: Wheel + linear bar */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 32,
+          }}
+        >
+          {/* WHEEL AREA */}
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            {loading && (
+              <div
+                style={{
+                  color: "#EDE3CC",
+                  fontFamily: "system-ui, sans-serif",
+                  fontSize: 14,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                }}
+              >
+                Calculating chart…
+              </div>
+            )}
 
-          {!loading && chartRes?.ok && chartRes.data && (
-            <AstroWheel chart={chartRes.data} />
-          )}
+            {!loading && chart && <AstroWheel chart={chart} />}
 
-          {!loading && !chartRes?.ok && (
-            <div
-              style={{
-                color: "#FFB0B0",
-                fontFamily: "system-ui, sans-serif",
-                fontSize: 14,
-              }}
-            >
-              Error: {chartRes?.error || "Unknown error"}
+            {!loading && !chart && (
+              <div
+                style={{
+                  color: "#FFB0B0",
+                  fontFamily: "system-ui, sans-serif",
+                  fontSize: 14,
+                }}
+              >
+                Error: {chartRes?.error || "Unknown error"}
+              </div>
+            )}
+          </div>
+
+          {/* LINEAR SEASON STRIP */}
+          {chart && (
+            <div>
+              <LinearZodiacBar
+                ascDeg={chart.ascendant}
+                mcDeg={chart.mc}
+                natalPlanets={chart.planets || []}
+                // transitPlanets: later we'll pass a second set here
+              />
             </div>
           )}
         </div>
 
-        {/* Side panel – can become interpretation / controls later */}
+        {/* RIGHT: Info panel */}
         <div
           style={{
             background: "#243039",
@@ -125,12 +158,12 @@ export default function ChartPage() {
               color: "#D4C9B2",
             }}
           >
-            This is the first pass of the URA analog–cosmic wheel. The diagram
-            is driven by live data from the <code>/api/chart</code> engine and
-            is built in SVG so it can migrate cleanly to mobile.
+            The upper wheel shows the analog–cosmic chart. The strip below
+            unwraps the zodiac into a straight line so you can track planets
+            across seasons and angles, all aligned to your Ascendant.
           </p>
 
-          {chartRes?.ok && chartRes.data && (
+          {chart && (
             <div
               style={{
                 fontSize: 13,
@@ -139,17 +172,18 @@ export default function ChartPage() {
               }}
             >
               <div style={{ marginBottom: 8 }}>
-                <strong>Julian Day:</strong> {chartRes.data.julianDay.toFixed(5)}
+                <strong>Julian Day:</strong> {chart.julianDay.toFixed(5)}
               </div>
               <div style={{ marginBottom: 4 }}>
-                <strong>ASC:</strong> {chartRes.data.ascendant.toFixed(2)}°
+                <strong>ASC:</strong> {chart.ascendant.toFixed(2)}°
               </div>
               <div style={{ marginBottom: 4 }}>
-                <strong>MC:</strong> {chartRes.data.mc.toFixed(2)}°
+                <strong>MC:</strong> {chart.mc.toFixed(2)}°
               </div>
               <div style={{ marginTop: 12, opacity: 0.8 }}>
-                Houses are rendered as carved spokes, and the Sun / Moon appear
-                as luminous gems on the orbital track.
+                Next step is to add today&apos;s transits as a second row on
+                the strip, wire +1 day / +1 month controls, and have both the
+                wheel and bar animate together.
               </div>
             </div>
           )}
