@@ -2,22 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { AstroWheel } from "@/components/astro/AstroWheel";
-import {
-  LinearZodiacBar,
-  PlanetPos,
-} from "@/components/astro/LinearZodiacBar";
-
-type ChartData = {
-  julianDay: number;
-  ascendant: number;
-  mc: number;
-  planets: PlanetPos[]; // assuming /api/chart returns { name, longitude }[]
-};
+import { LinearZodiacBar } from "@/components/astro/LinearZodiacBar";
 
 type ChartResponse = {
   ok: boolean;
   input?: any;
-  data?: ChartData;
+  data?: any; // let this be whatever /api/chart returns
   error?: string;
 };
 
@@ -122,8 +112,9 @@ export default function ChartPage() {
               <LinearZodiacBar
                 ascDeg={chart.ascendant}
                 mcDeg={chart.mc}
+                // expects an array of { name, longitude }
                 natalPlanets={chart.planets || []}
-                // transitPlanets: later we'll pass a second set here
+                // transitPlanets will be wired later
               />
             </div>
           )}
@@ -171,15 +162,21 @@ export default function ChartPage() {
                 color: "#EDE3CC",
               }}
             >
-              <div style={{ marginBottom: 8 }}>
-                <strong>Julian Day:</strong> {chart.julianDay.toFixed(5)}
-              </div>
-              <div style={{ marginBottom: 4 }}>
-                <strong>ASC:</strong> {chart.ascendant.toFixed(2)}°
-              </div>
-              <div style={{ marginBottom: 4 }}>
-                <strong>MC:</strong> {chart.mc.toFixed(2)}°
-              </div>
+              {typeof chart.julianDay === "number" && (
+                <div style={{ marginBottom: 8 }}>
+                  <strong>Julian Day:</strong> {chart.julianDay.toFixed(5)}
+                </div>
+              )}
+              {typeof chart.ascendant === "number" && (
+                <div style={{ marginBottom: 4 }}>
+                  <strong>ASC:</strong> {chart.ascendant.toFixed(2)}°
+                </div>
+              )}
+              {typeof chart.mc === "number" && (
+                <div style={{ marginBottom: 4 }}>
+                  <strong>MC:</strong> {chart.mc.toFixed(2)}°
+                </div>
+              )}
               <div style={{ marginTop: 12, opacity: 0.8 }}>
                 Next step is to add today&apos;s transits as a second row on
                 the strip, wire +1 day / +1 month controls, and have both the
