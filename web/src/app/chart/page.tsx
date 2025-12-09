@@ -1,4 +1,4 @@
-// web/src/app/chart/page.tsx
+// src/app/chart/page.tsx
 
 "use client";
 
@@ -13,12 +13,27 @@ type ChartResponse = {
   error?: string;
 };
 
+type BirthConfig = {
+  date: string;   // YYYY-MM-DD
+  time: string;   // HH:MM
+  city: string;
+  state: string;
+};
+
 export default function ChartPage() {
-  // Natal input state
-  const [birthDate, setBirthDate] = useState("1990-01-24"); // YYYY-MM-DD
-  const [birthTime, setBirthTime] = useState("01:39"); // HH:MM 24h
-  const [latitude, setLatitude] = useState("36.585");
-  const [longitude, setLongitude] = useState("-79.395");
+  // Form state
+  const [birthDate, setBirthDate] = useState("1990-01-24");
+  const [birthTime, setBirthTime] = useState("01:39");
+  const [city, setCity] = useState("Danville");
+  const [stateRegion, setStateRegion] = useState("VA");
+
+  // Active config (what the chart is actually using)
+  const [birthConfig, setBirthConfig] = useState<BirthConfig>({
+    date: "1990-01-24",
+    time: "01:39",
+    city: "Danville",
+    state: "VA",
+  });
 
   // Transit date state (moves with controls)
   const [transitDate, setTransitDate] = useState<Date>(() => new Date());
@@ -33,32 +48,35 @@ export default function ChartPage() {
 
   const loading = loadingNatal || loadingTransit;
 
-  // Helper: parse birth date/time
-  function parseBirth() {
-    const [yStr, mStr, dStr] = birthDate.split("-");
-    const [hStr, minStr] = birthTime.split(":");
+  function parseBirth(config: BirthConfig | null) {
+    if (!config) return null;
+
+    const { date, time } = config;
+    const [yStr, mStr, dStr] = date.split("-");
+    const [hStr, minStr] = time.split(":");
+
     const year = Number(yStr);
     const month = Number(mStr);
     const day = Number(dStr);
     const hour = Number(hStr);
     const minute = Number(minStr);
-    const lat = parseFloat(latitude);
-    const lon = parseFloat(longitude);
 
-    if (!year || !month || !day || Number.isNaN(lat) || Number.isNaN(lon)) {
-      return null;
-    }
+    // For now we keep fixed birthplace coords; later we can map City/State → lat/lon.
+    const lat = 36.585;
+    const lon = -79.395;
+
+    if (!year || !month || !day) return null;
 
     return { year, month, day, hour: hour || 0, minute: minute || 0, lat, lon };
   }
 
-  // Fetch natal chart whenever birth inputs change
+  // Fetch natal chart when active birthConfig changes
   useEffect(() => {
-    const parsed = parseBirth();
+    const parsed = parseBirth(birthConfig);
     if (!parsed) {
       setNatalChartRes({
         ok: false,
-        error: "Invalid birth data. Check date, time, latitude, and longitude.",
+        error: "Invalid birth data. Check birth date and time.",
       });
       setLoadingNatal(false);
       return;
@@ -96,15 +114,15 @@ export default function ChartPage() {
     }
 
     loadNatal();
-  }, [birthDate, birthTime, latitude, longitude]);
+  }, [birthConfig]);
 
-  // Fetch transits whenever transitDate or location changes
+  // Fetch transits whenever transitDate or active config changes
   useEffect(() => {
-    const parsed = parseBirth();
+    const parsed = parseBirth(birthConfig);
     if (!parsed) {
       setTransitChartRes({
         ok: false,
-        error: "Invalid location for transit calculation.",
+        error: "Invalid data for transit calculation.",
       });
       setLoadingTransit(false);
       return;
@@ -143,7 +161,7 @@ export default function ChartPage() {
     }
 
     loadTransits();
-  }, [transitDate, latitude, longitude, birthDate, birthTime]);
+  }, [birthConfig, transitDate]);
 
   const natalChart =
     natalChartRes?.ok && natalChartRes.data ? natalChartRes.data : null;
@@ -192,6 +210,16 @@ export default function ChartPage() {
 
   const transitDateLabel = transitDate.toISOString().slice(0, 10);
 
+  // Handle "Generate chart" click
+  const handleGenerateChart = () => {
+    setBirthConfig({
+      date: birthDate,
+      time: birthTime,
+      city,
+      state: stateRegion,
+    });
+  };
+
   return (
     <div
       style={{
@@ -212,7 +240,7 @@ export default function ChartPage() {
           gap: 24,
         }}
       >
-        {/* NATAL INPUT BAR */}
+        {/* BIRTH INPUT BAR */}
         <div
           style={{
             display: "flex",
@@ -224,14 +252,14 @@ export default function ChartPage() {
             fontSize: 12,
             color: "#EDE3CC",
             background: "#222933",
-            padding: "10px 14px",
+            padding: "10px 16px",
             borderRadius: 999,
           }}
         >
-          <span style={{ opacity: 0.8 }}>Natal data:</span>
+          <span style={{ opacity: 0.8 }}>Birth data:</span>
 
           <label>
-            <span style={{ marginRight: 4, opacity: 0.7 }}>Date</span>
+            <span style={{ marginRight: 4, opacity: 0.7 }}>Birth date</span>
             <input
               type="date"
               value={birthDate}
@@ -251,24 +279,37 @@ export default function ChartPage() {
           </label>
 
           <label>
-            <span style={{ marginRight: 4, opacity: 0.7 }}>Lat</span>
+            <span style={{ marginRight: 4, opacity: 0.7 }}>City</span>
             <input
               type="text"
-              value={latitude}
-              onChange={(e) => setLatitude(e.target.value)}
-              style={{ ...inputStyle, width: 80 }}
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              style={{ ...inputStyle, width: 120 }}
             />
           </label>
 
           <label>
-            <span style={{ marginRight: 4, opacity: 0.7 }}>Lon</span>
+            <span style={{ marginRight: 4, opacity: 0.7 }}>State</span>
             <input
               type="text"
-              value={longitude}
-              onChange={(e) => setLongitude(e.target.value)}
-              style={{ ...inputStyle, width: 80 }}
+              value={stateRegion}
+              onChange={(e) => setStateRegion(e.target.value)}
+              style={{ ...inputStyle, width: 60 }}
             />
           </label>
+
+          <button
+            type="button"
+            onClick={handleGenerateChart}
+            style={{
+              ...buttonStyle,
+              paddingInline: 14,
+              fontSize: 12,
+              fontWeight: 500,
+            }}
+          >
+            Generate chart
+          </button>
         </div>
 
         {/* WHEEL – bigger via scale */}
@@ -309,9 +350,10 @@ export default function ChartPage() {
           )}
         </div>
 
-        {/* TRANSIT CONTROLS */}
+        {/* TRANSIT CONTROLS – extra spacing under wheel */}
         <div
           style={{
+            marginTop: 24,
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
@@ -363,9 +405,9 @@ export default function ChartPage() {
           </button>
         </div>
 
-        {/* HORIZONTAL STRIP – natal (bottom) + transits (top) */}
+        {/* HORIZONTAL STRIP – a little more space above */}
         {natalChart && (
-          <div>
+          <div style={{ marginTop: 8 }}>
             <LinearZodiacBar
               ascDeg={natalChart.ascendant}
               mcDeg={natalChart.mc}
