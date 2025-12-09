@@ -24,7 +24,7 @@ const palette = {
   bg: "#141417", // deep soot
   outerRimStone: "#7A5E43",
   outerRimHighlight: "#CBB89D",
-  zodiacRingLight: "#D9CFBA", // softer band
+  zodiacRingLight: "#D9CFBA",
   zodiacRingDark: "#3F3A32",
   houseLine: "#C2A463",
   planetSun: "#F9D77C",
@@ -61,7 +61,12 @@ function degreeToXY(deg: number, radius: number) {
   return { x, y };
 }
 
-function arcPath(rOuter: number, rInner: number, startDeg: number, endDeg: number) {
+function arcPath(
+  rOuter: number,
+  rInner: number,
+  startDeg: number,
+  endDeg: number
+) {
   const largeArc = endDeg - startDeg <= 180 ? 0 : 1;
 
   const outerStart = degreeToXY(startDeg, rOuter);
@@ -78,7 +83,7 @@ function arcPath(rOuter: number, rInner: number, startDeg: number, endDeg: numbe
   ].join(" ");
 }
 
-// standard order
+// standard zodiac order
 const zodiacGlyphs = [
   "♈︎", // Aries
   "♉︎", // Taurus
@@ -144,13 +149,6 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             <stop offset="100%" stopColor="#3C2C1E" />
           </linearGradient>
 
-          {/* zodiac wash gradient */}
-          <linearGradient id="zodiac-wash" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={palette.zodiacRingDark} />
-            <stop offset="50%" stopColor={palette.zodiacRingLight} />
-            <stop offset="100%" stopColor={palette.zodiacRingDark} />
-          </linearGradient>
-
           {/* Uranus teal accent ring */}
           <radialGradient id="uranus-accent" cx="50%" cy="50%" r="60%">
             <stop offset="0%" stopColor={`${palette.accentTeal}55`} />
@@ -164,6 +162,36 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             <stop offset="40%" stopColor="#102334" />
             <stop offset="75%" stopColor="#1b4d54" />
             <stop offset="100%" stopColor="#02060b" />
+          </radialGradient>
+
+          {/* Papyrus-style texture for zodiac band */}
+          <filter id="papyrusTexture" x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.7"
+              numOctaves={4}
+              seed={3}
+              result="noise"
+            />
+            <feColorMatrix
+              in="noise"
+              type="matrix"
+              values="
+                1 0 0 0 0
+                0 0.9 0 0 0
+                0 0 0.8 0 0
+                0 0 0 0.35 0
+              "
+              result="papyrusTint"
+            />
+            <feBlend in="SourceGraphic" in2="papyrusTint" mode="multiply" />
+          </filter>
+
+          {/* higher-contrast shading for each zodiac slice */}
+          <radialGradient id="zodiacShade" cx="50%" cy="50%" r="75%">
+            <stop offset="0%" stopColor="#f5efe0" stopOpacity="0.85" />
+            <stop offset="55%" stopColor="#d3c5a5" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="#a89472" stopOpacity="1" />
           </radialGradient>
         </defs>
 
@@ -252,8 +280,9 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
             <g key={`zodiac-${i}`}>
               <path
                 d={path}
-                fill="url(#zodiac-wash)"
-                opacity={0.9}
+                fill="url(#zodiacShade)"
+                filter="url(#papyrusTexture)"
+                opacity={0.98}
                 stroke={isCardinal ? palette.outerRimHighlight : "#00000066"}
                 strokeWidth={isCardinal ? 1.4 : 0.6}
               />
