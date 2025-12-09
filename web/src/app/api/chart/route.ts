@@ -1,8 +1,6 @@
 import { NextResponse, NextRequest } from "next/server";
 
 // Simple in-memory rate limiter
-// NOTE: This is per-process and resets on server restart.
-// For real production hardening, we’ll back this with Nginx + Fail2ban.
 const RATE_WINDOW_MS = 5000; // 5 seconds
 const RATE_MAX_REQUESTS = 20;
 
@@ -28,7 +26,6 @@ function checkRateLimit(identifier: string): {
   const elapsed = now - existing.windowStart;
 
   if (elapsed > RATE_WINDOW_MS) {
-    // reset window
     rateStore.set(identifier, { count: 1, windowStart: now });
     return { allowed: true, retryAfterMs: 0 };
   }
@@ -45,7 +42,7 @@ function checkRateLimit(identifier: string): {
 
 export async function POST(request: NextRequest) {
   try {
-    // Derive an IP-like identifier from headers only
+    // IP-ish identifier from headers
     const forwardedFor = request.headers.get("x-forwarded-for");
     const realIp = request.headers.get("x-real-ip");
 
@@ -87,13 +84,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: errText }, { status: 500 });
     }
 
-    const data = await astroRes.json();
+    const upstream = await astroRes.json();
 
-    // Mirror what your frontend expects: { ok, data }
+    // 🔑 Flatten once: if upstream has a .data, use that; otherwise use upstream itself
+    const chartData = (upstream as any).data ?? upstream;
+
     return NextResponse.json({
       ok: true,
       input: body,
-      data,
+      data: chartData,
     });
   } catch (err: any) {
     console.error("Chart API error:", err);
