@@ -14,20 +14,20 @@ type ChartResponse = {
 };
 
 type BirthConfig = {
-  date: string;   // YYYY-MM-DD
-  time: string;   // HH:MM
+  date: string;
+  time: string;
   city: string;
   state: string;
 };
 
 export default function ChartPage() {
-  // Form state
+  // Visible input UI
   const [birthDate, setBirthDate] = useState("1990-01-24");
   const [birthTime, setBirthTime] = useState("01:39");
   const [city, setCity] = useState("Danville");
   const [stateRegion, setStateRegion] = useState("VA");
 
-  // Active config (what the chart is actually using)
+  // Active config (applied when user clicks Generate chart)
   const [birthConfig, setBirthConfig] = useState<BirthConfig>({
     date: "1990-01-24",
     time: "01:39",
@@ -35,25 +35,24 @@ export default function ChartPage() {
     state: "VA",
   });
 
-  // Transit date state (moves with controls)
+  // Transit date (moves with controls)
   const [transitDate, setTransitDate] = useState<Date>(() => new Date());
 
-  // Chart data state
+  // Chart states
   const [natalChartRes, setNatalChartRes] = useState<ChartResponse | null>(null);
-  const [transitChartRes, setTransitChartRes] = useState<ChartResponse | null>(
-    null
-  );
+  const [transitChartRes, setTransitChartRes] = useState<ChartResponse | null>(null);
+
   const [loadingNatal, setLoadingNatal] = useState(true);
   const [loadingTransit, setLoadingTransit] = useState(true);
 
   const loading = loadingNatal || loadingTransit;
 
+  // Convert birth config into usable numbers
   function parseBirth(config: BirthConfig | null) {
     if (!config) return null;
 
-    const { date, time } = config;
-    const [yStr, mStr, dStr] = date.split("-");
-    const [hStr, minStr] = time.split(":");
+    const [yStr, mStr, dStr] = config.date.split("-");
+    const [hStr, minStr] = config.time.split(":");
 
     const year = Number(yStr);
     const month = Number(mStr);
@@ -61,23 +60,20 @@ export default function ChartPage() {
     const hour = Number(hStr);
     const minute = Number(minStr);
 
-    // For now: fixed coords for birthplace (Danville, VA).
+    // TEMP — mapping City/State → coords comes later
     const lat = 36.585;
     const lon = -79.395;
 
     if (!year || !month || !day) return null;
 
-    return { year, month, day, hour: hour || 0, minute: minute || 0, lat, lon };
+    return { year, month, day, hour, minute, lat, lon };
   }
 
-  // Fetch natal chart when active birthConfig changes
+  // Fetch NATAL DATA
   useEffect(() => {
     const parsed = parseBirth(birthConfig);
     if (!parsed) {
-      setNatalChartRes({
-        ok: false,
-        error: "Invalid birth data. Check birth date and time.",
-      });
+      setNatalChartRes({ ok: false, error: "Invalid birth data." });
       setLoadingNatal(false);
       return;
     }
@@ -104,10 +100,7 @@ export default function ChartPage() {
         const json = await res.json();
         setNatalChartRes(json);
       } catch (e: any) {
-        setNatalChartRes({
-          ok: false,
-          error: e.message || "Failed to load natal chart",
-        });
+        setNatalChartRes({ ok: false, error: e.message });
       } finally {
         setLoadingNatal(false);
       }
@@ -116,14 +109,11 @@ export default function ChartPage() {
     loadNatal();
   }, [birthConfig]);
 
-  // Fetch transits whenever transitDate or active config changes
+  // Fetch TRANSIT DATA
   useEffect(() => {
     const parsed = parseBirth(birthConfig);
     if (!parsed) {
-      setTransitChartRes({
-        ok: false,
-        error: "Invalid data for transit calculation.",
-      });
+      setTransitChartRes({ ok: false, error: "Invalid birth data." });
       setLoadingTransit(false);
       return;
     }
@@ -134,6 +124,7 @@ export default function ChartPage() {
       setLoadingTransit(true);
       try {
         const d = transitDate;
+
         const res = await fetch("/api/chart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -151,10 +142,7 @@ export default function ChartPage() {
         const json = await res.json();
         setTransitChartRes(json);
       } catch (e: any) {
-        setTransitChartRes({
-          ok: false,
-          error: e.message || "Failed to load transits",
-        });
+        setTransitChartRes({ ok: false, error: e.message });
       } finally {
         setLoadingTransit(false);
       }
@@ -165,33 +153,28 @@ export default function ChartPage() {
 
   const natalChart =
     natalChartRes?.ok && natalChartRes.data ? natalChartRes.data : null;
+
   const transitChart =
     transitChartRes?.ok && transitChartRes.data ? transitChartRes.data : null;
 
-  // Map planets into arrays for the strip
+  // Prepare planets for strip
   const natalPlanetsForStrip =
-    natalChart && natalChart.planets
-      ? Array.isArray(natalChart.planets)
-        ? natalChart.planets
-        : Object.entries(natalChart.planets).map(([name, p]: [string, any]) => ({
-            name,
-            longitude: p.longitude ?? p.lon ?? p.lng ?? 0,
-          }))
+    natalChart?.planets
+      ? Object.entries(natalChart.planets).map(([name, p]: [string, any]) => ({
+          name,
+          longitude: p.longitude ?? p.lon ?? p.lng ?? 0,
+        }))
       : [];
 
   const transitPlanetsForStrip =
-    transitChart && transitChart.planets
-      ? Array.isArray(transitChart.planets)
-        ? transitChart.planets
-        : Object.entries(transitChart.planets).map(
-            ([name, p]: [string, any]) => ({
-              name,
-              longitude: p.longitude ?? p.lon ?? p.lng ?? 0,
-            })
-          )
+    transitChart?.planets
+      ? Object.entries(transitChart.planets).map(([name, p]: [string, any]) => ({
+          name,
+          longitude: p.longitude ?? p.lon ?? p.lng ?? 0,
+        }))
       : [];
 
-  // Time control helpers
+  // Transit time controls
   const shiftTransitDays = (delta: number) => {
     setTransitDate((prev) => {
       const d = new Date(prev);
@@ -210,7 +193,7 @@ export default function ChartPage() {
 
   const transitDateLabel = transitDate.toISOString().slice(0, 10);
 
-  // Handle "Generate chart" click
+  // Generate chart
   const handleGenerateChart = () => {
     setBirthConfig({
       date: birthDate,
@@ -225,41 +208,35 @@ export default function ChartPage() {
       style={{
         minHeight: "100vh",
         background: "#1B1F24",
+        padding: "24px 12px",
         display: "flex",
         justifyContent: "center",
-        alignItems: "center",
-        padding: "24px 12px",
       }}
     >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 960,
-          display: "flex",
-          flexDirection: "column",
-          gap: 24,
-        }}
-      >
-        {/* BIRTH INPUT BAR */}
+      <div style={{ width: "100%", maxWidth: 960, display: "flex", flexDirection: "column", gap: 32 }}>
+        
+        {/* ————————————————————————————————
+            BIRTH INPUT BAR
+        ———————————————————————————————— */}
         <div
           style={{
             display: "flex",
             flexWrap: "wrap",
             gap: 12,
-            alignItems: "center",
             justifyContent: "center",
-            fontFamily: "system-ui, sans-serif",
-            fontSize: 12,
-            color: "#EDE3CC",
+            alignItems: "center",
             background: "#222933",
             padding: "10px 16px",
             borderRadius: 999,
+            fontFamily: "system-ui",
+            fontSize: 12,
+            color: "#EDE3CC",
           }}
         >
           <span style={{ opacity: 0.8 }}>Birth data:</span>
 
           <label>
-            <span style={{ marginRight: 4, opacity: 0.7 }}>Birth date</span>
+            Birth date{" "}
             <input
               type="date"
               value={birthDate}
@@ -269,7 +246,7 @@ export default function ChartPage() {
           </label>
 
           <label>
-            <span style={{ marginRight: 4, opacity: 0.7 }}>Time</span>
+            Time{" "}
             <input
               type="time"
               value={birthTime}
@@ -279,7 +256,7 @@ export default function ChartPage() {
           </label>
 
           <label>
-            <span style={{ marginRight: 4, opacity: 0.7 }}>City</span>
+            City{" "}
             <input
               type="text"
               value={city}
@@ -289,7 +266,7 @@ export default function ChartPage() {
           </label>
 
           <label>
-            <span style={{ marginRight: 4, opacity: 0.7 }}>State</span>
+            State{" "}
             <input
               type="text"
               value={stateRegion}
@@ -301,77 +278,49 @@ export default function ChartPage() {
           <button
             type="button"
             onClick={handleGenerateChart}
-            style={{
-              ...buttonStyle,
-              paddingInline: 14,
-              fontSize: 12,
-              fontWeight: 500,
-            }}
+            style={{ ...buttonStyle, paddingInline: 14 }}
           >
             Generate chart
           </button>
         </div>
 
-        {/* WHEEL – bigger via scale */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            transform: "scale(1.2)",
-            transformOrigin: "top center",
-          }}
-        >
-          {loading && (
-            <div
-              style={{
-                color: "#EDE3CC",
-                fontFamily: "system-ui, sans-serif",
-                fontSize: 14,
-                letterSpacing: 1,
-                textTransform: "uppercase",
-              }}
-            >
-              Calculating chart…
-            </div>
-          )}
+        {/* ————————————————————————————————
+            WHEEL (WITH SPACING FIX)
+        ———————————————————————————————— */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 80 }}>
+          <div style={{ transform: "scale(1.2)", transformOrigin: "top center" }}>
+            {loading && (
+              <div style={{ color: "#EDE3CC", textTransform: "uppercase" }}>
+                Calculating chart…
+              </div>
+            )}
 
-          {!loading && natalChart && <AstroWheel chart={natalChart} />}
+            {!loading && natalChart && <AstroWheel chart={natalChart} />}
 
-          {!loading && !natalChart && (
-            <div
-              style={{
-                color: "#FFB0B0",
-                fontFamily: "system-ui, sans-serif",
-                fontSize: 14,
-              }}
-            >
-              Error: {natalChartRes?.error || "Unknown error"}
-            </div>
-          )}
+            {!loading && !natalChart && (
+              <div style={{ color: "#FFB0B0" }}>
+                Error: {natalChartRes?.error}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* TRANSIT CONTROLS + STRIP (grouped together, with extra spacing) */}
+        {/* ————————————————————————————————
+            TRANSIT CONTROLS + STRIP
+        ———————————————————————————————— */}
         {natalChart && (
-          <div
-            style={{
-              marginTop: 32,
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-              alignItems: "center",
-            }}
-          >
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                fontFamily: "system-ui, sans-serif",
-                fontSize: 12,
+                fontFamily: "system-ui",
                 color: "#EDE3CC",
+                fontSize: 12,
               }}
             >
-              <span style={{ opacity: 0.8 }}>Transits for</span>
+              Transits for{" "}
               <span
                 style={{
                   padding: "3px 8px",
@@ -383,32 +332,16 @@ export default function ChartPage() {
                 {transitDateLabel}
               </span>
 
-              <button
-                onClick={() => shiftTransitDays(-1)}
-                style={buttonStyle}
-                type="button"
-              >
+              <button onClick={() => shiftTransitDays(-1)} style={buttonStyle}>
                 −1 day
               </button>
-              <button
-                onClick={() => shiftTransitDays(1)}
-                style={buttonStyle}
-                type="button"
-              >
+              <button onClick={() => shiftTransitDays(1)} style={buttonStyle}>
                 +1 day
               </button>
-              <button
-                onClick={() => shiftTransitMonths(-1)}
-                style={buttonStyle}
-                type="button"
-              >
+              <button onClick={() => shiftTransitMonths(-1)} style={buttonStyle}>
                 −1 month
               </button>
-              <button
-                onClick={() => shiftTransitMonths(1)}
-                style={buttonStyle}
-                type="button"
-              >
+              <button onClick={() => shiftTransitMonths(1)} style={buttonStyle}>
                 +1 month
               </button>
             </div>
@@ -424,7 +357,9 @@ export default function ChartPage() {
           </div>
         )}
 
-        {/* INFO CARD UNDER EVERYTHING */}
+        {/* ————————————————————————————————
+            INFORMATION CARD
+        ———————————————————————————————— */}
         {natalChart && (
           <div
             style={{
@@ -433,69 +368,38 @@ export default function ChartPage() {
               padding: 20,
               boxShadow: "0 12px 30px rgba(0,0,0,0.5)",
               color: "#F1E9D2",
-              fontFamily: "system-ui, sans-serif",
+              fontFamily: "system-ui",
             }}
           >
-            <h1
-              style={{
-                margin: 0,
-                marginBottom: 8,
-                fontSize: 22,
-                letterSpacing: 1,
-              }}
-            >
+            <h1 style={{ margin: 0, marginBottom: 8, fontSize: 22 }}>
               Natal Chart Prototype
             </h1>
-            <p
-              style={{
-                marginTop: 4,
-                marginBottom: 16,
-                fontSize: 14,
-                color: "#D4C9B2",
-              }}
-            >
-              The upper wheel shows your natal analog–cosmic chart. The strip in
-              the middle unwraps the zodiac into a straight line: natal planets
-              ride the bottom track, while today&apos;s sky (or any date you
-              choose) moves along the top.
+            <p style={{ opacity: 0.8 }}>
+              This analog-cosmic wheel is powered by the URA astro engine. The
+              strip unwraps the zodiac, showing natal planets on the bottom row
+              and transits on the top.
             </p>
 
-            <div
-              style={{
-                fontSize: 13,
-                lineHeight: 1.5,
-                color: "#EDE3CC",
-              }}
-            >
-              {typeof natalChart.julianDay === "number" && (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Natal Julian Day:</strong>{" "}
-                  {natalChart.julianDay.toFixed(5)}
-                </div>
-              )}
-              {typeof natalChart.ascendant === "number" && (
-                <div style={{ marginBottom: 4 }}>
-                  <strong>ASC:</strong> {natalChart.ascendant.toFixed(2)}°
-                </div>
-              )}
-              {typeof natalChart.mc === "number" && (
-                <div style={{ marginBottom: 4 }}>
-                  <strong>MC:</strong> {natalChart.mc.toFixed(2)}°
-                </div>
-              )}
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+              <div>
+                <strong>Natal Julian Day:</strong>{" "}
+                {natalChart.julianDay.toFixed(5)}
+              </div>
 
-              {transitChart && typeof transitChart.julianDay === "number" && (
-                <div style={{ marginTop: 10, opacity: 0.85 }}>
-                  <strong>Transit Julian Day:</strong>{" "}
+              <div>
+                <strong>ASC:</strong> {natalChart.ascendant.toFixed(2)}°
+              </div>
+
+              <div>
+                <strong>MC:</strong> {natalChart.mc.toFixed(2)}°
+              </div>
+
+              {transitChart && (
+                <div style={{ marginTop: 10 }}>
+                  <strong>Transit JD:</strong>{" "}
                   {transitChart.julianDay.toFixed(5)}
                 </div>
               )}
-
-              <div style={{ marginTop: 12, opacity: 0.8 }}>
-                From here, we can add aspect overlays, tap / hover to inspect
-                specific planets, and eventually hook this into the broader URA
-                reading engine.
-              </div>
             </div>
           </div>
         )}
