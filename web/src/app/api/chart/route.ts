@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import rateLimit from "express-rate-limit";
+
+export const POST = rateLimit({
+  windowMs: 5000,   // 5 seconds
+  max: 20,          // 20 requests max
+  message: "Too many requests. Slow down."
+});
 
 export async function POST(request: Request) {
   try {
