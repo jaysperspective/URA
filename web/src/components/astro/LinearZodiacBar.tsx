@@ -2,14 +2,24 @@
 
 import React from "react";
 
-type PlanetPos = {
+export type PlanetPos = {
   name: string;
-  longitude: number; // 0–360°
+  longitude: number; // 0–360° ecliptic longitude
 };
 
 const ZODIAC_SIGNS = [
-  "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-  "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+  "Aries",
+  "Taurus",
+  "Gemini",
+  "Cancer",
+  "Leo",
+  "Virgo",
+  "Libra",
+  "Scorpio",
+  "Sagittarius",
+  "Capricorn",
+  "Aquarius",
+  "Pisces",
 ];
 
 function normalizeToAsc(deg: number, ascDeg: number) {
@@ -24,7 +34,7 @@ type Props = {
   ascDeg: number;
   mcDeg: number;
   natalPlanets: PlanetPos[];
-  transitPlanets?: PlanetPos[]; // optional for now
+  transitPlanets?: PlanetPos[]; // we'll use this later for live transits
   width?: number;
   height?: number;
 };
@@ -40,6 +50,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
   const barHeight = 40;
   const viewBox = `0 0 ${width} ${height}`;
 
+  // derived axes when ASC is normalized to 0°
   const axisXs = {
     ASC: degToX(0, width),
     IC: degToX(90, width),
@@ -50,7 +61,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
   const seasons = [
     { label: "SPRING", start: 0, end: 90 },
     { label: "SUMMER", start: 90, end: 180 },
-    { label: "FALL",   start: 180, end: 270 },
+    { label: "FALL", start: 180, end: 270 },
     { label: "WINTER", start: 270, end: 360 },
   ];
 
@@ -72,7 +83,8 @@ export const LinearZodiacBar: React.FC<Props> = ({
           textAnchor="middle"
           className="text-[7px] fill-slate-100 tracking-[0.15em]"
         >
-          {p.name[0]} {/* swap for glyph later */}
+          {/* placeholder: first letter; later we can swap to true glyphs */}
+          {p.name[0]}
         </text>
       </g>
     );
@@ -80,7 +92,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
 
   return (
     <svg viewBox={viewBox} className="w-full">
-      {/* bar background */}
+      {/* base bar */}
       <rect
         x={0}
         y={(height - barHeight) / 2}
@@ -105,12 +117,13 @@ export const LinearZodiacBar: React.FC<Props> = ({
             textAnchor="middle"
             className="text-[11px] fill-slate-50"
           >
-            {sign[0]} {/* placeholder for sign glyph */}
+            {/* placeholder – swap to sign glyph later */}
+            {sign[0]}
           </text>
         </g>
       ))}
 
-      {/* degree ticks (30° major, 10° minor) */}
+      {/* 360° ticks (major at 30°, minor at 10°) */}
       {Array.from({ length: 360 }).map((_, i) => {
         const isMajor = i % 30 === 0;
         const isMid = i % 10 === 0;
@@ -131,7 +144,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
         );
       })}
 
-      {/* cardinal axes + labels ASC / IC / DSC / MC */}
+      {/* ASC / IC / DSC / MC axes */}
       {Object.entries(axisXs).map(([label, x]) => (
         <g key={label}>
           <line
@@ -152,7 +165,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
         </g>
       ))}
 
-      {/* seasons (Spring / Summer / Fall / Winter) */}
+      {/* Seasons: Spring / Summer / Fall / Winter */}
       {seasons.map((s) => {
         const midDeg = (s.start + s.end) / 2;
         const midX = degToX(midDeg, width);
@@ -173,7 +186,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
       {transitPlanets.map((p) => renderPlanet(p, "transit"))}
       {natalPlanets.map((p) => renderPlanet(p, "natal"))}
 
-      {/* small captions like in your mock */}
+      {/* captions like your blueprint */}
       <text
         x={width - 4}
         y={(height - barHeight) / 2 - 3}
