@@ -7,7 +7,7 @@ import { LinearZodiacBar } from "@/components/astro/LinearZodiacBar";
 type ChartResponse = {
   ok: boolean;
   input?: any;
-  data?: any; // let this be whatever /api/chart returns
+  data?: any; // whatever /api/chart returns after flattening
   error?: string;
 };
 
@@ -46,6 +46,17 @@ export default function ChartPage() {
   }, []);
 
   const chart = chartRes?.ok && chartRes.data ? chartRes.data : null;
+
+  // Map whatever shape `chart.planets` has into an array for the strip
+  const natalPlanetsForStrip =
+    chart && chart.planets
+      ? Array.isArray(chart.planets)
+        ? chart.planets
+        : Object.entries(chart.planets).map(([name, p]: [string, any]) => ({
+            name,
+            longitude: p.longitude ?? p.lon ?? p.lng ?? 0,
+          }))
+      : [];
 
   return (
     <div
@@ -112,9 +123,8 @@ export default function ChartPage() {
               <LinearZodiacBar
                 ascDeg={chart.ascendant}
                 mcDeg={chart.mc}
-                // expects an array of { name, longitude }
-                natalPlanets={chart.planets || []}
-                // transitPlanets will be wired later
+                natalPlanets={natalPlanetsForStrip}
+                // transitPlanets will be wired when we add a live transit fetch
               />
             </div>
           )}
