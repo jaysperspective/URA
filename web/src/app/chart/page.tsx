@@ -1,3 +1,5 @@
+// web/src/app/chart/page.tsx
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -73,98 +75,89 @@ export default function ChartPage() {
         style={{
           width: "100%",
           maxWidth: 960,
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
-          gap: 24,
+          display: "flex",
+          flexDirection: "column",
+          gap: 32,
         }}
       >
-        {/* LEFT: Wheel + linear bar */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 32,
-          }}
-        >
-          {/* WHEEL AREA */}
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            {loading && (
-              <div
-                style={{
-                  color: "#EDE3CC",
-                  fontFamily: "system-ui, sans-serif",
-                  fontSize: 14,
-                  letterSpacing: 1,
-                  textTransform: "uppercase",
-                }}
-              >
-                Calculating chart…
-              </div>
-            )}
+        {/* WHEEL */}
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          {loading && (
+            <div
+              style={{
+                color: "#EDE3CC",
+                fontFamily: "system-ui, sans-serif",
+                fontSize: 14,
+                letterSpacing: 1,
+                textTransform: "uppercase",
+              }}
+            >
+              Calculating chart…
+            </div>
+          )}
 
-            {!loading && chart && <AstroWheel chart={chart} />}
+          {!loading && chart && <AstroWheel chart={chart} />}
 
-            {!loading && !chart && (
-              <div
-                style={{
-                  color: "#FFB0B0",
-                  fontFamily: "system-ui, sans-serif",
-                  fontSize: 14,
-                }}
-              >
-                Error: {chartRes?.error || "Unknown error"}
-              </div>
-            )}
-          </div>
-
-          {/* LINEAR SEASON STRIP */}
-          {chart && (
-            <div>
-              <LinearZodiacBar
-                ascDeg={chart.ascendant}
-                mcDeg={chart.mc}
-                natalPlanets={natalPlanetsForStrip}
-                // transitPlanets will be wired when we add a live transit fetch
-              />
+          {!loading && !chart && (
+            <div
+              style={{
+                color: "#FFB0B0",
+                fontFamily: "system-ui, sans-serif",
+                fontSize: 14,
+              }}
+            >
+              Error: {chartRes?.error || "Unknown error"}
             </div>
           )}
         </div>
 
-        {/* RIGHT: Info panel */}
-        <div
-          style={{
-            background: "#243039",
-            borderRadius: 20,
-            padding: 20,
-            boxShadow: "0 12px 30px rgba(0,0,0,0.5)",
-            color: "#F1E9D2",
-            fontFamily: "system-ui, sans-serif",
-          }}
-        >
-          <h1
-            style={{
-              margin: 0,
-              marginBottom: 8,
-              fontSize: 22,
-              letterSpacing: 1,
-            }}
-          >
-            Natal Chart Prototype
-          </h1>
-          <p
-            style={{
-              marginTop: 4,
-              marginBottom: 16,
-              fontSize: 14,
-              color: "#D4C9B2",
-            }}
-          >
-            The upper wheel shows the analog–cosmic chart. The strip below
-            unwraps the zodiac into a straight line so you can track planets
-            across seasons and angles, all aligned to your Ascendant.
-          </p>
+        {/* HORIZONTAL STRIP */}
+        {chart && (
+          <div>
+            <LinearZodiacBar
+              ascDeg={chart.ascendant}
+              mcDeg={chart.mc}
+              natalPlanets={natalPlanetsForStrip}
+              // transitPlanets will be wired when we add a live transit fetch
+            />
+          </div>
+        )}
 
-          {chart && (
+        {/* INFO CARD UNDER EVERYTHING */}
+        {chart && (
+          <div
+            style={{
+              background: "#243039",
+              borderRadius: 20,
+              padding: 20,
+              boxShadow: "0 12px 30px rgba(0,0,0,0.5)",
+              color: "#F1E9D2",
+              fontFamily: "system-ui, sans-serif",
+            }}
+          >
+            <h1
+              style={{
+                margin: 0,
+                marginBottom: 8,
+                fontSize: 22,
+                letterSpacing: 1,
+              }}
+            >
+              Natal Chart Prototype
+            </h1>
+            <p
+              style={{
+                marginTop: 4,
+                marginBottom: 16,
+                fontSize: 14,
+                color: "#D4C9B2",
+              }}
+            >
+              The upper wheel shows the analog–cosmic chart. The strip in the
+              middle unwraps the zodiac into a straight line so you can track
+              planets across seasons and angles, all aligned to your Ascendant.
+            </p>
+
             <div
               style={{
                 fontSize: 13,
@@ -193,8 +186,8 @@ export default function ChartPage() {
                 wheel and bar animate together.
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
