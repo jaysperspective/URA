@@ -1,4 +1,5 @@
 // web/src/components/astro/LinearZodiacBar.tsx
+
 "use client";
 
 import React from "react";
@@ -35,7 +36,7 @@ type Props = {
   ascDeg: number;
   mcDeg: number;
   natalPlanets: PlanetPos[];
-  transitPlanets?: PlanetPos[]; // top row – current planets
+  transitPlanets?: PlanetPos[];
   width?: number;
   height?: number;
 };
@@ -83,7 +84,6 @@ export const LinearZodiacBar: React.FC<Props> = ({
           textAnchor="middle"
           className="text-[7px] fill-slate-100 tracking-[0.15em]"
         >
-          {/* placeholder initial; later swap for glyphs */}
           {p.name[0]}
         </text>
       </g>
@@ -117,7 +117,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
             textAnchor="middle"
             className="text-[11px] fill-slate-50"
           >
-            {sign[0]} {/* placeholder */}
+            {sign[0]}
           </text>
         </g>
       ))}
@@ -162,9 +162,9 @@ export const LinearZodiacBar: React.FC<Props> = ({
             {label}
           </text>
         </g>
-      })}
+      ))}
 
-      {/* Seasons: Spring / Summer / Fall / Winter */}
+      {/* Seasons */}
       {seasons.map((s) => {
         const midDeg = (s.start + s.end) / 2;
         const midX = degToX(midDeg, width);
