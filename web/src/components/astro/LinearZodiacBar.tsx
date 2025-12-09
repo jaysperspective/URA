@@ -1,4 +1,4 @@
-// web/src/components/astro/LinearZodiacBar.tsx
+// src/components/astro/LinearZodiacBar.tsx
 
 "use client";
 
@@ -9,7 +9,6 @@ export type PlanetPos = {
   longitude: number; // 0–360° ecliptic longitude
 };
 
-// Unicode zodiac glyphs, in order Aries → Pisces
 const ZODIAC_SIGNS = [
   { name: "Aries", glyph: "♈︎" },
   { name: "Taurus", glyph: "♉︎" },
@@ -74,6 +73,16 @@ export const LinearZodiacBar: React.FC<Props> = ({
     const x = degToX(normalized, width);
     const y = row === "transit" ? 20 : height - 16;
 
+    const nameLower = p.name.toLowerCase();
+    const isMoon = nameLower === "moon";
+    const isSun = nameLower === "sun";
+
+    const circleFill = isSun
+      ? "#facc15" // yellow sun
+      : row === "transit"
+      ? "#fefce8"
+      : "#e5e7eb";
+
     return (
       <g
         key={`${row}-${p.name}`}
@@ -84,10 +93,17 @@ export const LinearZodiacBar: React.FC<Props> = ({
           {row === "transit" ? `Transit ${p.name}` : `Natal ${p.name}`} –{" "}
           {normalized.toFixed(2)}°
         </title>
-        <circle
-          r={5}
-          className={row === "transit" ? "fill-yellow-300" : "fill-slate-200"}
-        />
+
+        {isMoon ? (
+          <>
+            {/* grey crescent moon */}
+            <circle r={5} fill="#d4d4d8" />
+            <circle r={5} cx={2} fill="#1B1F24" />
+          </>
+        ) : (
+          <circle r={5} fill={circleFill} />
+        )}
+
         <text
           y={-8}
           textAnchor="middle"
@@ -131,7 +147,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
         </g>
       ))}
 
-      {/* 360° ticks (30° major, 10° minor) */}
+      {/* 360° ticks */}
       {Array.from({ length: 360 }).map((_, i) => {
         const isMajor = i % 30 === 0;
         const isMid = i % 10 === 0;
