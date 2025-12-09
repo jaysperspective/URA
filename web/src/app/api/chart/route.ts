@@ -1,8 +1,8 @@
 import { NextResponse, NextRequest } from "next/server";
 
 // Simple in-memory rate limiter
-// NOTE: This is per-process and will reset on server restart.
-// For production-grade protection, combine this with Nginx + Fail2ban.
+// NOTE: This is per-process and resets on server restart.
+// For real production hardening, we’ll back this with Nginx + Fail2ban.
 const RATE_WINDOW_MS = 5000; // 5 seconds
 const RATE_MAX_REQUESTS = 20;
 
@@ -13,7 +13,10 @@ type RateState = {
 
 const rateStore = new Map<string, RateState>();
 
-function checkRateLimit(identifier: string): { allowed: boolean; retryAfterMs: number } {
+function checkRateLimit(identifier: string): {
+  allowed: boolean;
+  retryAfterMs: number;
+} {
   const now = Date.now();
   const existing = rateStore.get(identifier);
 
@@ -42,10 +45,13 @@ function checkRateLimit(identifier: string): { allowed: boolean; retryAfterMs: n
 
 export async function POST(request: NextRequest) {
   try {
-    // Use IP (or forwarded IP) as rate-limit key
+    // Derive an IP-like identifier from headers only
+    const forwardedFor = request.headers.get("x-forwarded-for");
+    const realIp = request.headers.get("x-real-ip");
+
     const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.ip ||
+      forwardedFor?.split(",")[0]?.trim() ||
+      realIp ||
       "unknown";
 
     const { allowed, retryAfterMs } = checkRateLimit(ip);
@@ -83,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     const data = await astroRes.json();
 
-    // Ensure a consistent response shape for the frontend
+    // Mirror what your frontend expects: { ok, data }
     return NextResponse.json({
       ok: true,
       input: body,
