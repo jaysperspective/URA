@@ -1,3 +1,4 @@
+// web/src/components/astro/LinearZodiacBar.tsx
 "use client";
 
 import React from "react";
@@ -34,7 +35,7 @@ type Props = {
   ascDeg: number;
   mcDeg: number;
   natalPlanets: PlanetPos[];
-  transitPlanets?: PlanetPos[]; // we'll use this later for live transits
+  transitPlanets?: PlanetPos[]; // top row – current planets
   width?: number;
   height?: number;
 };
@@ -50,7 +51,6 @@ export const LinearZodiacBar: React.FC<Props> = ({
   const barHeight = 40;
   const viewBox = `0 0 ${width} ${height}`;
 
-  // derived axes when ASC is normalized to 0°
   const axisXs = {
     ASC: degToX(0, width),
     IC: degToX(90, width),
@@ -83,7 +83,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
           textAnchor="middle"
           className="text-[7px] fill-slate-100 tracking-[0.15em]"
         >
-          {/* placeholder: first letter; later we can swap to true glyphs */}
+          {/* placeholder initial; later swap for glyphs */}
           {p.name[0]}
         </text>
       </g>
@@ -117,13 +117,12 @@ export const LinearZodiacBar: React.FC<Props> = ({
             textAnchor="middle"
             className="text-[11px] fill-slate-50"
           >
-            {/* placeholder – swap to sign glyph later */}
-            {sign[0]}
+            {sign[0]} {/* placeholder */}
           </text>
         </g>
       ))}
 
-      {/* 360° ticks (major at 30°, minor at 10°) */}
+      {/* 360° ticks (30° major, 10° minor) */}
       {Array.from({ length: 360 }).map((_, i) => {
         const isMajor = i % 30 === 0;
         const isMid = i % 10 === 0;
@@ -144,7 +143,7 @@ export const LinearZodiacBar: React.FC<Props> = ({
         );
       })}
 
-      {/* ASC / IC / DSC / MC axes */}
+      {/* ASC / IC / DSC / MC axes & labels */}
       {Object.entries(axisXs).map(([label, x]) => (
         <g key={label}>
           <line
@@ -155,15 +154,15 @@ export const LinearZodiacBar: React.FC<Props> = ({
             className="stroke-slate-900 stroke-[1]"
           />
           <text
-            x={x}
+            x={label === "ASC" ? x + 4 : x}
             y={height - 4}
-            textAnchor="middle"
+            textAnchor={label === "ASC" ? "start" : "middle"}
             className="text-[10px] fill-slate-50"
           >
             {label}
           </text>
         </g>
-      ))}
+      })}
 
       {/* Seasons: Spring / Summer / Fall / Winter */}
       {seasons.map((s) => {
@@ -185,24 +184,6 @@ export const LinearZodiacBar: React.FC<Props> = ({
       {/* planets */}
       {transitPlanets.map((p) => renderPlanet(p, "transit"))}
       {natalPlanets.map((p) => renderPlanet(p, "natal"))}
-
-      {/* captions like your blueprint */}
-      <text
-        x={width - 4}
-        y={(height - barHeight) / 2 - 3}
-        textAnchor="end"
-        className="text-[7px] fill-slate-100 tracking-[0.15em]"
-      >
-        CURRENT PLANETS AT THE TOP
-      </text>
-      <text
-        x={width - 4}
-        y={(height + barHeight) / 2 + 11}
-        textAnchor="end"
-        className="text-[7px] fill-slate-100 tracking-[0.15em]"
-      >
-        NATAL CHART AT THE BOTTOM
-      </text>
     </svg>
   );
 };
