@@ -61,7 +61,7 @@ export default function ChartPage() {
     const hour = Number(hStr);
     const minute = Number(minStr);
 
-    // For now we keep fixed birthplace coords; later we can map City/State → lat/lon.
+    // For now: fixed coords for birthplace (Danville, VA).
     const lat = 36.585;
     const lon = -79.395;
 
@@ -350,70 +350,77 @@ export default function ChartPage() {
           )}
         </div>
 
-        {/* TRANSIT CONTROLS – extra spacing under wheel */}
-        <div
-          style={{
-            marginTop: 24,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 8,
-            fontFamily: "system-ui, sans-serif",
-            fontSize: 12,
-            color: "#EDE3CC",
-          }}
-        >
-          <span style={{ opacity: 0.8 }}>Transits for</span>
-          <span
+        {/* TRANSIT CONTROLS + STRIP (grouped together, with extra spacing) */}
+        {natalChart && (
+          <div
             style={{
-              padding: "3px 8px",
-              borderRadius: 999,
-              background: "#222933",
-              border: "1px solid #3a4550",
+              marginTop: 32,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              alignItems: "center",
             }}
           >
-            {transitDateLabel}
-          </span>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontFamily: "system-ui, sans-serif",
+                fontSize: 12,
+                color: "#EDE3CC",
+              }}
+            >
+              <span style={{ opacity: 0.8 }}>Transits for</span>
+              <span
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: 999,
+                  background: "#222933",
+                  border: "1px solid #3a4550",
+                }}
+              >
+                {transitDateLabel}
+              </span>
 
-          <button
-            onClick={() => shiftTransitDays(-1)}
-            style={buttonStyle}
-            type="button"
-          >
-            −1 day
-          </button>
-          <button
-            onClick={() => shiftTransitDays(1)}
-            style={buttonStyle}
-            type="button"
-          >
-            +1 day
-          </button>
-          <button
-            onClick={() => shiftTransitMonths(-1)}
-            style={buttonStyle}
-            type="button"
-          >
-            −1 month
-          </button>
-          <button
-            onClick={() => shiftTransitMonths(1)}
-            style={buttonStyle}
-            type="button"
-          >
-            +1 month
-          </button>
-        </div>
+              <button
+                onClick={() => shiftTransitDays(-1)}
+                style={buttonStyle}
+                type="button"
+              >
+                −1 day
+              </button>
+              <button
+                onClick={() => shiftTransitDays(1)}
+                style={buttonStyle}
+                type="button"
+              >
+                +1 day
+              </button>
+              <button
+                onClick={() => shiftTransitMonths(-1)}
+                style={buttonStyle}
+                type="button"
+              >
+                −1 month
+              </button>
+              <button
+                onClick={() => shiftTransitMonths(1)}
+                style={buttonStyle}
+                type="button"
+              >
+                +1 month
+              </button>
+            </div>
 
-        {/* HORIZONTAL STRIP – a little more space above */}
-        {natalChart && (
-          <div style={{ marginTop: 8 }}>
-            <LinearZodiacBar
-              ascDeg={natalChart.ascendant}
-              mcDeg={natalChart.mc}
-              natalPlanets={natalPlanetsForStrip}
-              transitPlanets={transitPlanetsForStrip}
-            />
+            <div style={{ width: "100%" }}>
+              <LinearZodiacBar
+                ascDeg={natalChart.ascendant}
+                mcDeg={natalChart.mc}
+                natalPlanets={natalPlanetsForStrip}
+                transitPlanets={transitPlanetsForStrip}
+              />
+            </div>
           </div>
         )}
 
