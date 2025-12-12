@@ -1,3 +1,4 @@
+// web/src/components/astro/AstroWheel.tsx
 "use client";
 
 import React from "react";
@@ -32,7 +33,7 @@ const palette = {
   accentTeal: "#5EE7D5",
   accentTealSoft: "#3AA8A1",
   centerVoid: "#05060A",
-  glyphFill: "#F8F1DD",
+  glyphFill: "#0B1215",      // ⬅️ UPDATED: high-contrast zodiac glyph color
   glyphShadow: "#00000099",
 };
 
@@ -534,8 +535,6 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
         )}
 
         {/* CENTER "EYE" – cosmic iris + pupil with stars */}
-
-        {/* iris */}
         <circle
           cx={center}
           cy={center}
@@ -545,7 +544,6 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
           strokeWidth={2}
         />
 
-        {/* subtle inner ring to feel carved */}
         <circle
           cx={center}
           cy={center}
@@ -557,7 +555,6 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
           opacity={0.7}
         />
 
-        {/* pupil */}
         <circle
           cx={center}
           cy={center}
@@ -565,7 +562,6 @@ export const AstroWheel: React.FC<Props> = ({ chart }) => {
           fill={palette.centerVoid}
         />
 
-        {/* star specks inside the pupil */}
         {[
           { dx: -10, dy: -6, r: 1.4 },
           { dx: 6, dy: -3, r: 1.1 },
