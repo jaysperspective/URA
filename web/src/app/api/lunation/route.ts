@@ -1,28 +1,24 @@
 // /var/www/URA/web/src/app/api/lunation/route.ts
+// (lunation only; no asc-year logic inside this route)
 
 import { NextResponse } from "next/server";
 
 /**
  * URA /api/lunation
  *
- * Existing behavior:
+ * Stable behavior:
  * - secondary progressed Sun/Moon separation (waxing 0..360)
- * - anchored to previous progressed New Moon
- * - returns phase + sub-phase + boundary timestamps
+ * - anchored to previous progressed New Moon (wrap event 360->0)
+ * - returns phase + sub-phase + boundary timestamps (0,45,...,360)
  *
- * New behavior (Step 1):
- * - adds ASC/MC/houses lookup from astro-service for the progressed date
- * - computes Ascendant Year Cycle position (0..360) anchored at ASC
- * - returns 8 phases + 3 sub-phases (15° each) and boundary longitudes
+ * NOTE: This file intentionally does NOT compute the Ascendant Year Cycle.
+ * That is handled by /api/asc-year in a parallel route.
  */
 
 type ParsedInput = {
   birth_datetime: string; // "YYYY-MM-DD HH:MM"
   tz_offset: string; // "-05:00"
   as_of_date: string; // "YYYY-MM-DD"
-  // optional location (needed for ASC/houses)
-  lat?: number;
-  lon?: number;
 };
 
 type AstroServiceChart = {
@@ -34,11 +30,14 @@ type AstroServiceChart = {
       sun?: { lon: number };
       moon?: { lon: number };
     };
-    houses?: number[];
-    ascendant?: number | null;
-    mc?: number | null;
   };
 };
+
+const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
+
+// ------------------------------
+// Parsing helpers
+// ------------------------------
 
 function parseTextKV(body: string): ParsedInput {
   const lines = body
@@ -59,10 +58,6 @@ function parseTextKV(body: string): ParsedInput {
   if (!out.tz_offset) throw new Error("missing tz_offset");
   if (!out.as_of_date) throw new Error("missing as_of_date");
 
-  // Optional lat/lon (recommended for year cycle)
-  if (out.lat != null) out.lat = Number(out.lat);
-  if (out.lon != null) out.lon = Number(out.lon);
-
   return out as ParsedInput;
 }
 
@@ -79,18 +74,24 @@ function sepWaxing(a: number, b: number) {
   return wrap360(b - a);
 }
 
-function floorTo(n: number, step: number) {
-  return Math.floor(n / step) * step;
+// map 0..360 to -180..180 (good for bracketing around conjunction)
+function wrap180(deg: number) {
+  const w = wrap360(deg);
+  return ((w + 180) % 360) - 180;
+}
+
+function formatYMD(d: Date) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 // ------------------------------
 // Secondary progression utilities
-// (keep as you already had them)
 // ------------------------------
 
 function parseBirthToUTC(birth_datetime: string, tz_offset: string): Date {
-  // birth_datetime is local in tz_offset; convert to UTC Date
-  // "YYYY-MM-DD HH:MM"
   const m = birth_datetime.match(
     /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/
   );
@@ -102,7 +103,6 @@ function parseBirthToUTC(birth_datetime: string, tz_offset: string): Date {
   const hour = Number(m[4]);
   const minute = Number(m[5]);
 
-  // tz_offset "-05:00"
   const tz = tz_offset.match(/^([+-])(\d{2}):(\d{2})$/);
   if (!tz) throw new Error("tz_offset format must be ±HH:MM");
   const sign = tz[1] === "-" ? -1 : 1;
@@ -110,7 +110,6 @@ function parseBirthToUTC(birth_datetime: string, tz_offset: string): Date {
   const tzm = Number(tz[3]);
   const offsetMinutes = sign * (tzh * 60 + tzm);
 
-  // Local millis (as if UTC), then subtract offset to get true UTC
   const localMillis = Date.UTC(year, month, day, hour, minute, 0);
   const utcMillis = localMillis - offsetMinutes * 60_000;
 
@@ -118,7 +117,6 @@ function parseBirthToUTC(birth_datetime: string, tz_offset: string): Date {
 }
 
 function parseAsOfToUTCDate(as_of_date: string): Date {
-  // as_of_date "YYYY-MM-DD" treated as 00:00 UTC
   const m = as_of_date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) throw new Error("as_of_date format must be YYYY-MM-DD");
   const year = Number(m[1]);
@@ -128,31 +126,23 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
 }
 
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
-  // Secondary progression day-for-a-year:
-  // progressed_date = birth_date + (asOf - birth) in days as years -> days
-  // You already have this; keep consistent with your existing implementation.
-  // NOTE: If you already have a different implementation in your file, keep it.
   const msPerDay = 86_400_000;
   const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
-  const progressed = new Date(birthUTC.getTime() + ageDays * msPerDay);
-  return progressed;
+  return new Date(birthUTC.getTime() + ageDays * msPerDay);
 }
 
 // ------------------------------
 // Astro-service fetch helpers
 // ------------------------------
 
-const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
-
 async function fetchChartByYMDHM(
   year: number,
   month: number,
   day: number,
   hour: number,
-  minute: number,
-  lat: number,
-  lon: number
+  minute: number
 ): Promise<AstroServiceChart["data"]> {
+  // Sun/Moon do not require real location; keep stable.
   const res = await fetch(`${ASTRO_URL}/chart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -162,8 +152,8 @@ async function fetchChartByYMDHM(
       day,
       hour,
       minute,
-      latitude: lat,
-      longitude: lon,
+      latitude: 0,
+      longitude: 0,
     }),
   });
 
@@ -174,15 +164,13 @@ async function fetchChartByYMDHM(
 }
 
 async function fetchSunMoonLongitudes(pDateUTC: Date) {
-  // For lunation you don’t need lat/lon; astro-service requires them for houses,
-  // but Sun/Moon calc works regardless. Use 0/0 to keep stable.
   const year = pDateUTC.getUTCFullYear();
   const month = pDateUTC.getUTCMonth() + 1;
   const day = pDateUTC.getUTCDate();
   const hour = pDateUTC.getUTCHours();
   const minute = pDateUTC.getUTCMinutes();
 
-  const data = await fetchChartByYMDHM(year, month, day, hour, minute, 0, 0);
+  const data = await fetchChartByYMDHM(year, month, day, hour, minute);
 
   const sunLon = data?.planets?.sun?.lon;
   const moonLon = data?.planets?.moon?.lon;
@@ -191,54 +179,14 @@ async function fetchSunMoonLongitudes(pDateUTC: Date) {
     throw new Error("astro-service response missing sun/moon lon");
   }
 
-  return { sunLon, moonLon };
-}
-
-async function fetchAnglesForProgressedDate(pDateUTC: Date, lat: number, lon: number) {
-  const year = pDateUTC.getUTCFullYear();
-  const month = pDateUTC.getUTCMonth() + 1;
-  const day = pDateUTC.getUTCDate();
-  const hour = pDateUTC.getUTCHours();
-  const minute = pDateUTC.getUTCMinutes();
-
-  const data = await fetchChartByYMDHM(year, month, day, hour, minute, lat, lon);
-
-  if (typeof data.ascendant !== "number" || typeof data.mc !== "number") {
-    throw new Error("astro-service missing ascendant/mc (check lat/lon)");
-  }
-
-  const houses = Array.isArray(data.houses) ? data.houses : [];
-  return {
-    ascendant: wrap360(data.ascendant),
-    mc: wrap360(data.mc),
-    houses: houses.map(wrap360),
-  };
+  return { sunLon: wrap360(sunLon), moonLon: wrap360(moonLon) };
 }
 
 // ------------------------------
-// Your existing New Moon anchoring logic
-// (placeholder: keep your authoritative implementation)
+// Lunation model helpers
 // ------------------------------
-
-// NOTE: I’m keeping a minimal scaffold here.
-// Replace these with your already-verified implementations from your current file.
-
-async function findPreviousProgressedNewMoonUTC(birthUTC: Date, asOfUTC: Date): Promise<Date> {
-  // This function should:
-  // - use your robust waxing-separation based bracket + bisection
-  // - look back ~60 years
-  // - return the last conjunction (0° separation) before asOfUTC in progressed time
-  //
-  // ✅ KEEP YOUR EXISTING WORKING VERSION HERE.
-  //
-  // For now, throw to force you to paste your known-good logic if this file differs.
-  throw new Error(
-    "findPreviousProgressedNewMoonUTC: replace this stub with your existing verified implementation from route.ts"
-  );
-}
 
 function phaseLabelFromSep(sep: number) {
-  // 8 phases, each 45°
   const phases = [
     "New Moon",
     "Crescent",
@@ -249,69 +197,161 @@ function phaseLabelFromSep(sep: number) {
     "Last Quarter",
     "Balsamic",
   ];
-
   const idx = Math.floor(wrap360(sep) / 45);
   return phases[idx] || phases[0];
 }
 
 function subPhaseLabelFromSep(sep: number) {
-  // 3 sub-phases within each 45°: 0-15, 15-30, 30-45
+  // 3 segments of 15° inside each 45°
   const within = wrap360(sep) % 45;
-  if (within < 15) return "Sub-phase 1";
-  if (within < 30) return "Sub-phase 2";
-  return "Sub-phase 3";
+  const seg = Math.floor(within / 15); // 0..2
+  const label = ["Initiation", "Development", "Integration"][seg] || "Initiation";
+  return { label, segment: seg + 1, total: 3, within };
 }
 
-// ------------------------------
-// NEW: Ascendant Year Cycle calc
-// ------------------------------
+// Cached separation calls (reduces astro-service load during boundary bisections)
+function makeSepCache(birthUTC: Date) {
+  const cache = new Map<number, { sep: number; sunLon: number; moonLon: number }>();
 
-function ascYearCycleBlock(asclon: number, sunLon: number) {
-  // Personal year: measure the Sun’s position relative to ASC.
-  // ASC is 0°, then 45° steps define the 8 seasonal phases.
-  const rel = sepWaxing(asclon, sunLon); // (sun - asc) wrapped 0..360
+  return async function getAt(asOfUTCms: number) {
+    const key = Math.floor(asOfUTCms / 1000) * 1000; // normalize to second
+    const hit = cache.get(key);
+    if (hit) return hit;
 
-  const phases = [
-    "Ascendant Spring",
-    "Waxing Gate",
-    "First Quarter Rise",
-    "High Summer",
-    "Descendant Autumn",
-    "Waning Gate",
-    "Last Quarter Deepening",
-    "Winter Seed",
-  ];
+    const asOfUTC = new Date(asOfUTCms);
+    const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
+    const { sunLon, moonLon } = await fetchSunMoonLongitudes(pDateUTC);
+    const sep = sepWaxing(sunLon, moonLon);
 
-  const phaseIdx = Math.floor(rel / 45);
-  const phase = phases[phaseIdx] || phases[0];
-
-  const within = rel % 45;
-  const subPhaseIdx = Math.floor(within / 15); // 0,1,2
-  const subPhase = ["Sub-phase 1", "Sub-phase 2", "Sub-phase 3"][subPhaseIdx] || "Sub-phase 1";
-
-  const base = floorTo(rel, 15);
-  const next = wrap360(base + 15);
-
-  const boundaries = {
-    deg0: wrap360(asclon + 0),
-    deg45: wrap360(asclon + 45),
-    deg90: wrap360(asclon + 90),
-    deg135: wrap360(asclon + 135),
-    deg180: wrap360(asclon + 180),
-    deg225: wrap360(asclon + 225),
-    deg270: wrap360(asclon + 270),
-    deg315: wrap360(asclon + 315),
-    deg360: wrap360(asclon + 360),
+    const v = { sep, sunLon, moonLon };
+    cache.set(key, v);
+    return v;
   };
+}
 
-  return {
-    anchorAsc: asclon,
-    cyclePosition: rel, // 0..360
-    phase,
-    subPhase,
-    subPhaseRange: { start: base, end: next },
-    boundaries,
-  };
+// Find the previous progressed new moon (wrap event 360 -> 0) by scanning backwards
+async function findPreviousNewMoonUTC(
+  birthUTC: Date,
+  asOfUTC: Date,
+  getAt: (ms: number) => Promise<{ sep: number }>
+): Promise<Date> {
+  const oneDay = 86_400_000;
+
+  // scan back up to ~80 years (enough margin)
+  const maxDaysBack = 80 * 366;
+
+  let t1 = asOfUTC.getTime();
+  let s1 = (await getAt(t1)).sep;
+
+  for (let i = 0; i < maxDaysBack; i++) {
+    const t0 = t1 - oneDay;
+    const s0 = (await getAt(t0)).sep;
+
+    // Wrap signature: yesterday was near 360, today is near 0
+    if (s0 > 300 && s1 < 60) {
+      // refine inside [t0, t1] by bisection on wrap180(sep)
+      let lo = t0;
+      let hi = t1;
+
+      const f = async (ms: number) => wrap180((await getAt(ms)).sep);
+
+      let flo = await f(lo);
+      let fhi = await f(hi);
+
+      // ensure sign change; if not, still bisect around minimum crossing
+      for (let it = 0; it < 28; it++) {
+        const mid = Math.floor((lo + hi) / 2);
+        const fmid = await f(mid);
+
+        // want root near 0 (conjunction)
+        if (Math.abs(fmid) < 1e-6) {
+          lo = hi = mid;
+          break;
+        }
+
+        if (flo <= 0 && fmid >= 0) {
+          hi = mid;
+          fhi = fmid;
+        } else if (fmid <= 0 && fhi >= 0) {
+          lo = mid;
+          flo = fmid;
+        } else {
+          // fallback: split toward smaller abs value
+          if (Math.abs(flo) < Math.abs(fhi)) hi = mid;
+          else lo = mid;
+        }
+      }
+
+      return new Date(Math.floor((lo + hi) / 2));
+    }
+
+    t1 = t0;
+    s1 = s0;
+  }
+
+  throw new Error("could not locate previous progressed new moon (scan exceeded limit)");
+}
+
+// Find boundary date where sep reaches targetDeg (0..360) after anchor
+async function findBoundaryUTC(
+  anchorUTC: Date,
+  targetDeg: number,
+  getAt: (ms: number) => Promise<{ sep: number }>
+): Promise<Date> {
+  const oneDay = 86_400_000;
+
+  const anchorMs = anchorUTC.getTime();
+  const target = targetDeg;
+
+  // Quick return for 0° boundary
+  if (target === 0) return new Date(anchorMs);
+
+  // bracket forward until sep >= target
+  let lo = anchorMs;
+  let slo = (await getAt(lo)).sep;
+
+  // Start searching from the next day to avoid returning anchor again
+  let hi = anchorMs + oneDay;
+  let shi = (await getAt(hi)).sep;
+
+  // if anchor is slightly above 0 due to refinement, allow it
+  if (slo > target) {
+    // move lo back a day
+    lo = anchorMs - oneDay;
+    slo = (await getAt(lo)).sep;
+  }
+
+  // Expand window; progressed cycle lasts decades in as-of time.
+  const maxDaysForward = 90 * 366;
+  for (let i = 0; i < maxDaysForward && shi < target; i++) {
+    lo = hi;
+    slo = shi;
+    hi = hi + 7 * oneDay; // weekly stepping reduces calls
+    shi = (await getAt(hi)).sep;
+  }
+
+  if (shi < target) {
+    throw new Error(`could not bracket boundary for ${target}° (forward scan exceeded limit)`);
+  }
+
+  // bisection on (sep - target)
+  for (let it = 0; it < 30; it++) {
+    const mid = Math.floor((lo + hi) / 2);
+    const smid = (await getAt(mid)).sep;
+
+    if (smid >= target) {
+      hi = mid;
+      shi = smid;
+    } else {
+      lo = mid;
+      slo = smid;
+    }
+
+    // stop if within ~30 minutes
+    if (hi - lo < 30 * 60_000) break;
+  }
+
+  return new Date(hi);
 }
 
 // ------------------------------
@@ -323,52 +363,71 @@ export async function POST(req: Request) {
     const contentType = req.headers.get("content-type") || "";
     const raw = await req.text();
 
-    // Accept text/plain KV blocks (your current format)
-    // If someone sends JSON later, you can extend.
     const input = contentType.includes("application/json")
       ? (JSON.parse(raw) as ParsedInput)
       : parseTextKV(raw);
 
     const birthUTC = parseBirthToUTC(input.birth_datetime, input.tz_offset);
     const asOfUTC = parseAsOfToUTCDate(input.as_of_date);
-
     const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
 
-    // Existing lunation: progressed Sun/Moon at progressed date
+    const getAt = makeSepCache(birthUTC);
+
     const { sunLon, moonLon } = await fetchSunMoonLongitudes(pDateUTC);
     const separation = sepWaxing(sunLon, moonLon);
 
-    // ✅ YEAR CYCLE (new): requires lat/lon
-    let yearCycle: any = null;
-    if (typeof input.lat === "number" && typeof input.lon === "number") {
-      const angles = await fetchAnglesForProgressedDate(pDateUTC, input.lat, input.lon);
-      yearCycle = ascYearCycleBlock(angles.ascendant, sunLon);
+    const phase = phaseLabelFromSep(separation);
+    const sub = subPhaseLabelFromSep(separation);
+
+    const prevNewMoonUTC = await findPreviousNewMoonUTC(birthUTC, asOfUTC, getAt);
+
+    // Boundaries for the current progressed lunation cycle
+    const boundaryTargets = [0, 45, 90, 135, 180, 225, 270, 315, 360] as const;
+    const boundaryLabels = [
+      "New Moon",
+      "Crescent",
+      "First Quarter",
+      "Gibbous",
+      "Full Moon",
+      "Disseminating",
+      "Last Quarter",
+      "Balsamic",
+      "Next New Moon",
+    ] as const;
+
+    const boundaries: Array<{ deg: number; label: string; dateUTC: string }> = [];
+
+    // We compute 0..315 from anchor forward; 360 is next wrap, same as next new moon.
+    for (let i = 0; i < boundaryTargets.length; i++) {
+      const deg = boundaryTargets[i];
+      const label = boundaryLabels[i];
+
+      const boundaryDate = await findBoundaryUTC(prevNewMoonUTC, deg === 360 ? 360 : deg, getAt);
+
+      boundaries.push({
+        deg,
+        label,
+        dateUTC: formatYMD(boundaryDate),
+      });
     }
-
-    // Existing anchor (use your working function)
-    const prevNewMoonUTC = await findPreviousProgressedNewMoonUTC(birthUTC, asOfUTC);
-
-    // Existing phase/sub-phase labels for lunation
-    const lunationPhase = phaseLabelFromSep(separation);
-    const lunationSubPhase = subPhaseLabelFromSep(separation);
 
     return NextResponse.json({
       ok: true,
       input,
-      progressedDateUTC: pDateUTC.toISOString(),
-      progressed: {
-        sunLon,
-        moonLon,
-        separationWaxing: separation,
+      model: {
+        birth_local: `${input.birth_datetime} tz_offset ${input.tz_offset}`,
+        birth_utc: birthUTC.toISOString().slice(0, 16).replace("T", " "),
+        as_of_utc: input.as_of_date,
+        progressed_date_utc: pDateUTC.toISOString(),
+        progressed_sun_lon: sunLon,
+        progressed_moon_lon: moonLon,
+        separation_moon_minus_sun: separation,
+        current_phase: phase,
+        current_sub_phase: `${sub.label} (segment ${sub.segment}/${sub.total})`,
+        degrees_into_phase: sub.within,
+        cycle_boundaries: boundaries,
+        anchor_prev_new_moon_utc: formatYMD(prevNewMoonUTC),
       },
-      lunation: {
-        phase: lunationPhase,
-        subPhase: lunationSubPhase,
-        // keep returning whatever boundary structure you already output
-        // (your existing file likely adds the full 0/45/... cycle dates)
-        anchorPrevNewMoonUTC: prevNewMoonUTC.toISOString(),
-      },
-      yearCycle, // ✅ new block (null if no lat/lon)
     });
   } catch (err: any) {
     return NextResponse.json(
