@@ -6,7 +6,7 @@ function mod360(x: number) {
   return r < 0 ? r + 360 : r;
 }
 
-// signed diff in [-180,180], used to detect conjunction crossing
+// signed diff in [-180,180] (kept for other uses, but NOT used for conjunction bracketing)
 function signedAngleDiff(a: number, b: number) {
   let d = mod360(a - b);
   if (d > 180) d -= 360;
@@ -93,7 +93,7 @@ async function fetchSunMoonLongitudes(progressedUTC: Date) {
   const hh = progressedUTC.getUTCHours();
   const mm = progressedUTC.getUTCMinutes();
 
-  // astro-service currently requires lat/lon even though stub
+  // astro-service currently requires lat/lon (even if unused for sun/moon)
   const payload = {
     year: y,
     month: mo,
@@ -129,22 +129,28 @@ async function fetchSunMoonLongitudes(progressedUTC: Date) {
 async function getSepAtAsOf(birthUTC: Date, asOfUTC: Date) {
   const pDate = progressedDateUTC(birthUTC, asOfUTC);
   const { sunLon, moonLon } = await fetchSunMoonLongitudes(pDate);
+  const sep = separationWaxing(moonLon, sunLon);
+
   return {
     sunLon,
     moonLon,
-    sep: separationWaxing(moonLon, sunLon),
-    signed: signedAngleDiff(moonLon, sunLon),
+    sep, // 0..360 waxing
+    signed: signedAngleDiff(moonLon, sunLon), // kept, but not used for conjunction bracketing
   };
 }
 
-// Find nearest conjunction before/after asOf by bracketing signed separation across a zero crossing
+/**
+ * Find nearest conjunction before/after asOf by detecting the *0/360 wrap* of sep.
+ * IMPORTANT: Do NOT use signedAngleDiff here, because it wraps at ±180 and will
+ * falsely "cross zero" around the opposition (Full Moon).
+ */
 async function findConjunctionNear(
   birthUTC: Date,
   centerAsOfUTC: Date,
   direction: -1 | 1
 ) {
-  const stepDays = 180; // coarse step
-  const maxSteps = Math.ceil((45 * 365.2425) / stepDays);
+  const stepDays = 90; // coarse step
+  const maxSteps = Math.ceil((60 * 365.2425) / stepDays); // search up to ~60 years
 
   let a = new Date(centerAsOfUTC);
   let prev = await getSepAtAsOf(birthUTC, a);
@@ -153,10 +159,13 @@ async function findConjunctionNear(
     const b = new Date(a.getTime() + direction * stepDays * 86400000);
     const cur = await getSepAtAsOf(birthUTC, b);
 
-    if (prev.signed === 0) return a;
-    if (cur.signed === 0) return b;
+    // Conjunction occurs when sep wraps around 0/360:
+    // - forward: sep drops (e.g. 355 -> 5)
+    // - backward: sep rises (e.g. 5 -> 355)
+    const wrappedForward = direction === 1 && cur.sep < prev.sep;
+    const wrappedBackward = direction === -1 && cur.sep > prev.sep;
 
-    if ((prev.signed < 0 && cur.signed > 0) || (prev.signed > 0 && cur.signed < 0)) {
+    if (wrappedForward || wrappedBackward) {
       return await bisectConjunction(birthUTC, a, b);
     }
 
@@ -171,15 +180,33 @@ async function bisectConjunction(birthUTC: Date, lo: Date, hi: Date) {
   let loD = new Date(lo);
   let hiD = new Date(hi);
 
-  let loV = (await getSepAtAsOf(birthUTC, loD)).signed;
-  let hiV = (await getSepAtAsOf(birthUTC, hiD)).signed;
+  // Convert sep (0..360) into a signed value around conjunction:
+  // 0..180 stays positive; 180..360 becomes negative (sep-360)
+  async function signedAroundConjunction(d: Date) {
+    const { sep } = await getSepAtAsOf(birthUTC, d);
+    return sep <= 180 ? sep : sep - 360;
+  }
+
+  let loV = await signedAroundConjunction(loD);
+  let hiV = await signedAroundConjunction(hiD);
 
   if (loV === 0) return loD;
   if (hiV === 0) return hiD;
 
-  for (let i = 0; i < 42; i++) {
+  // Ensure a sign change; if not, try swapping endpoints (direction ordering can vary)
+  if (!((loV < 0 && hiV > 0) || (loV > 0 && hiV < 0))) {
+    const tmpD = loD;
+    loD = hiD;
+    hiD = tmpD;
+    const tmpV = loV;
+    loV = hiV;
+    hiV = tmpV;
+  }
+
+  for (let i = 0; i < 44; i++) {
     const mid = new Date((loD.getTime() + hiD.getTime()) / 2);
-    const midV = (await getSepAtAsOf(birthUTC, mid)).signed;
+    const midV = await signedAroundConjunction(mid);
+
     if (Math.abs(midV) < 0.05) return mid;
 
     if ((loV < 0 && midV > 0) || (loV > 0 && midV < 0)) {
