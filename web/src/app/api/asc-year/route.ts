@@ -68,6 +68,26 @@ function parseTextKV(body: string): ParsedInput {
   return out as ParsedInput;
 }
 
+/**
+ * ✅ NEW: Accept BOTH JSON and your text/plain KV format
+ */
+async function readInput(req: Request): Promise<ParsedInput> {
+  const raw = await req.text();
+  const contentType = req.headers.get("content-type") || "";
+  const trimmed = raw.trim();
+  const looksJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+
+  if (contentType.includes("application/json") || looksJson) {
+    try {
+      return JSON.parse(raw) as ParsedInput;
+    } catch {
+      // fall through
+    }
+  }
+
+  return parseTextKV(raw);
+}
+
 // ------------------------------
 // Time helpers
 // ------------------------------
@@ -107,7 +127,6 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
 }
 
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
-  // Secondary progression day-for-a-year (same approach you’ve used elsewhere)
   const msPerDay = 86_400_000;
   const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
   return new Date(birthUTC.getTime() + ageDays * msPerDay);
@@ -117,36 +136,17 @@ function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
 // Math helpers
 // ------------------------------
 
-function wrap360(deg: number) {
+function wrap360(deg: number): number {
   return ((deg % 360) + 360) % 360;
 }
 
 // waxing separation from A to B (0..360)
-function sepWaxing(a: number, b: number) {
+function sepWaxing(a: number, b: number): number {
   return wrap360(b - a);
 }
 
-function floorTo(n: number, step: number) {
+function floorTo(n: number, step: number): number {
   return Math.floor(n / step) * step;
-}
-
-function angleToSign(deg: number) {
-  const signs = [
-    "Aries",
-    "Taurus",
-    "Gemini",
-    "Cancer",
-    "Leo",
-    "Virgo",
-    "Libra",
-    "Scorpio",
-    "Sagittarius",
-    "Capricorn",
-    "Aquarius",
-    "Pisces",
-  ];
-  const idx = Math.floor(wrap360(deg) / 30);
-  return signs[idx] || "Aries";
 }
 
 // ------------------------------
@@ -195,8 +195,10 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
   const mc = data.mc;
   const sunLon = data?.planets?.sun?.lon;
 
-  if (typeof asc !== "number") throw new Error("astro-service missing ascendant (check lat/lon)");
-  if (typeof mc !== "number") throw new Error("astro-service missing mc (check lat/lon)");
+  if (typeof asc !== "number")
+    throw new Error("astro-service missing ascendant (check lat/lon)");
+  if (typeof mc !== "number")
+    throw new Error("astro-service missing mc (check lat/lon)");
   if (typeof sunLon !== "number") throw new Error("astro-service missing sun lon");
 
   const houses = Array.isArray(data.houses) ? data.houses.map(wrap360) : [];
@@ -211,12 +213,11 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
 }
 
 // ------------------------------
-// Asc Year Cycle model (raw, stable)
+// Asc Year Cycle calc (raw)
 // ------------------------------
 
-function ascYearCycleSnapshot(ascLon: number, sunLon: number) {
-  // Position through the year-wheel: ASC is 0°, Sun advances 0..360 relative to ASC.
-  const pos = sepWaxing(ascLon, sunLon);
+function ascYearCycleSnapshot(asclon: number, sunLon: number) {
+  const rel = sepWaxing(asclon, sunLon); // (sun - asc) 0..360
 
   const phases = [
     "Ascendant Spring",
@@ -229,64 +230,57 @@ function ascYearCycleSnapshot(ascLon: number, sunLon: number) {
     "Winter Seed",
   ];
 
-  const phaseIdx = Math.floor(pos / 45);
+  const phaseIdx = Math.floor(rel / 45);
   const phase = phases[phaseIdx] || phases[0];
 
-  const withinPhase = pos % 45;
-  const segmentIdx = Math.floor(withinPhase / 15); // 0..2
-  const segmentLabel = ["Initiation", "Development", "Integration"][segmentIdx] || "Initiation";
+  const within = rel % 45;
+  const subPhaseIdx = Math.floor(within / 15);
+  const subPhase =
+    ["Sub-phase 1", "Sub-phase 2", "Sub-phase 3"][subPhaseIdx] || "Sub-phase 1";
 
-  const segStart = floorTo(withinPhase, 15);
-  const segEnd = segStart + 15;
+  const base = floorTo(rel, 15);
+  const next = wrap360(base + 15);
+
+  const boundaries = {
+    deg0: wrap360(asclon + 0),
+    deg45: wrap360(asclon + 45),
+    deg90: wrap360(asclon + 90),
+    deg135: wrap360(asclon + 135),
+    deg180: wrap360(asclon + 180),
+    deg225: wrap360(asclon + 225),
+    deg270: wrap360(asclon + 270),
+    deg315: wrap360(asclon + 315),
+    deg360: wrap360(asclon + 360),
+  };
 
   return {
-    anchorAsc: ascLon,
-    cyclePosition: pos, // 0..360
+    anchorAsc: asclon,
+    cyclePosition: rel,
     phase,
-    sub_phase: `${segmentLabel} (segment ${segmentIdx + 1}/3)`,
-    degrees_into_phase: withinPhase,
-    sub_phase_degrees_into: withinPhase - segStart,
-    sub_phase_window_within_phase: { start: segStart, end: segEnd }, // within 0..45
-    sign_of_sun: angleToSign(sunLon),
-    sign_of_asc: angleToSign(ascLon),
-    boundaries_longitude: {
-      deg0: wrap360(ascLon + 0),
-      deg45: wrap360(ascLon + 45),
-      deg90: wrap360(ascLon + 90),
-      deg135: wrap360(ascLon + 135),
-      deg180: wrap360(ascLon + 180),
-      deg225: wrap360(ascLon + 225),
-      deg270: wrap360(ascLon + 270),
-      deg315: wrap360(ascLon + 315),
-      deg360: wrap360(ascLon + 360),
-    },
+    subPhase,
+    subPhaseRange: { start: base, end: next },
+    boundaries,
   };
 }
 
 // ------------------------------
-// Route
+// Route handler
 // ------------------------------
 
 export async function POST(req: Request) {
   try {
-    const contentType = req.headers.get("content-type") || "";
-    const raw = await req.text();
-
-    const input = contentType.includes("application/json")
-      ? (JSON.parse(raw) as ParsedInput)
-      : parseTextKV(raw);
-
-    if (typeof input.lat !== "number" || typeof input.lon !== "number") {
-      throw new Error("asc-year requires lat and lon");
-    }
+    const input = await readInput(req);
 
     const birthUTC = parseBirthToUTC(input.birth_datetime, input.tz_offset);
     const asOfUTC = parseAsOfToUTCDate(input.as_of_date);
     const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
 
-    const angles = await fetchAscSunAngles(pDateUTC, input.lat, input.lon);
+    if (typeof input.lat !== "number" || typeof input.lon !== "number") {
+      throw new Error("asc-year requires lat and lon");
+    }
 
-    const cycle = ascYearCycleSnapshot(angles.ascendant, angles.sunLon);
+    const angles = await fetchAscSunAngles(pDateUTC, input.lat, input.lon);
+    const yearCycle = ascYearCycleSnapshot(angles.ascendant, angles.sunLon);
 
     return NextResponse.json({
       ok: true,
@@ -294,12 +288,12 @@ export async function POST(req: Request) {
       progressedDateUTC: pDateUTC.toISOString(),
       progressed: {
         julianDay: angles.julianDay,
-        sunLon: angles.sunLon,
         ascendant: angles.ascendant,
         mc: angles.mc,
         houses: angles.houses,
+        sunLon: angles.sunLon,
       },
-      asc_year: cycle,
+      yearCycle,
     });
   } catch (err: any) {
     return NextResponse.json(
@@ -308,4 +302,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
