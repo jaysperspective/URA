@@ -4,19 +4,11 @@ import { NextResponse } from "next/server";
 
 /**
  * URA /api/lunation
+ * Output: { ok: true, text: string }
  *
- * Output:
- * - returns { ok: true, text: string }
- *
- * Internals:
- * - secondary progressed Sun/Moon separation (waxing 0..360)
- * - anchor to previous progressed New Moon (wrap event 360->0)
- * - boundaries for 0..315 via sep>=deg, and 360 via next wrap-crossing (next new moon)
- *
- * Accepts:
- * - text/plain KV
- * - application/json direct KV
- * - application/json wrapper: { text: "birth_datetime: ...\n..." }
+ * ✅ Adds in-memory cache keyed by birthUTC|asOf|tz_offset
+ * - TTL default: 6 hours
+ * - Cache resets on pm2 restart/deploy
  */
 
 type ParsedInput = {
@@ -40,6 +32,42 @@ type AstroServiceChart = {
 type AstroServiceData = NonNullable<AstroServiceChart["data"]>;
 
 const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
+
+// ------------------------------
+// Cache
+// ------------------------------
+
+const LUNATION_CACHE_VERSION = "lunation:v2"; // bump if you change logic
+const LUNATION_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+
+type CacheEntry = { expiresAt: number; payload: any };
+const LUNATION_CACHE: Map<string, CacheEntry> =
+  (globalThis as any).__URA_LUNATION_CACHE__ ??
+  new Map<string, CacheEntry>();
+
+(globalThis as any).__URA_LUNATION_CACHE__ = LUNATION_CACHE;
+
+function getCache(key: string) {
+  const hit = LUNATION_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    LUNATION_CACHE.delete(key);
+    return null;
+  }
+  return hit.payload;
+}
+
+function setCache(key: string, payload: any) {
+  // light pruning to prevent unbounded growth
+  if (LUNATION_CACHE.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of LUNATION_CACHE) {
+      if (now > v.expiresAt) LUNATION_CACHE.delete(k);
+      if (LUNATION_CACHE.size <= 400) break;
+    }
+  }
+  LUNATION_CACHE.set(key, { expiresAt: Date.now() + LUNATION_CACHE_TTL_MS, payload });
+}
 
 // ------------------------------
 // Parsing
@@ -133,15 +161,13 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
 }
 
 /**
- * ✅ Correct secondary progression: day-for-year.
- * progressed_date = birthUTC + ageYears days
+ * Secondary progression: day-for-year
  */
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
   const msPerDay = 86_400_000;
   const elapsedDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
   const ageYears = elapsedDays / 365.2425;
-  const progressedDays = ageYears;
-  return new Date(birthUTC.getTime() + progressedDays * msPerDay);
+  return new Date(birthUTC.getTime() + ageYears * msPerDay);
 }
 
 // ------------------------------
@@ -245,9 +271,9 @@ function subPhaseLabelFromSep(sep: number) {
 }
 
 function makeSepCache(birthUTC: Date) {
-  const cache = new Map<number, { sep: number; sunLon: number; moonLon: number }>();
+  const cache = new Map<number, { sep: number }>();
   return async (asOfUTCms: number) => {
-    const key = Math.floor(asOfUTCms / 1000) * 1000;
+    const key = Math.floor(asOfUTCms / 60_000) * 60_000; // minute bucket
     const hit = cache.get(key);
     if (hit) return hit;
 
@@ -256,7 +282,7 @@ function makeSepCache(birthUTC: Date) {
     const { sunLon, moonLon } = await fetchSunMoonLongitudes(pDateUTC);
     const sep = sepWaxing(sunLon, moonLon);
 
-    const v = { sep, sunLon, moonLon };
+    const v = { sep };
     cache.set(key, v);
     return v;
   };
@@ -293,13 +319,9 @@ async function findPreviousNewMoonUTC(
           break;
         }
 
-        if (flo <= 0 && fmid >= 0) {
-          hi = mid;
-          fhi = fmid;
-        } else if (fmid <= 0 && fhi >= 0) {
-          lo = mid;
-          flo = fmid;
-        } else {
+        if (flo <= 0 && fmid >= 0) hi = mid, fhi = fmid;
+        else if (fmid <= 0 && fhi >= 0) lo = mid, flo = fmid;
+        else {
           if (Math.abs(flo) < Math.abs(fhi)) hi = mid;
           else lo = mid;
         }
@@ -346,13 +368,9 @@ async function findNextNewMoonUTC(
           break;
         }
 
-        if (flo <= 0 && fmid >= 0) {
-          hi = mid;
-          fhi = fmid;
-        } else if (fmid <= 0 && fhi >= 0) {
-          lo = mid;
-          flo = fmid;
-        } else {
+        if (flo <= 0 && fmid >= 0) hi = mid, fhi = fmid;
+        else if (fmid <= 0 && fhi >= 0) lo = mid, flo = fmid;
+        else {
           if (Math.abs(flo) < Math.abs(fhi)) hi = mid;
           else lo = mid;
         }
@@ -389,18 +407,14 @@ async function findBoundaryUTC(
   }
 
   if (shi < targetDeg) {
-    throw new Error(
-      `could not bracket boundary for ${targetDeg}° (forward scan exceeded limit)`
-    );
+    throw new Error(`could not bracket boundary for ${targetDeg}° (forward scan exceeded limit)`);
   }
 
   for (let it = 0; it < 30; it++) {
     const mid = Math.floor((lo + hi) / 2);
     const smid = (await getAt(mid)).sep;
-
     if (smid >= targetDeg) hi = mid;
     else lo = mid;
-
     if (hi - lo < 30 * 60_000) break;
   }
 
@@ -417,8 +431,14 @@ export async function POST(req: Request) {
 
     const birthUTC = parseBirthToUTC(input.birth_datetime, input.tz_offset);
     const asOfUTC = parseAsOfToUTCDate(input.as_of_date);
-    const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
 
+    const cacheKey = `${LUNATION_CACHE_VERSION}|${birthUTC.toISOString()}|${input.tz_offset}|${input.as_of_date}`;
+    const cached = getCache(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+
+    const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
     const getAt = makeSepCache(birthUTC);
 
     const { sunLon, moonLon } = await fetchSunMoonLongitudes(pDateUTC);
@@ -470,7 +490,10 @@ export async function POST(req: Request) {
     const nextNM = await findNextNewMoonUTC(asOfUTC, getAt);
     lines.push(`- Next New Moon (360°): ${formatYMD(nextNM)}`);
 
-    return NextResponse.json({ ok: true, text: lines.join("\n") });
+    const payload = { ok: true, text: lines.join("\n") };
+    setCache(cacheKey, payload);
+
+    return NextResponse.json(payload);
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || "unknown error" },
