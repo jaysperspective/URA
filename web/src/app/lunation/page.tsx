@@ -60,24 +60,24 @@ lon: -79.395`
     setAscYearOut("");
 
     try {
-      // Run both in parallel, same input, same format
       const [lun, asc] = await Promise.all([
         postText("/api/lunation", input),
         postText("/api/asc-year", input),
       ]);
 
+      // ✅ LUNATION: show clean text block
       if (!lun.res.ok || lun.data?.ok === false) {
         setLunationOut(
-          `ERROR\n${pretty({
-            status: lun.res.status,
-            error: lun.data?.error ?? "Unknown error",
-            response: lun.data,
-          })}`
+          `ERROR\n${lun.data?.error ?? `HTTP ${lun.res.status}`}`
         );
       } else {
-        setLunationOut(pretty(lun.data));
+        // if route returns { ok:true, text:"..." }, use it
+        const t =
+          typeof lun.data?.text === "string" ? lun.data.text : pretty(lun.data);
+        setLunationOut(t);
       }
 
+      // ✅ ASC YEAR: keep raw JSON
       if (!asc.res.ok || asc.data?.ok === false) {
         setAscYearOut(
           `ERROR\n${pretty({
@@ -123,7 +123,7 @@ lon: -79.395`
           spellCheck={false}
         />
 
-        {/* Progressed Lunation output */}
+        {/* Progressed Lunation output (clean text) */}
         <div className="w-full mt-4 rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
           <div className="text-[12px] text-neutral-400 mb-2">
             URA • Progressed Lunation Model (raw)
@@ -136,7 +136,7 @@ lon: -79.395`
           </pre>
         </div>
 
-        {/* Ascendant Year output */}
+        {/* Ascendant Year output (raw JSON) */}
         <div className="w-full mt-4 rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
           <div className="text-[12px] text-neutral-400 mb-2">
             URA • Ascendant Year Cycle (raw)
@@ -152,4 +152,3 @@ lon: -79.395`
     </div>
   );
 }
-
