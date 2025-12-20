@@ -5,8 +5,8 @@ import { NextResponse } from "next/server";
 /**
  * URA /api/lunation
  *
- * RESTORED OUTPUT CONTRACT:
- * - returns { ok: true, text: string } just like the earlier “working perfectly” version
+ * Output:
+ * - returns { ok: true, text: string }
  *
  * Internals:
  * - secondary progressed Sun/Moon separation (waxing 0..360)
@@ -132,10 +132,16 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
   return new Date(Date.UTC(year, month, day, 0, 0, 0));
 }
 
+/**
+ * ✅ Correct secondary progression: day-for-year.
+ * progressed_date = birthUTC + ageYears days
+ */
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
   const msPerDay = 86_400_000;
-  const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
-  return new Date(birthUTC.getTime() + ageDays * msPerDay);
+  const elapsedDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
+  const ageYears = elapsedDays / 365.2425;
+  const progressedDays = ageYears;
+  return new Date(birthUTC.getTime() + progressedDays * msPerDay);
 }
 
 // ------------------------------
@@ -442,6 +448,8 @@ export async function POST(req: Request) {
     lines.push(`Birth (UTC):   ${birthUTC.toISOString().slice(0, 16).replace("T", " ")}`);
     lines.push(`As-of (UTC):   ${input.as_of_date}`);
     lines.push("");
+    lines.push(`Progressed date (UTC): ${pDateUTC.toISOString().slice(0, 16).replace("T", " ")}`);
+    lines.push("");
     lines.push(`Progressed Sun lon:  ${sunLon.toFixed(2)}°`);
     lines.push(`Progressed Moon lon: ${moonLon.toFixed(2)}°`);
     lines.push(`Separation (Moon→Sun): ${separation.toFixed(2)}°`);
@@ -459,7 +467,6 @@ export async function POST(req: Request) {
       lines.push(`- ${label}: ${formatYMD(d)}`);
     }
 
-    // 360° boundary is the next wrap-crossing (next new moon)
     const nextNM = await findNextNewMoonUTC(asOfUTC, getAt);
     lines.push(`- Next New Moon (360°): ${formatYMD(nextNM)}`);
 
