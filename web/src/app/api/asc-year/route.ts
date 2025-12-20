@@ -5,12 +5,12 @@ import { NextResponse } from "next/server";
 /**
  * URA /api/asc-year
  *
- * Parallel to /api/lunation.
- * Computes an Ascendant Year Cycle snapshot for the progressed date:
- * - progressed date via secondary progression (day-for-a-year)
- * - fetch progressed ASC/MC/houses + progressed Sun lon from astro-service
- * - compute Sun position relative to ASC (0..360)
- * - return raw JSON (for the "raw data box" UI)
+ * Parallel to /api/lunation (does not touch lunation logic).
+ *
+ * Accepts:
+ * - text/plain KV
+ * - application/json direct KV
+ * - application/json wrapper: { text: "birth_datetime: ...\n..." }
  */
 
 type ParsedInput = {
@@ -71,6 +71,12 @@ function parseTextKV(body: string): ParsedInput {
   return out as ParsedInput;
 }
 
+/**
+ * ✅ Robust input reader:
+ * - If JSON and has { text: string }, unwrap and parseTextKV(text)
+ * - Else if JSON direct KV, return it
+ * - Else parseTextKV(raw)
+ */
 async function readInput(req: Request): Promise<ParsedInput> {
   const raw = await req.text();
   const contentType = req.headers.get("content-type") || "";
@@ -79,11 +85,19 @@ async function readInput(req: Request): Promise<ParsedInput> {
 
   if (contentType.includes("application/json") || looksJson) {
     try {
-      return JSON.parse(raw) as ParsedInput;
+      const obj = JSON.parse(raw) as any;
+
+      // ✅ support wrapper format
+      if (obj && typeof obj === "object" && typeof obj.text === "string") {
+        return parseTextKV(obj.text);
+      }
+
+      return obj as ParsedInput;
     } catch {
-      // fall through to text parser
+      // fall through
     }
   }
+
   return parseTextKV(raw);
 }
 
@@ -126,7 +140,6 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
 }
 
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
-  // Secondary progression day-for-a-year
   const msPerDay = 86_400_000;
   const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
   return new Date(birthUTC.getTime() + ageDays * msPerDay);
@@ -136,16 +149,15 @@ function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
 // Math helpers
 // ------------------------------
 
-function wrap360(deg: number) {
+function wrap360(deg: number): number {
   return ((deg % 360) + 360) % 360;
 }
 
-// waxing separation from A to B (0..360)
-function sepWaxing(a: number, b: number) {
+function sepWaxing(a: number, b: number): number {
   return wrap360(b - a);
 }
 
-function floorTo(n: number, step: number) {
+function floorTo(n: number, step: number): number {
   return Math.floor(n / step) * step;
 }
 
@@ -211,11 +223,10 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
 }
 
 // ------------------------------
-// Asc Year Cycle model (raw + stable)
+// Asc Year Cycle snapshot
 // ------------------------------
 
 function ascYearCycleSnapshot(ascLon: number, sunLon: number) {
-  // position of Sun relative to ASC (0..360)
   const pos = sepWaxing(ascLon, sunLon);
 
   const phases = [
