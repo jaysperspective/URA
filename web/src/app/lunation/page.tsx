@@ -71,13 +71,12 @@ lon: -79.395`
           `ERROR\n${lun.data?.error ?? `HTTP ${lun.res.status}`}`
         );
       } else {
-        // if route returns { ok:true, text:"..." }, use it
         const t =
           typeof lun.data?.text === "string" ? lun.data.text : pretty(lun.data);
         setLunationOut(t);
       }
 
-      // ✅ ASC YEAR: keep raw JSON
+      // ✅ ASC YEAR: prefer clean text, fallback to raw JSON
       if (!asc.res.ok || asc.data?.ok === false) {
         setAscYearOut(
           `ERROR\n${pretty({
@@ -87,7 +86,9 @@ lon: -79.395`
           })}`
         );
       } else {
-        setAscYearOut(pretty(asc.data));
+        const t =
+          typeof asc.data?.text === "string" ? asc.data.text : pretty(asc.data);
+        setAscYearOut(t);
       }
     } catch (e: any) {
       const msg = e?.message ?? String(e);
@@ -123,7 +124,7 @@ lon: -79.395`
           spellCheck={false}
         />
 
-        {/* Progressed Lunation output (clean text) */}
+        {/* Progressed Lunation output */}
         <div className="w-full mt-4 rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
           <div className="text-[12px] text-neutral-400 mb-2">
             URA • Progressed Lunation Model (raw)
@@ -136,7 +137,7 @@ lon: -79.395`
           </pre>
         </div>
 
-        {/* Ascendant Year output (raw JSON) */}
+        {/* Ascendant Year output */}
         <div className="w-full mt-4 rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
           <div className="text-[12px] text-neutral-400 mb-2">
             URA • Ascendant Year Cycle (raw)
