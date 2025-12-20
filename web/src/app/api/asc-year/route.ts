@@ -5,13 +5,12 @@ import { NextResponse } from "next/server";
 /**
  * URA /api/asc-year
  *
- * Parallel to /api/lunation (does not touch lunation logic).
- * Purpose:
- * - Compute an Ascendant Year Cycle snapshot for the progressed date:
- *   - progressed date via secondary progression (day-for-a-year)
- *   - fetch progressed ASC/MC/houses + progressed Sun lon from astro-service
- *   - compute position of progressed Sun relative to progressed ASC (0..360)
- *   - return raw JSON (for the "raw data box" UI)
+ * Parallel to /api/lunation.
+ * Computes an Ascendant Year Cycle snapshot for the progressed date:
+ * - progressed date via secondary progression (day-for-a-year)
+ * - fetch progressed ASC/MC/houses + progressed Sun lon from astro-service
+ * - compute Sun position relative to ASC (0..360)
+ * - return raw JSON (for the "raw data box" UI)
  */
 
 type ParsedInput = {
@@ -37,6 +36,8 @@ type AstroServiceChart = {
   };
 };
 
+type AstroServiceData = NonNullable<AstroServiceChart["data"]>;
+
 const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 
 // ------------------------------
@@ -58,9 +59,11 @@ function parseTextKV(body: string): ParsedInput {
     out[key] = val;
   }
 
-  if (!out.birth_datetime) throw new Error("missing birth_datetime");
-  if (!out.tz_offset) throw new Error("missing tz_offset");
-  if (!out.as_of_date) throw new Error("missing as_of_date");
+  if (!out.birth_datetime) {
+    throw new Error("Missing birth_datetime. Example: birth_datetime: 1990-01-24 01:39");
+  }
+  if (!out.tz_offset) throw new Error("Missing tz_offset. Example: tz_offset: -05:00");
+  if (!out.as_of_date) throw new Error("Missing as_of_date. Example: as_of_date: 2025-12-19");
 
   if (out.lat != null) out.lat = Number(out.lat);
   if (out.lon != null) out.lon = Number(out.lon);
@@ -68,9 +71,6 @@ function parseTextKV(body: string): ParsedInput {
   return out as ParsedInput;
 }
 
-/**
- * ✅ NEW: Accept BOTH JSON and your text/plain KV format
- */
 async function readInput(req: Request): Promise<ParsedInput> {
   const raw = await req.text();
   const contentType = req.headers.get("content-type") || "";
@@ -81,10 +81,9 @@ async function readInput(req: Request): Promise<ParsedInput> {
     try {
       return JSON.parse(raw) as ParsedInput;
     } catch {
-      // fall through
+      // fall through to text parser
     }
   }
-
   return parseTextKV(raw);
 }
 
@@ -127,6 +126,7 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
 }
 
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
+  // Secondary progression day-for-a-year
   const msPerDay = 86_400_000;
   const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
   return new Date(birthUTC.getTime() + ageDays * msPerDay);
@@ -136,16 +136,16 @@ function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
 // Math helpers
 // ------------------------------
 
-function wrap360(deg: number): number {
+function wrap360(deg: number) {
   return ((deg % 360) + 360) % 360;
 }
 
 // waxing separation from A to B (0..360)
-function sepWaxing(a: number, b: number): number {
+function sepWaxing(a: number, b: number) {
   return wrap360(b - a);
 }
 
-function floorTo(n: number, step: number): number {
+function floorTo(n: number, step: number) {
   return Math.floor(n / step) * step;
 }
 
@@ -161,7 +161,7 @@ async function fetchChartByYMDHM(
   minute: number,
   lat: number,
   lon: number
-): Promise<AstroServiceChart["data"]> {
+): Promise<AstroServiceData> {
   const res = await fetch(`${ASTRO_URL}/chart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -193,12 +193,10 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
 
   const asc = data.ascendant;
   const mc = data.mc;
-  const sunLon = data?.planets?.sun?.lon;
+  const sunLon = data.planets?.sun?.lon;
 
-  if (typeof asc !== "number")
-    throw new Error("astro-service missing ascendant (check lat/lon)");
-  if (typeof mc !== "number")
-    throw new Error("astro-service missing mc (check lat/lon)");
+  if (typeof asc !== "number") throw new Error("astro-service missing ascendant (check lat/lon)");
+  if (typeof mc !== "number") throw new Error("astro-service missing mc (check lat/lon)");
   if (typeof sunLon !== "number") throw new Error("astro-service missing sun lon");
 
   const houses = Array.isArray(data.houses) ? data.houses.map(wrap360) : [];
@@ -213,11 +211,12 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
 }
 
 // ------------------------------
-// Asc Year Cycle calc (raw)
+// Asc Year Cycle model (raw + stable)
 // ------------------------------
 
-function ascYearCycleSnapshot(asclon: number, sunLon: number) {
-  const rel = sepWaxing(asclon, sunLon); // (sun - asc) 0..360
+function ascYearCycleSnapshot(ascLon: number, sunLon: number) {
+  // position of Sun relative to ASC (0..360)
+  const pos = sepWaxing(ascLon, sunLon);
 
   const phases = [
     "Ascendant Spring",
@@ -230,41 +229,39 @@ function ascYearCycleSnapshot(asclon: number, sunLon: number) {
     "Winter Seed",
   ];
 
-  const phaseIdx = Math.floor(rel / 45);
+  const phaseIdx = Math.floor(pos / 45);
   const phase = phases[phaseIdx] || phases[0];
 
-  const within = rel % 45;
-  const subPhaseIdx = Math.floor(within / 15);
-  const subPhase =
-    ["Sub-phase 1", "Sub-phase 2", "Sub-phase 3"][subPhaseIdx] || "Sub-phase 1";
+  const withinPhase = pos % 45;
+  const segIdx = Math.floor(withinPhase / 15);
+  const segLabel = ["Initiation", "Development", "Integration"][segIdx] || "Initiation";
 
-  const base = floorTo(rel, 15);
-  const next = wrap360(base + 15);
-
-  const boundaries = {
-    deg0: wrap360(asclon + 0),
-    deg45: wrap360(asclon + 45),
-    deg90: wrap360(asclon + 90),
-    deg135: wrap360(asclon + 135),
-    deg180: wrap360(asclon + 180),
-    deg225: wrap360(asclon + 225),
-    deg270: wrap360(asclon + 270),
-    deg315: wrap360(asclon + 315),
-    deg360: wrap360(asclon + 360),
-  };
+  const segStart = floorTo(withinPhase, 15);
+  const segEnd = segStart + 15;
 
   return {
-    anchorAsc: asclon,
-    cyclePosition: rel,
+    anchorAsc: ascLon,
+    cyclePosition: pos,
     phase,
-    subPhase,
-    subPhaseRange: { start: base, end: next },
-    boundaries,
+    subPhase: `${segLabel} (segment ${segIdx + 1}/3)`,
+    degreesIntoPhase: withinPhase,
+    subPhaseWindowWithinPhase: { start: segStart, end: segEnd },
+    boundariesLongitude: {
+      deg0: wrap360(ascLon + 0),
+      deg45: wrap360(ascLon + 45),
+      deg90: wrap360(ascLon + 90),
+      deg135: wrap360(ascLon + 135),
+      deg180: wrap360(ascLon + 180),
+      deg225: wrap360(ascLon + 225),
+      deg270: wrap360(ascLon + 270),
+      deg315: wrap360(ascLon + 315),
+      deg360: wrap360(ascLon + 360),
+    },
   };
 }
 
 // ------------------------------
-// Route handler
+// Route
 // ------------------------------
 
 export async function POST(req: Request) {
@@ -280,20 +277,14 @@ export async function POST(req: Request) {
     }
 
     const angles = await fetchAscSunAngles(pDateUTC, input.lat, input.lon);
-    const yearCycle = ascYearCycleSnapshot(angles.ascendant, angles.sunLon);
+    const cycle = ascYearCycleSnapshot(angles.ascendant, angles.sunLon);
 
     return NextResponse.json({
       ok: true,
       input,
       progressedDateUTC: pDateUTC.toISOString(),
-      progressed: {
-        julianDay: angles.julianDay,
-        ascendant: angles.ascendant,
-        mc: angles.mc,
-        houses: angles.houses,
-        sunLon: angles.sunLon,
-      },
-      yearCycle,
+      progressed: angles,
+      ascYear: cycle,
     });
   } catch (err: any) {
     return NextResponse.json(
