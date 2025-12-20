@@ -5,10 +5,13 @@ import { NextResponse } from "next/server";
 /**
  * URA /api/lunation
  *
- * Stable behavior:
+ * RESTORED OUTPUT CONTRACT:
+ * - returns { ok: true, text: string } just like the earlier “working perfectly” version
+ *
+ * Internals:
  * - secondary progressed Sun/Moon separation (waxing 0..360)
- * - anchored to previous progressed New Moon (wrap event 360->0)
- * - returns phase + sub-phase + boundary timestamps (0,45,...,315, next new moon)
+ * - anchor to previous progressed New Moon (wrap event 360->0)
+ * - boundaries for 0..315 via sep>=deg, and 360 via next wrap-crossing (next new moon)
  *
  * Accepts:
  * - text/plain KV
@@ -39,7 +42,7 @@ type AstroServiceData = NonNullable<AstroServiceChart["data"]>;
 const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 
 // ------------------------------
-// Parsing helpers
+// Parsing
 // ------------------------------
 
 function parseTextKV(body: string): ParsedInput {
@@ -79,12 +82,9 @@ async function readInput(req: Request): Promise<ParsedInput> {
   if (contentType.includes("application/json") || looksJson) {
     try {
       const obj = JSON.parse(raw) as any;
-
-      // support wrapper format: { text: "birth_datetime: ..." }
       if (obj && typeof obj === "object" && typeof obj.text === "string") {
         return parseTextKV(obj.text);
       }
-
       return obj as ParsedInput;
     } catch {
       // fall through
@@ -95,33 +95,7 @@ async function readInput(req: Request): Promise<ParsedInput> {
 }
 
 // ------------------------------
-// Core math helpers
-// ------------------------------
-
-function wrap360(deg: number) {
-  return ((deg % 360) + 360) % 360;
-}
-
-// waxing separation from A to B (0..360)
-function sepWaxing(a: number, b: number) {
-  return wrap360(b - a);
-}
-
-// map 0..360 to -180..180 (good for bracketing around conjunction)
-function wrap180(deg: number) {
-  const w = wrap360(deg);
-  return ((w + 180) % 360) - 180;
-}
-
-function formatYMD(d: Date) {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-// ------------------------------
-// Secondary progression utilities
+// Time helpers
 // ------------------------------
 
 function parseBirthToUTC(birth_datetime: string, tz_offset: string): Date {
@@ -159,14 +133,37 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
 }
 
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
-  // Secondary progression day-for-a-year
   const msPerDay = 86_400_000;
   const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
   return new Date(birthUTC.getTime() + ageDays * msPerDay);
 }
 
 // ------------------------------
-// Astro-service fetch helpers
+// Math helpers
+// ------------------------------
+
+function wrap360(deg: number) {
+  return ((deg % 360) + 360) % 360;
+}
+
+function wrap180(deg: number) {
+  const w = wrap360(deg);
+  return ((w + 180) % 360) - 180;
+}
+
+function sepWaxing(a: number, b: number) {
+  return wrap360(b - a);
+}
+
+function formatYMD(d: Date) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// ------------------------------
+// Astro-service fetch
 // ------------------------------
 
 async function fetchChartByYMDHM(
@@ -176,7 +173,6 @@ async function fetchChartByYMDHM(
   hour: number,
   minute: number
 ): Promise<AstroServiceData> {
-  // Sun/Moon do not require real location; keep stable (0,0)
   const res = await fetch(`${ASTRO_URL}/chart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -217,7 +213,7 @@ async function fetchSunMoonLongitudes(pDateUTC: Date) {
 }
 
 // ------------------------------
-// Lunation model helpers
+// Model helpers
 // ------------------------------
 
 function phaseLabelFromSep(sep: number) {
@@ -237,16 +233,14 @@ function phaseLabelFromSep(sep: number) {
 
 function subPhaseLabelFromSep(sep: number) {
   const within = wrap360(sep) % 45;
-  const seg = Math.floor(within / 15); // 0..2
+  const seg = Math.floor(within / 15);
   const label = ["Initiation", "Development", "Integration"][seg] || "Initiation";
   return { label, segment: seg + 1, total: 3, within };
 }
 
-// Cache separation calls (reduces astro-service load during scans/bisections)
 function makeSepCache(birthUTC: Date) {
   const cache = new Map<number, { sep: number; sunLon: number; moonLon: number }>();
-
-  return async function getAt(asOfUTCms: number) {
+  return async (asOfUTCms: number) => {
     const key = Math.floor(asOfUTCms / 1000) * 1000;
     const hit = cache.get(key);
     if (hit) return hit;
@@ -262,7 +256,6 @@ function makeSepCache(birthUTC: Date) {
   };
 }
 
-// Find previous progressed new moon by scanning backwards for wrap (360->0)
 async function findPreviousNewMoonUTC(
   asOfUTC: Date,
   getAt: (ms: number) => Promise<{ sep: number }>
@@ -277,13 +270,11 @@ async function findPreviousNewMoonUTC(
     const t0 = t1 - oneDay;
     const s0 = (await getAt(t0)).sep;
 
-    // yesterday near 360, today near 0 => crossing
     if (s0 > 300 && s1 < 60) {
       let lo = t0;
       let hi = t1;
 
       const f = async (ms: number) => wrap180((await getAt(ms)).sep);
-
       let flo = await f(lo);
       let fhi = await f(hi);
 
@@ -318,7 +309,6 @@ async function findPreviousNewMoonUTC(
   throw new Error("could not locate previous progressed new moon (scan exceeded limit)");
 }
 
-// Find next progressed new moon by scanning forward for wrap (360->0)
 async function findNextNewMoonUTC(
   startUTC: Date,
   getAt: (ms: number) => Promise<{ sep: number }>
@@ -333,13 +323,11 @@ async function findNextNewMoonUTC(
     const t1 = t0 + oneDay;
     const s1 = (await getAt(t1)).sep;
 
-    // yesterday near 360, today near 0 => crossing
     if (s0 > 300 && s1 < 60) {
       let lo = t0;
       let hi = t1;
 
       const f = async (ms: number) => wrap180((await getAt(ms)).sep);
-
       let flo = await f(lo);
       let fhi = await f(hi);
 
@@ -374,15 +362,12 @@ async function findNextNewMoonUTC(
   throw new Error("could not locate next progressed new moon (scan exceeded limit)");
 }
 
-// Find boundary date where separation reaches targetDeg after anchor.
-// NOTE: targetDeg must be in [0,315] for this function. 360 is handled by next new moon.
 async function findBoundaryUTC(
   anchorUTC: Date,
   targetDeg: number,
   getAt: (ms: number) => Promise<{ sep: number }>
 ): Promise<Date> {
   const oneDay = 86_400_000;
-
   if (targetDeg === 0) return new Date(anchorUTC.getTime());
 
   let lo = anchorUTC.getTime();
@@ -440,56 +425,45 @@ export async function POST(req: Request) {
 
     const boundaryTargets = [0, 45, 90, 135, 180, 225, 270, 315] as const;
     const boundaryLabels = [
-      "New Moon",
-      "Crescent",
-      "First Quarter",
-      "Gibbous",
-      "Full Moon",
-      "Disseminating",
-      "Last Quarter",
-      "Balsamic",
+      "New Moon (0°)",
+      "Crescent (45°)",
+      "First Quarter (90°)",
+      "Gibbous (135°)",
+      "Full Moon (180°)",
+      "Disseminating (225°)",
+      "Last Quarter (270°)",
+      "Balsamic (315°)",
     ] as const;
 
-    const boundaries: Array<{ deg: number; label: string; dateUTC: string }> = [];
+    const lines: string[] = [];
+    lines.push("URA • Progressed Lunation Model");
+    lines.push("");
+    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
+    lines.push(`Birth (UTC):   ${birthUTC.toISOString().slice(0, 16).replace("T", " ")}`);
+    lines.push(`As-of (UTC):   ${input.as_of_date}`);
+    lines.push("");
+    lines.push(`Progressed Sun lon:  ${sunLon.toFixed(2)}°`);
+    lines.push(`Progressed Moon lon: ${moonLon.toFixed(2)}°`);
+    lines.push(`Separation (Moon→Sun): ${separation.toFixed(2)}°`);
+    lines.push("");
+    lines.push(`Current phase: ${phase}`);
+    lines.push(`Current sub-phase: ${sub.label} (segment ${sub.segment}/${sub.total})`);
+    lines.push(`Degrees into phase: ${sub.within.toFixed(2)}°`);
+    lines.push("");
+    lines.push("Current cycle boundaries:");
 
     for (let i = 0; i < boundaryTargets.length; i++) {
       const deg = boundaryTargets[i];
       const label = boundaryLabels[i];
-      const boundaryDate = await findBoundaryUTC(prevNewMoonUTC, deg, getAt);
-
-      boundaries.push({
-        deg,
-        label,
-        dateUTC: formatYMD(boundaryDate),
-      });
+      const d = await findBoundaryUTC(prevNewMoonUTC, deg, getAt);
+      lines.push(`- ${label}: ${formatYMD(d)}`);
     }
 
-    // ✅ 360° boundary = next new moon (wrap crossing), not "sep >= 360"
-    const nextNewMoonUTC = await findNextNewMoonUTC(asOfUTC, getAt);
-    boundaries.push({
-      deg: 360,
-      label: "Next New Moon",
-      dateUTC: formatYMD(nextNewMoonUTC),
-    });
+    // 360° boundary is the next wrap-crossing (next new moon)
+    const nextNM = await findNextNewMoonUTC(asOfUTC, getAt);
+    lines.push(`- Next New Moon (360°): ${formatYMD(nextNM)}`);
 
-    return NextResponse.json({
-      ok: true,
-      input,
-      model: {
-        birth_local: `${input.birth_datetime} tz_offset ${input.tz_offset}`,
-        birth_utc: birthUTC.toISOString(),
-        as_of_utc: input.as_of_date,
-        progressed_date_utc: pDateUTC.toISOString(),
-        progressed_sun_lon: sunLon,
-        progressed_moon_lon: moonLon,
-        separation_moon_minus_sun: separation,
-        current_phase: phase,
-        current_sub_phase: `${sub.label} (segment ${sub.segment}/${sub.total})`,
-        degrees_into_phase: sub.within,
-        anchor_prev_new_moon_utc: formatYMD(prevNewMoonUTC),
-        cycle_boundaries: boundaries,
-      },
-    });
+    return NextResponse.json({ ok: true, text: lines.join("\n") });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || "unknown error" },
