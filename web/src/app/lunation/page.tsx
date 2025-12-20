@@ -90,6 +90,14 @@ function pretty(x: any) {
   }
 }
 
+function isValidLatLon(lat: number | null, lon: number | null) {
+  if (lat == null || lon == null) return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (Math.abs(lat) > 90) return false;
+  if (Math.abs(lon) > 180) return false;
+  return true;
+}
+
 export default function LunationConsolePage() {
   // Default values aligned with your screenshot
   const [birthDate, setBirthDate] = useState("1990-01-24");
@@ -99,6 +107,8 @@ export default function LunationConsolePage() {
   const [birthCityState, setBirthCityState] = useState("Danville, VA");
   const [resolvedLat, setResolvedLat] = useState<number | null>(36.585);
   const [resolvedLon, setResolvedLon] = useState<number | null>(-79.395);
+
+  // display_name (confidence line)
   const [resolvedLabel, setResolvedLabel] = useState<string>("");
 
   const [asOfDate, setAsOfDate] = useState("2025-12-19");
@@ -109,9 +119,15 @@ export default function LunationConsolePage() {
   const [loading, setLoading] = useState(false);
   const [statusLine, setStatusLine] = useState<string>("");
 
+  // Soft guardrail UI
+  const [locationNudge, setLocationNudge] = useState<string>("");
+
+  const hasResolvedLocation = isValidLatLon(resolvedLat, resolvedLon);
+
   const debugPayload = useMemo(() => {
     // Shows the raw text that we POST to both endpoints (useful for sanity)
-    if (!resolvedLat || !resolvedLon) return "";
+    if (!hasResolvedLocation) return "";
+
     const y = Number(birthDate.slice(0, 4));
     const m = Number(birthDate.slice(5, 7));
     const d = Number(birthDate.slice(8, 10));
@@ -128,7 +144,7 @@ export default function LunationConsolePage() {
       `lat: ${resolvedLat}`,
       `lon: ${resolvedLon}`,
     ].join("\n");
-  }, [birthDate, birthTime, timeZone, asOfDate, resolvedLat, resolvedLon]);
+  }, [birthDate, birthTime, timeZone, asOfDate, resolvedLat, resolvedLon, hasResolvedLocation]);
 
   async function geocodeCityState(): Promise<GeoResult> {
     const q = birthCityState.trim();
@@ -169,6 +185,31 @@ export default function LunationConsolePage() {
     return { res, data };
   }
 
+  async function resolveLocation(): Promise<boolean> {
+    setLocationNudge("");
+
+    // Clear previous location first (so UI reflects we’re resolving fresh)
+    setResolvedLat(null);
+    setResolvedLon(null);
+    setResolvedLabel("");
+
+    const geo = await geocodeCityState();
+    if (!geo.ok) {
+      setStatusLine(`Location error: ${geo.error}`);
+      setLocationNudge(geo.error);
+      return false;
+    }
+
+    setResolvedLat(geo.lat);
+    setResolvedLon(geo.lon);
+    setResolvedLabel(geo.display_name ?? "");
+
+    setStatusLine(geo.cached ? "Location resolved (cached)." : "Location resolved.");
+    setTimeout(() => setStatusLine(""), 1500);
+
+    return true;
+  }
+
   async function run() {
     setLoading(true);
     setLunationOut("");
@@ -180,14 +221,11 @@ export default function LunationConsolePage() {
       let lat = resolvedLat;
       let lon = resolvedLon;
 
-      if (lat == null || lon == null) {
-        const geo = await geocodeCityState();
-        if (!geo.ok) throw new Error(geo.error);
-        lat = geo.lat;
-        lon = geo.lon;
-        setResolvedLat(lat);
-        setResolvedLon(lon);
-        setResolvedLabel(geo.display_name ?? "");
+      if (!isValidLatLon(lat, lon)) {
+        const ok = await resolveLocation();
+        if (!ok) throw new Error("Location not resolved.");
+        lat = geoSafeNum(resolvedLat);
+        lon = geoSafeNum(resolvedLon);
       }
 
       // 2) Compute tz_offset from selected IANA timezone + birth wall time
@@ -251,6 +289,45 @@ export default function LunationConsolePage() {
     }
   }
 
+  // Because state updates are async, when run() calls resolveLocation() and then immediately
+  // reads resolvedLat/resolvedLon, those may still be stale. So, we only read lat/lon from
+  // locals after resolveLocation() succeeds. This helper throws if something is off.
+  function geoSafeNum(n: number | null): number {
+    if (typeof n !== "number" || !Number.isFinite(n)) {
+      throw new Error("Resolved coordinates missing.");
+    }
+    return n;
+  }
+
+  async function onGenerateClick() {
+    // Soft guardrail:
+    // - If not resolved: try auto-resolve, then proceed.
+    // - If the user left location empty: show subtle nudge.
+    if (loading) return;
+
+    if (!hasResolvedLocation) {
+      const q = birthCityState.trim();
+      if (!q) {
+        setLocationNudge("Enter a City, State, then Resolve.");
+        return;
+      }
+
+      const ok = await resolveLocation();
+      if (!ok) return;
+
+      // After resolving, continue to run.
+      // Note: run() will re-check coords and proceed.
+      await run();
+      return;
+    }
+
+    await run();
+  }
+
+  // Generate button: visually disabled if location unresolved, but still clickable
+  // so it can auto-resolve on click.
+  const generateLooksDisabled = !hasResolvedLocation;
+
   return (
     <div className="min-h-[100svh] bg-black text-neutral-100 flex items-center justify-center p-6">
       <div className="w-full max-w-3xl">
@@ -258,10 +335,20 @@ export default function LunationConsolePage() {
           <div className="text-sm text-neutral-400">
             URA • Progressed Lunation Console
           </div>
+
           <button
-            onClick={run}
-            className="text-sm px-3 py-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 disabled:opacity-50"
+            onClick={onGenerateClick}
+            className={[
+              "text-sm px-3 py-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 disabled:opacity-50",
+              generateLooksDisabled ? "opacity-50" : "",
+            ].join(" ")}
             disabled={loading}
+            aria-disabled={generateLooksDisabled || loading}
+            title={
+              generateLooksDisabled
+                ? "Resolve location before generating (or click Generate to auto-resolve)."
+                : "Generate"
+            }
           >
             {loading ? "Generating…" : "Generate"}
           </button>
@@ -313,31 +400,38 @@ export default function LunationConsolePage() {
 
           {/* Location section */}
           <div className="mt-4">
-            <div className="text-[11px] text-neutral-500 mb-1">Birth location (City, State)</div>
+            <div className="text-[11px] text-neutral-500 mb-1">
+              Birth location (City, State)
+            </div>
+
             <div className="flex gap-2">
               <input
                 value={birthCityState}
-                onChange={(e) => setBirthCityState(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setBirthCityState(v);
+
+                  // If the user edits location, treat it as needing re-resolve.
+                  setResolvedLat(null);
+                  setResolvedLon(null);
+                  setResolvedLabel("");
+                  setLocationNudge("");
+                }}
                 placeholder="Danville, VA"
                 className="w-full rounded-md bg-black/40 border border-neutral-800 px-3 py-2 text-[13px] outline-none"
                 style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
               />
+
               <button
                 type="button"
                 onClick={async () => {
-                  setResolvedLat(null);
-                  setResolvedLon(null);
-                  setResolvedLabel("");
-                  const geo = await geocodeCityState();
-                  if (!geo.ok) {
-                    setStatusLine(`Location error: ${geo.error}`);
+                  if (loading) return;
+                  const q = birthCityState.trim();
+                  if (!q) {
+                    setLocationNudge("Enter a City, State, then Resolve.");
                     return;
                   }
-                  setResolvedLat(geo.lat);
-                  setResolvedLon(geo.lon);
-                  setResolvedLabel(geo.display_name ?? "");
-                  setStatusLine(geo.cached ? "Location resolved (cached)." : "Location resolved.");
-                  setTimeout(() => setStatusLine(""), 1500);
+                  await resolveLocation();
                 }}
                 className="text-sm px-3 py-2 rounded-md bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 disabled:opacity-50"
                 disabled={loading}
@@ -346,18 +440,29 @@ export default function LunationConsolePage() {
               </button>
             </div>
 
+            {/* subtle inline nudge */}
+            {locationNudge ? (
+              <div className="mt-2 text-[12px] text-neutral-400">
+                {locationNudge}
+              </div>
+            ) : null}
+
             <div className="mt-2 text-[12px] text-neutral-500">
-              {resolvedLat != null && resolvedLon != null ? (
-                <>
-                  lat: <span className="text-neutral-300">{resolvedLat}</span> • lon:{" "}
-                  <span className="text-neutral-300">{resolvedLon}</span>
+              {hasResolvedLocation ? (
+                <div className="space-y-1">
                   {resolvedLabel ? (
-                    <>
-                      {" "}
-                      • <span className="text-neutral-400">{resolvedLabel}</span>
-                    </>
-                  ) : null}
-                </>
+                    <div className="text-neutral-400">
+                      Resolved to: <span className="text-neutral-200">{resolvedLabel}</span>
+                    </div>
+                  ) : (
+                    <div className="text-neutral-400">Resolved.</div>
+                  )}
+
+                  <div className="text-neutral-600">
+                    lat: <span className="text-neutral-400">{resolvedLat}</span> • lon:{" "}
+                    <span className="text-neutral-400">{resolvedLon}</span>
+                  </div>
+                </div>
               ) : (
                 <>Location not resolved yet.</>
               )}
