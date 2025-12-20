@@ -22,21 +22,21 @@ lon: -79.395`
         "birth_datetime: YYYY-MM-DD HH:MM",
         "as_of_date: YYYY-MM-DD",
         "tz_offset: -05:00",
-        "lat: 36.585           (required for asc-year)",
-        "lon: -79.395          (required for asc-year)",
+        "lat: 36.585",
+        "lon: -79.395",
       ].join("\n"),
     []
   );
 
-  function pretty(obj: any) {
+  function pretty(x: any) {
     try {
-      return JSON.stringify(obj, null, 2);
+      return JSON.stringify(x, null, 2);
     } catch {
-      return String(obj);
+      return String(x);
     }
   }
 
-  async function postKV(endpoint: string, text: string) {
+  async function postText(endpoint: string, text: string) {
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "text/plain" },
@@ -47,9 +47,8 @@ lon: -79.395`
     try {
       data = await res.json();
     } catch {
-      // If it ever returns non-JSON, capture raw text
-      const t = await res.text().catch(() => "");
-      data = { ok: false, error: "Non-JSON response", raw: t };
+      const raw = await res.text().catch(() => "");
+      data = { ok: false, error: "Non-JSON response", raw };
     }
 
     return { res, data };
@@ -61,10 +60,10 @@ lon: -79.395`
     setAscYearOut("");
 
     try {
-      // Run both in parallel from the same textarea input
+      // Run both in parallel, same input, same format
       const [lun, asc] = await Promise.all([
-        postKV("/api/lunation", input),
-        postKV("/api/asc-year", input),
+        postText("/api/lunation", input),
+        postText("/api/asc-year", input),
       ]);
 
       if (!lun.res.ok || lun.data?.ok === false) {
@@ -124,7 +123,7 @@ lon: -79.395`
           spellCheck={false}
         />
 
-        {/* Progressed Lunation box */}
+        {/* Progressed Lunation output */}
         <div className="w-full mt-4 rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
           <div className="text-[12px] text-neutral-400 mb-2">
             URA • Progressed Lunation Model (raw)
@@ -137,7 +136,7 @@ lon: -79.395`
           </pre>
         </div>
 
-        {/* Ascendant Year box (new) */}
+        {/* Ascendant Year output */}
         <div className="w-full mt-4 rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
           <div className="text-[12px] text-neutral-400 mb-2">
             URA • Ascendant Year Cycle (raw)
@@ -153,3 +152,4 @@ lon: -79.395`
     </div>
   );
 }
+
