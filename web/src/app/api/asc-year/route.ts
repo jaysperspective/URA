@@ -4,17 +4,21 @@ import { NextResponse } from "next/server";
 
 /**
  * URA /api/asc-year
- * Output: JSON (and we include `text` for clean display)
  *
- * ✅ Adds in-memory cache keyed by birthUTC|asOf|tz|lat|lon
- * - TTL default: 6 hours
- * - Cache resets on pm2 restart/deploy
+ * NATAL Ascendant Year Cycle (anchor = natal ASC)
+ * - Computes natal ASC/MC/houses + natal Sun longitude (requires lat/lon)
+ * - Computes position of natal Sun relative to natal ASC (0..360)
+ * - Returns both raw JSON + a clean `text` block for the UI
+ *
+ * Notes:
+ * - We still accept as_of_date in input (because the /lunation page sends it),
+ *   but it is NOT used for natal ASC-year. It's ignored.
  */
 
 type ParsedInput = {
-  birth_datetime: string;
-  tz_offset: string;
-  as_of_date: string;
+  birth_datetime: string; // "YYYY-MM-DD HH:MM" (local)
+  tz_offset: string; // "-05:00"
+  as_of_date?: string; // ignored for natal asc-year
   lat?: number;
   lon?: number;
 };
@@ -39,10 +43,10 @@ type AstroServiceData = NonNullable<AstroServiceChart["data"]>;
 const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 
 // ------------------------------
-// Cache
+// Cache (in-memory)
 // ------------------------------
 
-const ASCYEAR_CACHE_VERSION = "asc-year:v1";
+const ASCYEAR_CACHE_VERSION = "asc-year:natal:v1"; // bumped because behavior changed
 const ASCYEAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 type CacheEntry = { expiresAt: number; payload: any };
@@ -63,6 +67,7 @@ function getCache(key: string) {
 }
 
 function setCache(key: string, payload: any) {
+  // light pruning
   if (ASCYEAR_CACHE.size > 500) {
     const now = Date.now();
     for (const [k, v] of ASCYEAR_CACHE) {
@@ -94,7 +99,7 @@ function parseTextKV(body: string): ParsedInput {
 
   if (!out.birth_datetime) throw new Error("missing birth_datetime");
   if (!out.tz_offset) throw new Error("missing tz_offset");
-  if (!out.as_of_date) throw new Error("missing as_of_date");
+  // as_of_date may exist (from /lunation UI) but is optional here
 
   if (out.lat != null) out.lat = Number(out.lat);
   if (out.lon != null) out.lon = Number(out.lon);
@@ -119,6 +124,7 @@ async function readInput(req: Request): Promise<ParsedInput> {
       // fall through
     }
   }
+
   return parseTextKV(raw);
 }
 
@@ -151,20 +157,8 @@ function parseBirthToUTC(birth_datetime: string, tz_offset: string): Date {
   return new Date(utcMillis);
 }
 
-function parseAsOfToUTCDate(as_of_date: string): Date {
-  const m = as_of_date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) throw new Error("as_of_date format must be YYYY-MM-DD");
-  const year = Number(m[1]);
-  const month = Number(m[2]) - 1;
-  const day = Number(m[3]);
-  return new Date(Date.UTC(year, month, day, 0, 0, 0));
-}
-
-function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
-  const msPerDay = 86_400_000;
-  const elapsedDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
-  const ageYears = elapsedDays / 365.2425;
-  return new Date(birthUTC.getTime() + ageYears * msPerDay);
+function formatYMDHM(d: Date) {
+  return d.toISOString().slice(0, 16).replace("T", " ");
 }
 
 // ------------------------------
@@ -175,12 +169,9 @@ function wrap360(deg: number) {
   return ((deg % 360) + 360) % 360;
 }
 
+// waxing separation from A to B (0..360)
 function sepWaxing(a: number, b: number) {
   return wrap360(b - a);
-}
-
-function formatYMDHM(d: Date) {
-  return d.toISOString().slice(0, 16).replace("T", " ");
 }
 
 function angleToSign(deg: number) {
@@ -235,12 +226,12 @@ async function fetchChartByYMDHM(
   return json.data;
 }
 
-async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
-  const year = pDateUTC.getUTCFullYear();
-  const month = pDateUTC.getUTCMonth() + 1;
-  const day = pDateUTC.getUTCDate();
-  const hour = pDateUTC.getUTCHours();
-  const minute = pDateUTC.getUTCMinutes();
+async function fetchNatalAscSunAngles(birthUTC: Date, lat: number, lon: number) {
+  const year = birthUTC.getUTCFullYear();
+  const month = birthUTC.getUTCMonth() + 1;
+  const day = birthUTC.getUTCDate();
+  const hour = birthUTC.getUTCHours();
+  const minute = birthUTC.getUTCMinutes();
 
   const data = await fetchChartByYMDHM(year, month, day, hour, minute, lat, lon);
 
@@ -263,7 +254,7 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
 }
 
 // ------------------------------
-// Asc-Year model
+// Asc-Year model (natal anchor)
 // ------------------------------
 
 function ascYearPhase(cyclePos: number) {
@@ -288,6 +279,10 @@ function subPhase(cyclePos: number) {
   return { label, segment: seg + 1, total: 3, within };
 }
 
+// ------------------------------
+// Route handler
+// ------------------------------
+
 export async function POST(req: Request) {
   try {
     const input = await readInput(req);
@@ -301,22 +296,19 @@ export async function POST(req: Request) {
     }
 
     const birthUTC = parseBirthToUTC(input.birth_datetime, input.tz_offset);
-    const asOfUTC = parseAsOfToUTCDate(input.as_of_date);
 
-    const cacheKey = `${ASCYEAR_CACHE_VERSION}|${birthUTC.toISOString()}|${input.tz_offset}|${input.as_of_date}|${lat}|${lon}`;
+    // Cache is independent of as_of_date because this is NATAL-only.
+    const cacheKey = `${ASCYEAR_CACHE_VERSION}|${birthUTC.toISOString()}|${input.tz_offset}|${lat}|${lon}`;
     const cached = getCache(cacheKey);
-    if (cached) {
-      return NextResponse.json(cached);
-    }
+    if (cached) return NextResponse.json(cached);
 
-    const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
-    const progressed = await fetchAscSunAngles(pDateUTC, lat, lon);
+    const natal = await fetchNatalAscSunAngles(birthUTC, lat, lon);
 
-    const cyclePosition = sepWaxing(progressed.asc, progressed.sunLon);
+    const cyclePosition = sepWaxing(natal.asc, natal.sunLon);
     const phase = ascYearPhase(cyclePosition);
     const sub = subPhase(cyclePosition);
 
-    const deg0 = progressed.asc;
+    const deg0 = natal.asc;
     const boundariesLongitude = {
       deg0,
       deg45: wrap360(deg0 + 45),
@@ -333,12 +325,11 @@ export async function POST(req: Request) {
     lines.push("URA • Ascendant Year Cycle");
     lines.push("");
     lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
-    lines.push(`As-of (UTC):   ${input.as_of_date}`);
-    lines.push(`Progressed date (UTC): ${formatYMDHM(pDateUTC)}`);
+    lines.push(`Birth (UTC):   ${formatYMDHM(birthUTC)}`);
     lines.push("");
-    lines.push(`Progressed ASC: ${progressed.asc.toFixed(2)}° (${angleToSign(progressed.asc)})`);
-    lines.push(`Progressed MC:  ${progressed.mc.toFixed(2)}° (${angleToSign(progressed.mc)})`);
-    lines.push(`Progressed Sun: ${progressed.sunLon.toFixed(2)}° (${angleToSign(progressed.sunLon)})`);
+    lines.push(`Natal ASC: ${natal.asc.toFixed(2)}° (${angleToSign(natal.asc)})`);
+    lines.push(`Natal MC:  ${natal.mc.toFixed(2)}° (${angleToSign(natal.mc)})`);
+    lines.push(`Natal Sun: ${natal.sunLon.toFixed(2)}° (${angleToSign(natal.sunLon)})`);
     lines.push("");
     lines.push(`Cycle position (Sun from ASC): ${cyclePosition.toFixed(2)}°`);
     lines.push(`Phase: ${phase}`);
@@ -360,16 +351,16 @@ export async function POST(req: Request) {
       ok: true,
       text: lines.join("\n"),
       input,
-      progressedDateUTC: pDateUTC.toISOString(),
-      progressed: {
-        julianDay: progressed.julianDay,
-        ascendant: progressed.asc,
-        mc: progressed.mc,
-        houses: progressed.houses,
-        sunLon: progressed.sunLon,
+      birthUTC: birthUTC.toISOString(),
+      natal: {
+        julianDay: natal.julianDay,
+        ascendant: natal.asc,
+        mc: natal.mc,
+        houses: natal.houses,
+        sunLon: natal.sunLon,
       },
       ascYear: {
-        anchorAsc: progressed.asc,
+        anchorAsc: natal.asc,
         cyclePosition,
         phase,
         subPhase: `${sub.label} (segment ${sub.segment}/${sub.total})`,
