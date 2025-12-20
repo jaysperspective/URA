@@ -2,6 +2,15 @@
 
 import { NextResponse } from "next/server";
 
+/**
+ * URA /api/asc-year
+ * Output: JSON (and we include `text` for clean display)
+ *
+ * ✅ Adds in-memory cache keyed by birthUTC|asOf|tz|lat|lon
+ * - TTL default: 6 hours
+ * - Cache resets on pm2 restart/deploy
+ */
+
 type ParsedInput = {
   birth_datetime: string;
   tz_offset: string;
@@ -28,6 +37,41 @@ type AstroServiceChart = {
 type AstroServiceData = NonNullable<AstroServiceChart["data"]>;
 
 const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
+
+// ------------------------------
+// Cache
+// ------------------------------
+
+const ASCYEAR_CACHE_VERSION = "asc-year:v1";
+const ASCYEAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+
+type CacheEntry = { expiresAt: number; payload: any };
+const ASCYEAR_CACHE: Map<string, CacheEntry> =
+  (globalThis as any).__URA_ASCYEAR_CACHE__ ??
+  new Map<string, CacheEntry>();
+
+(globalThis as any).__URA_ASCYEAR_CACHE__ = ASCYEAR_CACHE;
+
+function getCache(key: string) {
+  const hit = ASCYEAR_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    ASCYEAR_CACHE.delete(key);
+    return null;
+  }
+  return hit.payload;
+}
+
+function setCache(key: string, payload: any) {
+  if (ASCYEAR_CACHE.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of ASCYEAR_CACHE) {
+      if (now > v.expiresAt) ASCYEAR_CACHE.delete(k);
+      if (ASCYEAR_CACHE.size <= 400) break;
+    }
+  }
+  ASCYEAR_CACHE.set(key, { expiresAt: Date.now() + ASCYEAR_CACHE_TTL_MS, payload });
+}
 
 // ------------------------------
 // Parsing
@@ -116,9 +160,6 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
   return new Date(Date.UTC(year, month, day, 0, 0, 0));
 }
 
-/**
- * ✅ Correct secondary progression: day-for-year.
- */
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
   const msPerDay = 86_400_000;
   const elapsedDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
@@ -226,7 +267,6 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
 // ------------------------------
 
 function ascYearPhase(cyclePos: number) {
-  // 8 phases of 45° each (name them however you want)
   const idx = Math.floor(wrap360(cyclePos) / 45);
   const phases = [
     "Low Winter",
@@ -255,16 +295,24 @@ export async function POST(req: Request) {
     const lat = typeof input.lat === "number" ? input.lat : undefined;
     const lon = typeof input.lon === "number" ? input.lon : undefined;
     if (lat == null || lon == null) {
-      throw new Error("Missing lat/lon (required for ascendant). Example: lat: 36.585 / lon: -79.395");
+      throw new Error(
+        "Missing lat/lon (required for ascendant). Example: lat: 36.585 / lon: -79.395"
+      );
     }
 
     const birthUTC = parseBirthToUTC(input.birth_datetime, input.tz_offset);
     const asOfUTC = parseAsOfToUTCDate(input.as_of_date);
-    const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
 
+    const cacheKey = `${ASCYEAR_CACHE_VERSION}|${birthUTC.toISOString()}|${input.tz_offset}|${input.as_of_date}|${lat}|${lon}`;
+    const cached = getCache(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+
+    const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
     const progressed = await fetchAscSunAngles(pDateUTC, lat, lon);
 
-    const cyclePosition = sepWaxing(progressed.asc, progressed.sunLon); // Sun relative to ASC
+    const cyclePosition = sepWaxing(progressed.asc, progressed.sunLon);
     const phase = ascYearPhase(cyclePosition);
     const sub = subPhase(cyclePosition);
 
@@ -308,9 +356,9 @@ export async function POST(req: Request) {
     lines.push(`- 315°: ${boundariesLongitude.deg315.toFixed(2)}°`);
     lines.push(`- 360°: ${boundariesLongitude.deg360.toFixed(2)}°`);
 
-    return NextResponse.json({
+    const payload = {
       ok: true,
-      text: lines.join("\n"), // ✅ clean display
+      text: lines.join("\n"),
       input,
       progressedDateUTC: pDateUTC.toISOString(),
       progressed: {
@@ -328,7 +376,10 @@ export async function POST(req: Request) {
         degreesIntoPhase: sub.within,
         boundariesLongitude,
       },
-    });
+    };
+
+    setCache(cacheKey, payload);
+    return NextResponse.json(payload);
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || "unknown error" },
@@ -336,4 +387,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
