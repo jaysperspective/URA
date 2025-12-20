@@ -7,10 +7,15 @@ import { NextResponse } from "next/server";
  *
  * Ascendant Year Cycle (ANCHOR = natal ASC, MOVER = transiting Sun at as_of_date)
  *
- * - Natal data (constant): ASC/MC/houses at birth moment
- * - Transit data (changes): Sun longitude at as_of_date (UTC)
- * - Cycle position: sepWaxing(natalASC, transitSunLon)
- * - Phase/sub-phase derived from cycle position
+ * MODEL (12 x 30°):
+ * - cyclePosition = sepWaxing(natalASC, transitSunLon) in [0,360)
+ * - Seasons by quadrant:
+ *    0–90   Spring
+ *    90–180 Summer
+ *    180–270 Fall
+ *    270–360 Winter
+ * - Sub-phase within each season (three 30° signs):
+ *    Cardinal / Fixed / Mutable (in order)
  */
 
 type ParsedInput = {
@@ -44,7 +49,7 @@ const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 // Cache (in-memory)
 // ------------------------------
 
-const ASCYEAR_CACHE_VERSION = "asc-year:natal-asc+transit-sun:v1";
+const ASCYEAR_CACHE_VERSION = "asc-year:natal-asc+transit-sun:12x30:v1";
 const ASCYEAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 type CacheEntry = { expiresAt: number; payload: any };
@@ -62,11 +67,11 @@ function getCache(key: string) {
   return hit.payload;
 }
 function setCache(key: string, payload: any) {
-  if (ASCYEAR_CACHE.size > 800) {
+  if (ASCYEAR_CACHE.size > 1200) {
     const now = Date.now();
     for (const [k, v] of ASCYEAR_CACHE) {
       if (now > v.expiresAt) ASCYEAR_CACHE.delete(k);
-      if (ASCYEAR_CACHE.size <= 650) break;
+      if (ASCYEAR_CACHE.size <= 950) break;
     }
   }
   ASCYEAR_CACHE.set(key, { expiresAt: Date.now() + ASCYEAR_CACHE_TTL_MS, payload });
@@ -271,29 +276,33 @@ async function fetchTransitingSun(asOfUTC: Date, lat: number, lon: number) {
 }
 
 // ------------------------------
-// Phase model
+// Phase model: 12 x 30°
 // ------------------------------
 
-function ascYearPhase(cyclePos: number) {
-  const idx = Math.floor(wrap360(cyclePos) / 45);
-  const phases = [
-    "Low Winter",
-    "Rising Spring",
-    "High Spring",
-    "Early Summer",
-    "High Summer",
-    "Early Fall",
-    "High Fall",
-    "Deep Winter",
-  ];
-  return phases[idx] || phases[0];
+function seasonFromCyclePos(pos: number) {
+  const p = wrap360(pos);
+  if (p < 90) return "Spring";
+  if (p < 180) return "Summer";
+  if (p < 270) return "Fall";
+  return "Winter";
 }
 
-function subPhase(cyclePos: number) {
-  const within = wrap360(cyclePos) % 45;
-  const seg = Math.floor(within / 15);
-  const label = ["Initiation", "Development", "Integration"][seg] || "Initiation";
-  return { label, segment: seg + 1, total: 3, within };
+function modalityFromCyclePos(pos: number) {
+  const p = wrap360(pos);
+  const withinSeason = p % 90; // 0..90
+  const idx = Math.floor(withinSeason / 30); // 0,1,2
+  const mods = ["Cardinal", "Fixed", "Mutable"] as const;
+  return { modality: mods[idx] ?? "Cardinal", segment: idx + 1, total: 3, within: withinSeason % 30 };
+}
+
+function boundariesFromAsc(asc: number) {
+  // 12 boundaries every 30°
+  const b: Record<string, number> = {};
+  for (let i = 0; i <= 12; i++) {
+    const key = `deg${i * 30}`;
+    b[key] = i === 12 ? wrap360(asc) : wrap360(asc + i * 30);
+  }
+  return b;
 }
 
 // ------------------------------
@@ -320,22 +329,11 @@ export async function POST(req: Request) {
     const natal = await fetchNatalAnchor(birthUTC, lat, lon);
     const transit = await fetchTransitingSun(asOfUTC, lat, lon);
 
-    const cyclePosition = sepWaxing(natal.asc, transit.sunLon);
-    const phase = ascYearPhase(cyclePosition);
-    const sub = subPhase(cyclePosition);
+    const cyclePosition = sepWaxing(natal.asc, transit.sunLon); // 0..360
+    const season = seasonFromCyclePos(cyclePosition);
+    const mod = modalityFromCyclePos(cyclePosition);
 
-    const deg0 = natal.asc;
-    const boundariesLongitude = {
-      deg0,
-      deg45: wrap360(deg0 + 45),
-      deg90: wrap360(deg0 + 90),
-      deg135: wrap360(deg0 + 135),
-      deg180: wrap360(deg0 + 180),
-      deg225: wrap360(deg0 + 225),
-      deg270: wrap360(deg0 + 270),
-      deg315: wrap360(deg0 + 315),
-      deg360: deg0,
-    };
+    const boundariesLongitude = boundariesFromAsc(natal.asc);
 
     const lines: string[] = [];
     lines.push("URA • Ascendant Year Cycle");
@@ -350,20 +348,16 @@ export async function POST(req: Request) {
     lines.push(`Transiting Sun: ${transit.sunLon.toFixed(2)}° (${angleToSign(transit.sunLon)})`);
     lines.push("");
     lines.push(`Cycle position (Sun from ASC): ${cyclePosition.toFixed(2)}°`);
-    lines.push(`Phase: ${phase}`);
-    lines.push(`Sub-phase: ${sub.label} (segment ${sub.segment}/${sub.total})`);
-    lines.push(`Degrees into sub-phase: ${sub.within.toFixed(2)}°`);
+    lines.push(`Season: ${season}`);
+    lines.push(`Modality: ${mod.modality} (segment ${mod.segment}/${mod.total})`);
+    lines.push(`Degrees into modality: ${mod.within.toFixed(2)}°`);
     lines.push("");
-    lines.push("Boundaries (longitude):");
-    lines.push(`- 0°:   ${boundariesLongitude.deg0.toFixed(2)}°`);
-    lines.push(`- 45°:  ${boundariesLongitude.deg45.toFixed(2)}°`);
-    lines.push(`- 90°:  ${boundariesLongitude.deg90.toFixed(2)}°`);
-    lines.push(`- 135°: ${boundariesLongitude.deg135.toFixed(2)}°`);
-    lines.push(`- 180°: ${boundariesLongitude.deg180.toFixed(2)}°`);
-    lines.push(`- 225°: ${boundariesLongitude.deg225.toFixed(2)}°`);
-    lines.push(`- 270°: ${boundariesLongitude.deg270.toFixed(2)}°`);
-    lines.push(`- 315°: ${boundariesLongitude.deg315.toFixed(2)}°`);
-    lines.push(`- 360°: ${boundariesLongitude.deg360.toFixed(2)}°`);
+    lines.push("Boundaries (longitude, 30°):");
+    for (let i = 0; i <= 12; i++) {
+      const label = `${i * 30}°`;
+      const key = `deg${i * 30}`;
+      lines.push(`- ${label.padEnd(4, " ")} ${boundariesLongitude[key].toFixed(2)}°`);
+    }
 
     const payload = {
       ok: true,
@@ -384,9 +378,10 @@ export async function POST(req: Request) {
       ascYear: {
         anchorAsc: natal.asc,
         cyclePosition,
-        phase,
-        subPhase: `${sub.label} (segment ${sub.segment}/${sub.total})`,
-        degreesIntoPhase: sub.within,
+        season,
+        modality: mod.modality,
+        modalitySegment: `${mod.modality} (segment ${mod.segment}/${mod.total})`,
+        degreesIntoModality: mod.within,
         boundariesLongitude,
       },
     };
@@ -400,3 +395,4 @@ export async function POST(req: Request) {
     );
   }
 }
+
