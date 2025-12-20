@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
  * Stable behavior:
  * - secondary progressed Sun/Moon separation (waxing 0..360)
  * - anchored to previous progressed New Moon (wrap event 360->0)
- * - returns phase + sub-phase + boundary timestamps (0,45,...,360)
+ * - returns phase + sub-phase + boundary timestamps (0,45,...,315, next new moon)
  *
  * Accepts:
  * - text/plain KV
@@ -58,20 +58,18 @@ function parseTextKV(body: string): ParsedInput {
   }
 
   if (!out.birth_datetime) {
-    throw new Error("Missing birth_datetime. Example: birth_datetime: 1990-01-24 01:39");
+    throw new Error(
+      "Missing birth_datetime. Example: birth_datetime: 1990-01-24 01:39"
+    );
   }
-  if (!out.tz_offset) throw new Error("Missing tz_offset. Example: tz_offset: -05:00");
-  if (!out.as_of_date) throw new Error("Missing as_of_date. Example: as_of_date: 2025-12-19");
+  if (!out.tz_offset)
+    throw new Error("Missing tz_offset. Example: tz_offset: -05:00");
+  if (!out.as_of_date)
+    throw new Error("Missing as_of_date. Example: as_of_date: 2025-12-19");
 
   return out as ParsedInput;
 }
 
-/**
- * ✅ Robust input reader:
- * - If JSON and has { text: string }, unwrap and parseTextKV(text)
- * - Else if JSON direct KV, return it
- * - Else parseTextKV(raw)
- */
 async function readInput(req: Request): Promise<ParsedInput> {
   const raw = await req.text();
   const contentType = req.headers.get("content-type") || "";
@@ -82,7 +80,7 @@ async function readInput(req: Request): Promise<ParsedInput> {
     try {
       const obj = JSON.parse(raw) as any;
 
-      // ✅ support wrapper format
+      // support wrapper format: { text: "birth_datetime: ..." }
       if (obj && typeof obj === "object" && typeof obj.text === "string") {
         return parseTextKV(obj.text);
       }
@@ -104,10 +102,12 @@ function wrap360(deg: number) {
   return ((deg % 360) + 360) % 360;
 }
 
+// waxing separation from A to B (0..360)
 function sepWaxing(a: number, b: number) {
   return wrap360(b - a);
 }
 
+// map 0..360 to -180..180 (good for bracketing around conjunction)
 function wrap180(deg: number) {
   const w = wrap360(deg);
   return ((w + 180) % 360) - 180;
@@ -159,6 +159,7 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
 }
 
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
+  // Secondary progression day-for-a-year
   const msPerDay = 86_400_000;
   const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
   return new Date(birthUTC.getTime() + ageDays * msPerDay);
@@ -175,6 +176,7 @@ async function fetchChartByYMDHM(
   hour: number,
   minute: number
 ): Promise<AstroServiceData> {
+  // Sun/Moon do not require real location; keep stable (0,0)
   const res = await fetch(`${ASTRO_URL}/chart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -235,11 +237,12 @@ function phaseLabelFromSep(sep: number) {
 
 function subPhaseLabelFromSep(sep: number) {
   const within = wrap360(sep) % 45;
-  const seg = Math.floor(within / 15);
+  const seg = Math.floor(within / 15); // 0..2
   const label = ["Initiation", "Development", "Integration"][seg] || "Initiation";
   return { label, segment: seg + 1, total: 3, within };
 }
 
+// Cache separation calls (reduces astro-service load during scans/bisections)
 function makeSepCache(birthUTC: Date) {
   const cache = new Map<number, { sep: number; sunLon: number; moonLon: number }>();
 
@@ -259,6 +262,7 @@ function makeSepCache(birthUTC: Date) {
   };
 }
 
+// Find previous progressed new moon by scanning backwards for wrap (360->0)
 async function findPreviousNewMoonUTC(
   asOfUTC: Date,
   getAt: (ms: number) => Promise<{ sep: number }>
@@ -273,6 +277,7 @@ async function findPreviousNewMoonUTC(
     const t0 = t1 - oneDay;
     const s0 = (await getAt(t0)).sep;
 
+    // yesterday near 360, today near 0 => crossing
     if (s0 > 300 && s1 < 60) {
       let lo = t0;
       let hi = t1;
@@ -313,6 +318,64 @@ async function findPreviousNewMoonUTC(
   throw new Error("could not locate previous progressed new moon (scan exceeded limit)");
 }
 
+// Find next progressed new moon by scanning forward for wrap (360->0)
+async function findNextNewMoonUTC(
+  startUTC: Date,
+  getAt: (ms: number) => Promise<{ sep: number }>
+): Promise<Date> {
+  const oneDay = 86_400_000;
+  const maxDaysForward = 80 * 366;
+
+  let t0 = startUTC.getTime();
+  let s0 = (await getAt(t0)).sep;
+
+  for (let i = 0; i < maxDaysForward; i++) {
+    const t1 = t0 + oneDay;
+    const s1 = (await getAt(t1)).sep;
+
+    // yesterday near 360, today near 0 => crossing
+    if (s0 > 300 && s1 < 60) {
+      let lo = t0;
+      let hi = t1;
+
+      const f = async (ms: number) => wrap180((await getAt(ms)).sep);
+
+      let flo = await f(lo);
+      let fhi = await f(hi);
+
+      for (let it = 0; it < 28; it++) {
+        const mid = Math.floor((lo + hi) / 2);
+        const fmid = await f(mid);
+
+        if (Math.abs(fmid) < 1e-6) {
+          lo = hi = mid;
+          break;
+        }
+
+        if (flo <= 0 && fmid >= 0) {
+          hi = mid;
+          fhi = fmid;
+        } else if (fmid <= 0 && fhi >= 0) {
+          lo = mid;
+          flo = fmid;
+        } else {
+          if (Math.abs(flo) < Math.abs(fhi)) hi = mid;
+          else lo = mid;
+        }
+      }
+
+      return new Date(Math.floor((lo + hi) / 2));
+    }
+
+    t0 = t1;
+    s0 = s1;
+  }
+
+  throw new Error("could not locate next progressed new moon (scan exceeded limit)");
+}
+
+// Find boundary date where separation reaches targetDeg after anchor.
+// NOTE: targetDeg must be in [0,315] for this function. 360 is handled by next new moon.
 async function findBoundaryUTC(
   anchorUTC: Date,
   targetDeg: number,
@@ -335,7 +398,9 @@ async function findBoundaryUTC(
   }
 
   if (shi < targetDeg) {
-    throw new Error(`could not bracket boundary for ${targetDeg}° (forward scan exceeded limit)`);
+    throw new Error(
+      `could not bracket boundary for ${targetDeg}° (forward scan exceeded limit)`
+    );
   }
 
   for (let it = 0; it < 30; it++) {
@@ -373,7 +438,7 @@ export async function POST(req: Request) {
 
     const prevNewMoonUTC = await findPreviousNewMoonUTC(asOfUTC, getAt);
 
-    const boundaryTargets = [0, 45, 90, 135, 180, 225, 270, 315, 360] as const;
+    const boundaryTargets = [0, 45, 90, 135, 180, 225, 270, 315] as const;
     const boundaryLabels = [
       "New Moon",
       "Crescent",
@@ -383,7 +448,6 @@ export async function POST(req: Request) {
       "Disseminating",
       "Last Quarter",
       "Balsamic",
-      "Next New Moon",
     ] as const;
 
     const boundaries: Array<{ deg: number; label: string; dateUTC: string }> = [];
@@ -399,6 +463,14 @@ export async function POST(req: Request) {
         dateUTC: formatYMD(boundaryDate),
       });
     }
+
+    // ✅ 360° boundary = next new moon (wrap crossing), not "sep >= 360"
+    const nextNewMoonUTC = await findNextNewMoonUTC(asOfUTC, getAt);
+    boundaries.push({
+      deg: 360,
+      label: "Next New Moon",
+      dateUTC: formatYMD(nextNewMoonUTC),
+    });
 
     return NextResponse.json({
       ok: true,
