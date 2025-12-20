@@ -2,21 +2,10 @@
 
 import { NextResponse } from "next/server";
 
-/**
- * URA /api/asc-year
- *
- * Parallel to /api/lunation (does not touch lunation logic).
- *
- * Accepts:
- * - text/plain KV
- * - application/json direct KV
- * - application/json wrapper: { text: "birth_datetime: ...\n..." }
- */
-
 type ParsedInput = {
-  birth_datetime: string; // "YYYY-MM-DD HH:MM" (local)
-  tz_offset: string; // "-05:00"
-  as_of_date: string; // "YYYY-MM-DD" (UTC day)
+  birth_datetime: string;
+  tz_offset: string;
+  as_of_date: string;
   lat?: number;
   lon?: number;
 };
@@ -59,11 +48,9 @@ function parseTextKV(body: string): ParsedInput {
     out[key] = val;
   }
 
-  if (!out.birth_datetime) {
-    throw new Error("Missing birth_datetime. Example: birth_datetime: 1990-01-24 01:39");
-  }
-  if (!out.tz_offset) throw new Error("Missing tz_offset. Example: tz_offset: -05:00");
-  if (!out.as_of_date) throw new Error("Missing as_of_date. Example: as_of_date: 2025-12-19");
+  if (!out.birth_datetime) throw new Error("missing birth_datetime");
+  if (!out.tz_offset) throw new Error("missing tz_offset");
+  if (!out.as_of_date) throw new Error("missing as_of_date");
 
   if (out.lat != null) out.lat = Number(out.lat);
   if (out.lon != null) out.lon = Number(out.lon);
@@ -71,12 +58,6 @@ function parseTextKV(body: string): ParsedInput {
   return out as ParsedInput;
 }
 
-/**
- * ✅ Robust input reader:
- * - If JSON and has { text: string }, unwrap and parseTextKV(text)
- * - Else if JSON direct KV, return it
- * - Else parseTextKV(raw)
- */
 async function readInput(req: Request): Promise<ParsedInput> {
   const raw = await req.text();
   const contentType = req.headers.get("content-type") || "";
@@ -86,18 +67,14 @@ async function readInput(req: Request): Promise<ParsedInput> {
   if (contentType.includes("application/json") || looksJson) {
     try {
       const obj = JSON.parse(raw) as any;
-
-      // ✅ support wrapper format
       if (obj && typeof obj === "object" && typeof obj.text === "string") {
         return parseTextKV(obj.text);
       }
-
       return obj as ParsedInput;
     } catch {
       // fall through
     }
   }
-
   return parseTextKV(raw);
 }
 
@@ -139,26 +116,49 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
   return new Date(Date.UTC(year, month, day, 0, 0, 0));
 }
 
+/**
+ * ✅ Correct secondary progression: day-for-year.
+ */
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
   const msPerDay = 86_400_000;
-  const ageDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
-  return new Date(birthUTC.getTime() + ageDays * msPerDay);
+  const elapsedDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
+  const ageYears = elapsedDays / 365.2425;
+  return new Date(birthUTC.getTime() + ageYears * msPerDay);
 }
 
 // ------------------------------
 // Math helpers
 // ------------------------------
 
-function wrap360(deg: number): number {
+function wrap360(deg: number) {
   return ((deg % 360) + 360) % 360;
 }
 
-function sepWaxing(a: number, b: number): number {
+function sepWaxing(a: number, b: number) {
   return wrap360(b - a);
 }
 
-function floorTo(n: number, step: number): number {
-  return Math.floor(n / step) * step;
+function formatYMDHM(d: Date) {
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
+
+function angleToSign(deg: number) {
+  const signs = [
+    "Aries",
+    "Taurus",
+    "Gemini",
+    "Cancer",
+    "Leo",
+    "Virgo",
+    "Libra",
+    "Scorpio",
+    "Sagittarius",
+    "Capricorn",
+    "Aquarius",
+    "Pisces",
+  ];
+  const idx = Math.floor(wrap360(deg) / 30);
+  return signs[idx] || "Aries";
 }
 
 // ------------------------------
@@ -205,97 +205,129 @@ async function fetchAscSunAngles(pDateUTC: Date, lat: number, lon: number) {
 
   const asc = data.ascendant;
   const mc = data.mc;
+  const houses = data.houses ?? [];
   const sunLon = data.planets?.sun?.lon;
 
   if (typeof asc !== "number") throw new Error("astro-service missing ascendant (check lat/lon)");
   if (typeof mc !== "number") throw new Error("astro-service missing mc (check lat/lon)");
   if (typeof sunLon !== "number") throw new Error("astro-service missing sun lon");
 
-  const houses = Array.isArray(data.houses) ? data.houses.map(wrap360) : [];
-
   return {
     julianDay: data.julianDay,
-    ascendant: wrap360(asc),
-    mc: wrap360(mc),
+    asc,
+    mc,
     houses,
     sunLon: wrap360(sunLon),
   };
 }
 
 // ------------------------------
-// Asc Year Cycle snapshot
+// Asc-Year model
 // ------------------------------
 
-function ascYearCycleSnapshot(ascLon: number, sunLon: number) {
-  const pos = sepWaxing(ascLon, sunLon);
-
+function ascYearPhase(cyclePos: number) {
+  // 8 phases of 45° each (name them however you want)
+  const idx = Math.floor(wrap360(cyclePos) / 45);
   const phases = [
-    "Ascendant Spring",
-    "Waxing Gate",
-    "First Quarter Rise",
+    "Low Winter",
+    "Rising Spring",
+    "High Spring",
+    "Early Summer",
     "High Summer",
-    "Descendant Autumn",
-    "Waning Gate",
-    "Last Quarter Deepening",
-    "Winter Seed",
+    "Early Fall",
+    "High Fall",
+    "Deep Winter",
   ];
-
-  const phaseIdx = Math.floor(pos / 45);
-  const phase = phases[phaseIdx] || phases[0];
-
-  const withinPhase = pos % 45;
-  const segIdx = Math.floor(withinPhase / 15);
-  const segLabel = ["Initiation", "Development", "Integration"][segIdx] || "Initiation";
-
-  const segStart = floorTo(withinPhase, 15);
-  const segEnd = segStart + 15;
-
-  return {
-    anchorAsc: ascLon,
-    cyclePosition: pos,
-    phase,
-    subPhase: `${segLabel} (segment ${segIdx + 1}/3)`,
-    degreesIntoPhase: withinPhase,
-    subPhaseWindowWithinPhase: { start: segStart, end: segEnd },
-    boundariesLongitude: {
-      deg0: wrap360(ascLon + 0),
-      deg45: wrap360(ascLon + 45),
-      deg90: wrap360(ascLon + 90),
-      deg135: wrap360(ascLon + 135),
-      deg180: wrap360(ascLon + 180),
-      deg225: wrap360(ascLon + 225),
-      deg270: wrap360(ascLon + 270),
-      deg315: wrap360(ascLon + 315),
-      deg360: wrap360(ascLon + 360),
-    },
-  };
+  return phases[idx] || phases[0];
 }
 
-// ------------------------------
-// Route
-// ------------------------------
+function subPhase(cyclePos: number) {
+  const within = wrap360(cyclePos) % 45;
+  const seg = Math.floor(within / 15);
+  const label = ["Initiation", "Development", "Integration"][seg] || "Initiation";
+  return { label, segment: seg + 1, total: 3, within };
+}
 
 export async function POST(req: Request) {
   try {
     const input = await readInput(req);
 
+    const lat = typeof input.lat === "number" ? input.lat : undefined;
+    const lon = typeof input.lon === "number" ? input.lon : undefined;
+    if (lat == null || lon == null) {
+      throw new Error("Missing lat/lon (required for ascendant). Example: lat: 36.585 / lon: -79.395");
+    }
+
     const birthUTC = parseBirthToUTC(input.birth_datetime, input.tz_offset);
     const asOfUTC = parseAsOfToUTCDate(input.as_of_date);
     const pDateUTC = progressedDateUTC(birthUTC, asOfUTC);
 
-    if (typeof input.lat !== "number" || typeof input.lon !== "number") {
-      throw new Error("asc-year requires lat and lon");
-    }
+    const progressed = await fetchAscSunAngles(pDateUTC, lat, lon);
 
-    const angles = await fetchAscSunAngles(pDateUTC, input.lat, input.lon);
-    const cycle = ascYearCycleSnapshot(angles.ascendant, angles.sunLon);
+    const cyclePosition = sepWaxing(progressed.asc, progressed.sunLon); // Sun relative to ASC
+    const phase = ascYearPhase(cyclePosition);
+    const sub = subPhase(cyclePosition);
+
+    const deg0 = progressed.asc;
+    const boundariesLongitude = {
+      deg0,
+      deg45: wrap360(deg0 + 45),
+      deg90: wrap360(deg0 + 90),
+      deg135: wrap360(deg0 + 135),
+      deg180: wrap360(deg0 + 180),
+      deg225: wrap360(deg0 + 225),
+      deg270: wrap360(deg0 + 270),
+      deg315: wrap360(deg0 + 315),
+      deg360: deg0,
+    };
+
+    const lines: string[] = [];
+    lines.push("URA • Ascendant Year Cycle");
+    lines.push("");
+    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
+    lines.push(`As-of (UTC):   ${input.as_of_date}`);
+    lines.push(`Progressed date (UTC): ${formatYMDHM(pDateUTC)}`);
+    lines.push("");
+    lines.push(`Progressed ASC: ${progressed.asc.toFixed(2)}° (${angleToSign(progressed.asc)})`);
+    lines.push(`Progressed MC:  ${progressed.mc.toFixed(2)}° (${angleToSign(progressed.mc)})`);
+    lines.push(`Progressed Sun: ${progressed.sunLon.toFixed(2)}° (${angleToSign(progressed.sunLon)})`);
+    lines.push("");
+    lines.push(`Cycle position (Sun from ASC): ${cyclePosition.toFixed(2)}°`);
+    lines.push(`Phase: ${phase}`);
+    lines.push(`Sub-phase: ${sub.label} (segment ${sub.segment}/${sub.total})`);
+    lines.push(`Degrees into sub-phase: ${sub.within.toFixed(2)}°`);
+    lines.push("");
+    lines.push("Boundaries (longitude):");
+    lines.push(`- 0°:   ${boundariesLongitude.deg0.toFixed(2)}°`);
+    lines.push(`- 45°:  ${boundariesLongitude.deg45.toFixed(2)}°`);
+    lines.push(`- 90°:  ${boundariesLongitude.deg90.toFixed(2)}°`);
+    lines.push(`- 135°: ${boundariesLongitude.deg135.toFixed(2)}°`);
+    lines.push(`- 180°: ${boundariesLongitude.deg180.toFixed(2)}°`);
+    lines.push(`- 225°: ${boundariesLongitude.deg225.toFixed(2)}°`);
+    lines.push(`- 270°: ${boundariesLongitude.deg270.toFixed(2)}°`);
+    lines.push(`- 315°: ${boundariesLongitude.deg315.toFixed(2)}°`);
+    lines.push(`- 360°: ${boundariesLongitude.deg360.toFixed(2)}°`);
 
     return NextResponse.json({
       ok: true,
+      text: lines.join("\n"), // ✅ clean display
       input,
       progressedDateUTC: pDateUTC.toISOString(),
-      progressed: angles,
-      ascYear: cycle,
+      progressed: {
+        julianDay: progressed.julianDay,
+        ascendant: progressed.asc,
+        mc: progressed.mc,
+        houses: progressed.houses,
+        sunLon: progressed.sunLon,
+      },
+      ascYear: {
+        anchorAsc: progressed.asc,
+        cyclePosition,
+        phase,
+        subPhase: `${sub.label} (segment ${sub.segment}/${sub.total})`,
+        degreesIntoPhase: sub.within,
+        boundariesLongitude,
+      },
     });
   } catch (err: any) {
     return NextResponse.json(
@@ -304,3 +336,4 @@ export async function POST(req: Request) {
     );
   }
 }
+
