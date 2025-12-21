@@ -28,9 +28,10 @@ export type AstroInputFormProps = {
   };
   onGenerate: (payloadText: AstroPayloadText) => Promise<void> | void;
 
-  // ✅ new optional behavior flags
-  randomizeBirthDate?: boolean;      // default birthDate becomes random (only if initial.birthDate not provided)
-  lockAsOfToToday?: boolean;         // as_of_date always = today (local), and the input becomes read-only
+  // optional behavior flags
+  randomizeBirthDate?: boolean; // random default birthDate (only if initial.birthDate not provided)
+  lockAsOfToToday?: boolean; // as_of_date always = today (local), and input is disabled
+  defaultAsOfToToday?: boolean; // as_of_date defaults to today ONCE (editable). Ignored if initial.asOfDate provided.
 };
 
 const TIMEZONES = [
@@ -55,9 +56,12 @@ function randomISODateBetween(start: Date, end: Date) {
   return localISODate(new Date(t));
 }
 
-// Reasonable demo range: 1950 → 2010 (adjust anytime)
+// Demo range: 1950 → 2010 (adjust anytime)
 function defaultRandomBirthDate() {
-  return randomISODateBetween(new Date("1950-01-01T00:00:00"), new Date("2010-12-31T00:00:00"));
+  return randomISODateBetween(
+    new Date("1950-01-01T00:00:00"),
+    new Date("2010-12-31T00:00:00")
+  );
 }
 
 // ---- Timezone offset helpers (DST-safe, no libs) ----
@@ -99,7 +103,8 @@ function computeOffsetForLocalWallTime(
 
   for (let i = 0; i < 4; i++) {
     const off = offsetMinutesAtInstant(new Date(guessUTC), timeZone);
-    const nextGuess = Date.UTC(year, month - 1, day, hour, minute, 0) - off * 60_000;
+    const nextGuess =
+      Date.UTC(year, month - 1, day, hour, minute, 0) - off * 60_000;
     if (Math.abs(nextGuess - guessUTC) < 1_000) {
       guessUTC = nextGuess;
       break;
@@ -136,6 +141,7 @@ export default function AstroInputForm({
   onGenerate,
   randomizeBirthDate = false,
   lockAsOfToToday = false,
+  defaultAsOfToToday = false,
 }: AstroInputFormProps) {
   const [birthDate, setBirthDate] = useState(() => {
     if (initial?.birthDate) return initial.birthDate;
@@ -144,19 +150,28 @@ export default function AstroInputForm({
   });
 
   const [birthTime, setBirthTime] = useState(initial?.birthTime ?? "01:39");
-  const [timeZone, setTimeZone] = useState<string>(initial?.timeZone ?? "America/New_York");
+  const [timeZone, setTimeZone] = useState<string>(
+    initial?.timeZone ?? "America/New_York"
+  );
 
-  const [birthCityState, setBirthCityState] = useState(initial?.birthCityState ?? "Danville, VA");
+  const [birthCityState, setBirthCityState] = useState(
+    initial?.birthCityState ?? "Danville, VA"
+  );
+
   const [resolvedLat, setResolvedLat] = useState<number | null>(
     typeof initial?.lat === "number" ? initial.lat : 36.585
   );
   const [resolvedLon, setResolvedLon] = useState<number | null>(
     typeof initial?.lon === "number" ? initial.lon : -79.395
   );
-  const [resolvedLabel, setResolvedLabel] = useState<string>(initial?.resolvedLabel ?? "");
+
+  const [resolvedLabel, setResolvedLabel] = useState<string>(
+    initial?.resolvedLabel ?? ""
+  );
 
   const [asOfDate, setAsOfDate] = useState(() => {
     if (lockAsOfToToday) return localISODate();
+    if (!initial?.asOfDate && defaultAsOfToToday) return localISODate();
     return initial?.asOfDate ?? "2025-12-19";
   });
 
@@ -170,13 +185,12 @@ export default function AstroInputForm({
     };
 
     sync();
-    const id = setInterval(sync, 60_000); // check once/minute
+    const id = setInterval(sync, 60_000);
     return () => clearInterval(id);
   }, [lockAsOfToToday]);
 
   const [loading, setLoading] = useState(false);
   const [statusLine, setStatusLine] = useState<string>("");
-
   const [locationNudge, setLocationNudge] = useState<string>("");
 
   const hasResolvedLocation = isValidLatLon(resolvedLat, resolvedLon);
@@ -200,7 +214,15 @@ export default function AstroInputForm({
       `lat: ${resolvedLat}`,
       `lon: ${resolvedLon}`,
     ].join("\n");
-  }, [birthDate, birthTime, timeZone, asOfDate, resolvedLat, resolvedLon, hasResolvedLocation]);
+  }, [
+    birthDate,
+    birthTime,
+    timeZone,
+    asOfDate,
+    resolvedLat,
+    resolvedLon,
+    hasResolvedLocation,
+  ]);
 
   async function geocodeCityState(): Promise<GeoResult> {
     const q = birthCityState.trim();
