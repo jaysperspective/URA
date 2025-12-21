@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import AstroInputForm, {
   type AstroPayloadText,
 } from "@/components/astro/AstroInputForm";
 
 type Target = "payload" | "lunation" | "asc-year" | "both";
+
+const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
 function pretty(x: any) {
   try {
@@ -41,9 +44,32 @@ export default function UniversalInputPage() {
   const [ascYearOut, setAscYearOut] = useState<string>("");
   const [statusLine, setStatusLine] = useState<string>("");
 
+  const [savedPayload, setSavedPayload] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const x = window.localStorage.getItem(LS_PAYLOAD_KEY) || "";
+      setSavedPayload(x);
+      if (!payloadOut && x) setPayloadOut(x);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function persistPayload(payloadText: string) {
+    try {
+      window.localStorage.setItem(LS_PAYLOAD_KEY, payloadText);
+      setSavedPayload(payloadText);
+    } catch {
+      // ignore
+    }
+  }
+
   async function handleGenerate(payloadText: AstroPayloadText) {
     // Always show payload (universal input contract)
     setPayloadOut(payloadText);
+    persistPayload(payloadText);
 
     // Clear previous outputs for a fresh run
     setLunationOut("");
@@ -131,23 +157,43 @@ export default function UniversalInputPage() {
     <div className="min-h-[100svh] bg-black text-neutral-100 flex items-center justify-center p-6">
       <div className="w-full max-w-3xl space-y-4">
         {/* Header row */}
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-neutral-400">URA • Universal Input</div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm text-neutral-400">URA • Universal Input</div>
+            <div className="text-[11px] text-neutral-600">
+              Saved payload key: <span className="text-neutral-400">{LS_PAYLOAD_KEY}</span>
+            </div>
+          </div>
 
-          <div className="flex items-center gap-2">
-            <div className="text-[11px] text-neutral-500">Target</div>
-            <select
-              value={target}
-              onChange={(e) => setTarget(e.target.value as Target)}
-              className="rounded-md bg-black/40 border border-neutral-800 px-2 py-1.5 text-[13px] outline-none text-neutral-100"
-              style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-              title="Choose what Generate runs"
+          <div className="flex items-center gap-3">
+            <Link
+              href="/seasons"
+              className="rounded-md bg-black/40 border border-neutral-800 px-3 py-1.5 text-[13px] outline-none text-neutral-100 hover:bg-black/50"
             >
-              <option value="payload">Payload only</option>
-              <option value="lunation">Lunation</option>
-              <option value="asc-year">Ascendant Year</option>
-              <option value="both">Both (Lunation + Asc-Year)</option>
-            </select>
+              Go to /seasons
+            </Link>
+            <Link
+              href="/lunation"
+              className="rounded-md bg-black/40 border border-neutral-800 px-3 py-1.5 text-[13px] outline-none text-neutral-100 hover:bg-black/50"
+            >
+              Go to /lunation
+            </Link>
+
+            <div className="flex items-center gap-2">
+              <div className="text-[11px] text-neutral-500">Target</div>
+              <select
+                value={target}
+                onChange={(e) => setTarget(e.target.value as Target)}
+                className="rounded-md bg-black/40 border border-neutral-800 px-2 py-1.5 text-[13px] outline-none text-neutral-100"
+                style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                title="Choose what Generate runs"
+              >
+                <option value="payload">Payload only</option>
+                <option value="lunation">Lunation</option>
+                <option value="asc-year">Ascendant Year</option>
+                <option value="both">Both (Lunation + Asc-Year)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -157,9 +203,6 @@ export default function UniversalInputPage() {
           randomizeBirthDate
           lockAsOfToToday
           initial={{
-            // Leave birthDate/asOfDate out on purpose:
-            // - birthDate is randomized
-            // - as_of_date is locked to today
             birthTime: "01:39",
             timeZone: "America/New_York",
             birthCityState: "Danville, VA",
@@ -173,6 +216,37 @@ export default function UniversalInputPage() {
           <div className="text-[12px] text-neutral-400">{statusLine}</div>
         ) : null}
 
+        {/* Quick “use in” actions once we have a payload */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/seasons"
+            className="rounded-md bg-black/40 border border-neutral-800 px-3 py-1.5 text-[12px] text-neutral-100 hover:bg-black/50"
+          >
+            Use in Seasons →
+          </Link>
+          <Link
+            href="/lunation"
+            className="rounded-md bg-black/40 border border-neutral-800 px-3 py-1.5 text-[12px] text-neutral-100 hover:bg-black/50"
+          >
+            Use in Lunation →
+          </Link>
+
+          <button
+            className="rounded-md bg-black/40 border border-neutral-800 px-3 py-1.5 text-[12px] text-neutral-200 hover:bg-black/50"
+            onClick={() => {
+              try {
+                window.localStorage.removeItem(LS_PAYLOAD_KEY);
+              } catch {}
+              setSavedPayload("");
+              // keep payloadOut visible; user may want it
+            }}
+            type="button"
+            title="Clear saved payload (does not clear the current screen output)"
+          >
+            Clear saved
+          </button>
+        </div>
+
         {/* Payload output */}
         <div className="w-full rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
           <div className="text-[12px] text-neutral-400 mb-2">
@@ -184,7 +258,9 @@ export default function UniversalInputPage() {
             style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
           >
             {payloadOut ||
-              "Generate to see the payload that will be sent to URA endpoints."}
+              (savedPayload
+                ? savedPayload
+                : "Generate to see the payload that will be sent to URA endpoints.")}
           </pre>
         </div>
 
