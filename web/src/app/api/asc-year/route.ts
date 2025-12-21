@@ -49,7 +49,7 @@ const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 // Cache (in-memory)
 // ------------------------------
 
-const ASCYEAR_CACHE_VERSION = "asc-year:natal-asc+transit-sun:12x30:v1";
+const ASCYEAR_CACHE_VERSION = "asc-year:natal-asc+transit-sun:12x30:v2:natal-sun-moon";
 const ASCYEAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 type CacheEntry = { expiresAt: number; payload: any };
@@ -248,14 +248,21 @@ async function fetchNatalAnchor(birthUTC: Date, lat: number, lon: number) {
   const asc = data.ascendant;
   const mc = data.mc;
   const houses = data.houses ?? [];
+  const natalSun = data.planets?.sun?.lon;
+  const natalMoon = data.planets?.moon?.lon;
+
   if (typeof asc !== "number") throw new Error("astro-service missing ascendant (check lat/lon)");
   if (typeof mc !== "number") throw new Error("astro-service missing mc (check lat/lon)");
+  if (typeof natalSun !== "number") throw new Error("astro-service missing natal sun lon");
+  if (typeof natalMoon !== "number") throw new Error("astro-service missing natal moon lon");
 
   return {
     julianDay: data.julianDay,
     asc: wrap360(asc),
     mc: wrap360(mc),
     houses,
+    sunLon: wrap360(natalSun),
+    moonLon: wrap360(natalMoon),
   };
 }
 
@@ -342,8 +349,10 @@ export async function POST(req: Request) {
     lines.push(`Birth (UTC):   ${formatYMDHM(birthUTC)}`);
     lines.push(`As-of (UTC):   ${input.as_of_date} 00:00`);
     lines.push("");
-    lines.push(`Natal ASC: ${natal.asc.toFixed(2)}° (${angleToSign(natal.asc)})`);
-    lines.push(`Natal MC:  ${natal.mc.toFixed(2)}° (${angleToSign(natal.mc)})`);
+    lines.push(`Natal ASC:  ${natal.asc.toFixed(2)}° (${angleToSign(natal.asc)})`);
+    lines.push(`Natal MC:   ${natal.mc.toFixed(2)}° (${angleToSign(natal.mc)})`);
+    lines.push(`Natal Sun:  ${natal.sunLon.toFixed(2)}° (${angleToSign(natal.sunLon)})`);
+    lines.push(`Natal Moon: ${natal.moonLon.toFixed(2)}° (${angleToSign(natal.moonLon)})`);
     lines.push("");
     lines.push(`Transiting Sun: ${transit.sunLon.toFixed(2)}° (${angleToSign(transit.sunLon)})`);
     lines.push("");
@@ -369,6 +378,8 @@ export async function POST(req: Request) {
         julianDay: natal.julianDay,
         ascendant: natal.asc,
         mc: natal.mc,
+        sunLon: natal.sunLon,
+        moonLon: natal.moonLon,
         houses: natal.houses,
       },
       transit: {
@@ -395,4 +406,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
