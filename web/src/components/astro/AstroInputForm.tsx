@@ -15,13 +15,13 @@ type GeoResult =
 export type AstroPayloadText = string;
 
 export type AstroInputFormProps = {
-  title?: string; // small label at top-left of form
+  title?: string;
   initial?: {
     birthDate?: string; // YYYY-MM-DD
     birthTime?: string; // HH:MM
-    timeZone?: string; // IANA, e.g., America/New_York
-    birthCityState?: string; // "Danville, VA"
-    asOfDate?: string; // YYYY-MM-DD
+    timeZone?: string; // IANA tz
+    birthCityState?: string;
+    asOfDate?: string;
     lat?: number;
     lon?: number;
     resolvedLabel?: string;
@@ -37,7 +37,7 @@ const TIMEZONES = [
   { label: "UTC", value: "UTC" },
 ] as const;
 
-// ---- Timezone offset helpers (DST-safe, no libs) ----
+// ---- Timezone offset helpers (no libs) ----
 function offsetMinutesAtInstant(date: Date, timeZone: string): number {
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -114,36 +114,31 @@ export default function AstroInputForm({
   initial,
   onGenerate,
 }: AstroInputFormProps) {
-  // Defaults align with your current working flow
   const [birthDate, setBirthDate] = useState(initial?.birthDate ?? "1990-01-24");
   const [birthTime, setBirthTime] = useState(initial?.birthTime ?? "01:39");
-  const [timeZone, setTimeZone] = useState(
+  const [timeZone, setTimeZone] = useState<string>(
     initial?.timeZone ?? "America/New_York"
   );
 
   const [birthCityState, setBirthCityState] = useState(
     initial?.birthCityState ?? "Danville, VA"
   );
-
   const [resolvedLat, setResolvedLat] = useState<number | null>(
-    typeof initial?.lat === "number" ? initial.lat : null
+    typeof initial?.lat === "number" ? initial.lat : 36.585
   );
   const [resolvedLon, setResolvedLon] = useState<number | null>(
-    typeof initial?.lon === "number" ? initial.lon : null
+    typeof initial?.lon === "number" ? initial.lon : -79.395
   );
 
   const [resolvedLabel, setResolvedLabel] = useState<string>(
     initial?.resolvedLabel ?? ""
   );
 
-  const [asOfDate, setAsOfDate] = useState(
-    initial?.asOfDate ?? "2025-12-19"
-  );
+  const [asOfDate, setAsOfDate] = useState(initial?.asOfDate ?? "2025-12-19");
 
   const [loading, setLoading] = useState(false);
   const [statusLine, setStatusLine] = useState<string>("");
 
-  // Soft guardrail UI
   const [locationNudge, setLocationNudge] = useState<string>("");
 
   const hasResolvedLocation = isValidLatLon(resolvedLat, resolvedLon);
@@ -167,7 +162,15 @@ export default function AstroInputForm({
       `lat: ${resolvedLat}`,
       `lon: ${resolvedLon}`,
     ].join("\n");
-  }, [birthDate, birthTime, timeZone, asOfDate, resolvedLat, resolvedLon, hasResolvedLocation]);
+  }, [
+    birthDate,
+    birthTime,
+    timeZone,
+    asOfDate,
+    resolvedLat,
+    resolvedLon,
+    hasResolvedLocation,
+  ]);
 
   async function geocodeCityState(): Promise<GeoResult> {
     const q = birthCityState.trim();
@@ -215,6 +218,13 @@ export default function AstroInputForm({
     return true;
   }
 
+  function geoSafeNum(n: number | null): number {
+    if (typeof n !== "number" || !Number.isFinite(n)) {
+      throw new Error("Resolved coordinates missing.");
+    }
+    return n;
+  }
+
   function buildPayloadText(lat: number, lon: number): AstroPayloadText {
     const y = Number(birthDate.slice(0, 4));
     const mo = Number(birthDate.slice(5, 7));
@@ -234,13 +244,6 @@ export default function AstroInputForm({
     ].join("\n");
   }
 
-  function geoSafeNum(n: number | null): number {
-    if (typeof n !== "number" || !Number.isFinite(n)) {
-      throw new Error("Resolved coordinates missing.");
-    }
-    return n;
-  }
-
   async function onGenerateClick() {
     if (loading) return;
 
@@ -249,7 +252,6 @@ export default function AstroInputForm({
     setLocationNudge("");
 
     try {
-      // Ensure lat/lon exists (auto-resolve if not)
       if (!hasResolvedLocation) {
         const q = birthCityState.trim();
         if (!q) {
@@ -276,8 +278,6 @@ export default function AstroInputForm({
     }
   }
 
-  // Generate button: visually disabled if location unresolved, but still clickable
-  // so it can auto-resolve on click.
   const generateLooksDisabled = !hasResolvedLocation;
 
   return (
@@ -358,7 +358,6 @@ export default function AstroInputForm({
               const v = e.target.value;
               setBirthCityState(v);
 
-              // Editing location invalidates current resolution
               setResolvedLat(null);
               setResolvedLon(null);
               setResolvedLabel("");
@@ -387,11 +386,8 @@ export default function AstroInputForm({
           </button>
         </div>
 
-        {/* subtle inline nudge */}
         {locationNudge ? (
-          <div className="mt-2 text-[12px] text-neutral-400">
-            {locationNudge}
-          </div>
+          <div className="mt-2 text-[12px] text-neutral-400">{locationNudge}</div>
         ) : null}
 
         <div className="mt-2 text-[12px] text-neutral-500">
@@ -407,8 +403,7 @@ export default function AstroInputForm({
               )}
 
               <div className="text-neutral-600">
-                lat:{" "}
-                <span className="text-neutral-400">{resolvedLat}</span> • lon:{" "}
+                lat: <span className="text-neutral-400">{resolvedLat}</span> • lon:{" "}
                 <span className="text-neutral-400">{resolvedLon}</span>
               </div>
             </div>
@@ -447,7 +442,6 @@ export default function AstroInputForm({
         <div className="mt-3 text-[12px] text-neutral-400">{statusLine}</div>
       ) : null}
 
-      {/* Debug */}
       <details className="mt-4">
         <summary className="text-[12px] text-neutral-500 cursor-pointer select-none">
           Debug payload (what gets sent to the APIs)
