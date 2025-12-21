@@ -16,9 +16,7 @@ type AscYearResponse = {
     degreesIntoModality: number; // 0..30
     boundariesLongitude: Record<string, number>; // deg0..deg360
   };
-  transit?: {
-    sunLon: number;
-  };
+  transit?: { sunLon: number };
   natal?: {
     ascendant: number;
     mc: number;
@@ -65,7 +63,9 @@ async function postText(endpoint: string, text: string) {
   return { res, data: data as AscYearResponse };
 }
 
-// ---- zodiac formatting helpers ----
+// ------------------------------------
+// Zodiac formatting helpers
+// ------------------------------------
 
 const SIGN_NAMES = [
   "Aries",
@@ -113,10 +113,18 @@ function fmtSignLon(lon: number) {
   const p = lonToSignParts(lon);
   const glyph = SIGN_GLYPHS[p.sign] ?? "";
   const mm = String(p.min).padStart(2, "0");
-  return { glyph, sign: p.sign, text: `${glyph} ${p.deg}°${mm}′`, raw: `${degNorm(lon).toFixed(2)}°` };
+  return {
+    glyph,
+    sign: p.sign,
+    text: `${glyph} ${p.deg}°${mm}′`,
+    raw: `${degNorm(lon).toFixed(2)}°`,
+  };
 }
 
-// ---- asc-year model mapping (UI label layer) ----
+// ------------------------------------
+// Asc-year model helpers
+// ------------------------------------
+
 function seasonFromCyclePos(pos: number) {
   const p = degNorm(pos);
   if (p < 90) return "Spring";
@@ -133,7 +141,62 @@ function modalityFromCyclePos(pos: number) {
   return mods[idx] ?? "Cardinal";
 }
 
-// ---- theme ----
+function seasonAbbrev(season: string | null) {
+  const s = (season ?? "").toLowerCase();
+  if (s.includes("spring")) return "SPR";
+  if (s.includes("summer")) return "SMR";
+  if (s.includes("fall") || s.includes("autumn")) return "FAL";
+  if (s.includes("winter")) return "WTR";
+  return "—";
+}
+
+function safeParseAsOfDateFromPayload(payloadText: string): Date | null {
+  // expects a line: as_of_date: YYYY-MM-DD
+  const m = payloadText.match(/^\s*as_of_date:\s*(\d{4}-\d{2}-\d{2})\s*$/m);
+  if (!m) return null;
+  const [y, mo, d] = m[1].split("-").map((x) => Number(x));
+  if (!y || !mo || !d) return null;
+  // treat as local date for display; shift math is approximate anyway
+  return new Date(y, mo - 1, d, 12, 0, 0);
+}
+
+function addDays(d: Date, days: number) {
+  const x = new Date(d.getTime());
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function fmtDateShort(d: Date) {
+  // MM/DD/YYYY
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = d.getFullYear();
+  return `${mm}/${dd}/${yy}`;
+}
+
+function computeNextSegment(nowSeason: string | null, nowModality: string | null) {
+  const seasons = ["Spring", "Summer", "Fall", "Winter"] as const;
+  const modalities = ["Cardinal", "Fixed", "Mutable"] as const;
+
+  const sIdx = seasons.indexOf((nowSeason as any) ?? "Spring");
+  const mIdx = modalities.indexOf((nowModality as any) ?? "Cardinal");
+
+  const safeS = sIdx >= 0 ? sIdx : 0;
+  const safeM = mIdx >= 0 ? mIdx : 0;
+
+  // Next modality within season; if we roll past Mutable, advance season and reset to Cardinal
+  if (safeM < 2) {
+    return { season: seasons[safeS], modality: modalities[safeM + 1] };
+  }
+
+  const nextSeason = seasons[(safeS + 1) % 4];
+  return { season: nextSeason, modality: "Cardinal" as const };
+}
+
+// ------------------------------------
+// Theme
+// ------------------------------------
+
 function seasonTheme(season: string | null) {
   const s = (season ?? "").toLowerCase();
   if (s.includes("spring"))
@@ -143,6 +206,7 @@ function seasonTheme(season: string | null) {
       title: "text-[#e9f1dd]",
       sub: "text-[#b9c7a7]",
       ring: "#6f8b55",
+      accent: "text-[#cfe2b8]",
     };
   if (s.includes("summer"))
     return {
@@ -151,6 +215,7 @@ function seasonTheme(season: string | null) {
       title: "text-[#f3eadf]",
       sub: "text-[#d4c0a7]",
       ring: "#b07a3a",
+      accent: "text-[#f1d4ad]",
     };
   if (s.includes("fall") || s.includes("autumn"))
     return {
@@ -159,6 +224,7 @@ function seasonTheme(season: string | null) {
       title: "text-[#f1e3d7]",
       sub: "text-[#d2b8a5]",
       ring: "#8a4b2a",
+      accent: "text-[#f0c6aa]",
     };
   if (s.includes("winter"))
     return {
@@ -167,6 +233,7 @@ function seasonTheme(season: string | null) {
       title: "text-[#e3f0ef]",
       sub: "text-[#b6c9c7]",
       ring: "#4b6a6a",
+      accent: "text-[#cfe7e4]",
     };
   return {
     chip: "bg-[#6b6b6b]",
@@ -174,8 +241,13 @@ function seasonTheme(season: string | null) {
     title: "text-[#efe6d8]",
     sub: "text-[#b9a88f]",
     ring: "#6b6b6b",
+    accent: "text-[#d9cfbf]",
   };
 }
+
+// ------------------------------------
+// UI pieces
+// ------------------------------------
 
 function SeasonWheel({
   cyclePositionDeg,
@@ -349,13 +421,7 @@ function MiniCard({ label, value, note }: { label: string; value: string; note: 
   );
 }
 
-function ReferenceRow({
-  label,
-  lon,
-}: {
-  label: string;
-  lon: number | null | undefined;
-}) {
+function ReferenceRow({ label, lon }: { label: string; lon: number | null | undefined }) {
   if (typeof lon !== "number") {
     return (
       <div className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
@@ -381,6 +447,98 @@ function ReferenceRow({
   );
 }
 
+function NowNextShiftStrip({
+  nowSeason,
+  nowModality,
+  degreesIntoModality,
+  payloadText,
+  accentClass,
+}: {
+  nowSeason: string | null;
+  nowModality: string | null;
+  degreesIntoModality: number | null;
+  payloadText: string;
+  accentClass: string;
+}) {
+  const next = useMemo(() => computeNextSegment(nowSeason, nowModality), [nowSeason, nowModality]);
+
+  const remainingDeg = useMemo(() => {
+    if (typeof degreesIntoModality !== "number") return null;
+    const rem = 30 - degreesIntoModality;
+    return rem < 0 ? 0 : rem;
+  }, [degreesIntoModality]);
+
+  const shift = useMemo(() => {
+    // Sun moves ~0.9856°/day on average; we keep it approximate.
+    const DEG_PER_DAY = 0.9856;
+
+    if (remainingDeg == null) return { days: null as number | null, date: null as Date | null };
+
+    const days = remainingDeg / DEG_PER_DAY; // fractional
+    const base = safeParseAsOfDateFromPayload(payloadText) ?? new Date();
+    const date = addDays(base, Math.max(0, Math.round(days))); // date-level ETA
+    return { days, date };
+  }, [remainingDeg, payloadText]);
+
+  const nowText = `${nowSeason ?? "—"} • ${nowModality ?? "—"}`;
+  const nextText = `${next.season} • ${next.modality}`;
+
+  const shiftDaysText =
+    typeof shift.days === "number"
+      ? `~${shift.days.toFixed(1)} days`
+      : "—";
+
+  const shiftDateText =
+    shift.date ? fmtDateShort(shift.date) : "—";
+
+  return (
+    <div className="rounded-2xl border border-[#2a241d] bg-[#0f0d0a] p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
+          Orientation
+        </div>
+        <div className="text-[11px] text-[#8f7f6a]">
+          Next segment change estimate (Sun motion).
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-[#201a13] bg-black/20 p-4">
+          <div className="text-[11px] text-[#b9a88f]">Now</div>
+          <div className={`mt-1 text-[16px] ${accentClass}`}>{nowText}</div>
+          <div className="mt-2 text-[11px] text-[#8f7f6a]">
+            Current season + modality.
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[#201a13] bg-black/20 p-4">
+          <div className="text-[11px] text-[#b9a88f]">Next</div>
+          <div className="mt-1 text-[16px] text-[#efe6d8]">{nextText}</div>
+          <div className="mt-2 text-[11px] text-[#8f7f6a]">
+            The next 30° segment.
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[#201a13] bg-black/20 p-4">
+          <div className="text-[11px] text-[#b9a88f]">Shift</div>
+          <div className="mt-1 text-[16px] text-[#efe6d8]">
+            {shiftDaysText}
+            <span className="text-[#8f7f6a]"> • </span>
+            <span className="text-[#c7b9a6]">{shiftDateText}</span>
+          </div>
+          <div className="mt-2 text-[11px] text-[#8f7f6a]">
+            Based on remaining degrees in this segment.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------
+// Page
+// ------------------------------------
+
 export default function SeasonsPage() {
   const [payloadOut, setPayloadOut] = useState<string>("");
   const [data, setData] = useState<AscYearResponse | null>(null);
@@ -394,7 +552,9 @@ export default function SeasonsPage() {
     typeof data?.ascYear?.cyclePosition === "number" ? data!.ascYear!.cyclePosition : null;
 
   const degreesIntoModality =
-    typeof data?.ascYear?.degreesIntoModality === "number" ? data!.ascYear!.degreesIntoModality : null;
+    typeof data?.ascYear?.degreesIntoModality === "number"
+      ? data!.ascYear!.degreesIntoModality
+      : null;
 
   const progress01 = useMemo(() => {
     if (typeof degreesIntoModality !== "number") return 0;
@@ -419,7 +579,7 @@ export default function SeasonsPage() {
       const lon = b[k];
       if (typeof lon !== "number") continue;
 
-      const cyclePos = i === 12 ? 0 : i * 30; // deg360 is same as 0 in phase labeling
+      const cyclePos = i === 12 ? 0 : i * 30;
       out.push({
         key: k,
         label: `${i * 30}°`,
@@ -486,6 +646,15 @@ export default function SeasonsPage() {
 
           {statusLine ? <div className="mt-4 text-[12px] text-[#c7b9a6]">{statusLine}</div> : null}
         </div>
+
+        {/* NEW: Now / Next / Shift strip */}
+        <NowNextShiftStrip
+          nowSeason={season}
+          nowModality={modality}
+          degreesIntoModality={degreesIntoModality}
+          payloadText={payloadOut}
+          accentClass={theme.accent}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="space-y-5">
@@ -579,14 +748,14 @@ export default function SeasonsPage() {
                 />
               </div>
 
-              {/* NEW: Natal Reference */}
+              {/* Natal reference */}
               <div className="mt-6">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
                   Natal reference
                 </div>
                 <div className="mt-3 rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
                   <div className="text-[11px] text-[#8f7f6a] mb-2">
-                    Positions are shown as zodiac sign + degree (and raw longitude).
+                    Positions shown as zodiac sign + degree (and raw longitude).
                   </div>
 
                   <div className="divide-y divide-[#201a13]">
@@ -598,7 +767,7 @@ export default function SeasonsPage() {
                 </div>
               </div>
 
-              {/* NEW: Boundary table */}
+              {/* Boundaries */}
               <div className="mt-6">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
                   Asc-year boundaries (12 × 30°)
