@@ -2,7 +2,9 @@
 "use client";
 
 import React, { useState } from "react";
-import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroInputForm";
+import AstroInputForm, {
+  type AstroPayloadText,
+} from "@/components/astro/AstroInputForm";
 
 function pretty(x: any) {
   try {
@@ -46,7 +48,9 @@ export default function LunationConsolePage() {
     if (!lun.res.ok || lun.data?.ok === false) {
       setLunationOut(`ERROR\n${lun.data?.error ?? `HTTP ${lun.res.status}`}`);
     } else {
-      setLunationOut(typeof lun.data?.text === "string" ? lun.data.text : pretty(lun.data));
+      setLunationOut(
+        typeof lun.data?.text === "string" ? lun.data.text : pretty(lun.data)
+      );
     }
 
     if (!asc.res.ok || asc.data?.ok === false) {
@@ -58,7 +62,9 @@ export default function LunationConsolePage() {
         })}`
       );
     } else {
-      setAscYearOut(typeof asc.data?.text === "string" ? asc.data.text : pretty(asc.data));
+      setAscYearOut(
+        typeof asc.data?.text === "string" ? asc.data.text : pretty(asc.data)
+      );
     }
   }
 
@@ -67,12 +73,12 @@ export default function LunationConsolePage() {
       <div className="w-full max-w-3xl">
         <AstroInputForm
           title="URA • Progressed Lunation Console"
+          defaultAsOfToToday
           initial={{
             birthDate: "1990-01-24",
             birthTime: "01:39",
             timeZone: "America/New_York",
             birthCityState: "Danville, VA",
-            asOfDate: "2025-12-19",
             lat: 36.585,
             lon: -79.395,
           }}
