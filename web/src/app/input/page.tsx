@@ -151,17 +151,18 @@ export default function UniversalInputPage() {
         {/* Form */}
         <AstroInputForm
           title="URA • Input Contract"
+          randomizeBirthDate
+          lockAsOfToToday
           initial={{
-            birthDate: "1990-01-24",
             birthTime: "01:39",
             timeZone: "America/New_York",
             birthCityState: "Danville, VA",
-            asOfDate: "2025-12-19",
             lat: 36.585,
             lon: -79.395,
           }}
           onGenerate={handleGenerate}
         />
+
 
         {statusLine ? (
           <div className="text-[12px] text-neutral-400">{statusLine}</div>
