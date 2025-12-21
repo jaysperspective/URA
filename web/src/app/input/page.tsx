@@ -42,7 +42,7 @@ export default function UniversalInputPage() {
   const [statusLine, setStatusLine] = useState<string>("");
 
   async function handleGenerate(payloadText: AstroPayloadText) {
-    // Always show payload (this is a “universal input” surface)
+    // Always show payload (universal input contract)
     setPayloadOut(payloadText);
 
     // Clear previous outputs for a fresh run
@@ -59,7 +59,9 @@ export default function UniversalInputPage() {
         const lun = await postText("/api/lunation", payloadText);
 
         if (!lun.res.ok || lun.data?.ok === false) {
-          setLunationOut(`ERROR\n${lun.data?.error ?? `HTTP ${lun.res.status}`}`);
+          setLunationOut(
+            `ERROR\n${lun.data?.error ?? `HTTP ${lun.res.status}`}`
+          );
         } else {
           setLunationOut(
             typeof lun.data?.text === "string" ? lun.data.text : pretty(lun.data)
@@ -92,7 +94,9 @@ export default function UniversalInputPage() {
         ]);
 
         if (!lun.res.ok || lun.data?.ok === false) {
-          setLunationOut(`ERROR\n${lun.data?.error ?? `HTTP ${lun.res.status}`}`);
+          setLunationOut(
+            `ERROR\n${lun.data?.error ?? `HTTP ${lun.res.status}`}`
+          );
         } else {
           setLunationOut(
             typeof lun.data?.text === "string" ? lun.data.text : pretty(lun.data)
@@ -118,7 +122,6 @@ export default function UniversalInputPage() {
     } catch (e: any) {
       setStatusLine("");
       const msg = e?.message ?? String(e);
-      // Put the error somewhere visible without being noisy
       setLunationOut((prev) => prev || `ERROR\n${msg}`);
       setAscYearOut((prev) => prev || `ERROR\n${msg}`);
     }
@@ -148,12 +151,15 @@ export default function UniversalInputPage() {
           </div>
         </div>
 
-        {/* Form */}
+        {/* Universal form (random birth date + as_of locked to today) */}
         <AstroInputForm
           title="URA • Input Contract"
           randomizeBirthDate
           lockAsOfToToday
           initial={{
+            // Leave birthDate/asOfDate out on purpose:
+            // - birthDate is randomized
+            // - as_of_date is locked to today
             birthTime: "01:39",
             timeZone: "America/New_York",
             birthCityState: "Danville, VA",
@@ -162,7 +168,6 @@ export default function UniversalInputPage() {
           }}
           onGenerate={handleGenerate}
         />
-
 
         {statusLine ? (
           <div className="text-[12px] text-neutral-400">{statusLine}</div>
