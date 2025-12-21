@@ -1,5 +1,3 @@
-// web/src/app/seasons/page.tsx
-
 "use client";
 
 import React, { useMemo, useState } from "react";
@@ -114,8 +112,6 @@ function SeasonWheel({
   cyclePositionDeg: number | null;
   ringColor: string;
 }) {
-  // cyclePositionDeg is 0..360 where 0 starts at ASC alignment
-  // We visualize it as a full wheel: 0 at top
   const cx = 90;
   const cy = 90;
   const r = 68;
@@ -143,15 +139,14 @@ function SeasonWheel({
 
       <div className="flex items-center justify-center">
         <svg width="180" height="180" viewBox="0 0 180 180">
-          {/* outer ring */}
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="#2a241d" strokeWidth="12" />
-          {/* season quadrants */}
+
+          {/* quadrants */}
           <path d={`M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy} Z`} fill="#13100c" opacity="0.9" />
           <path d={`M ${cx} ${cy} L ${cx + r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy + r} Z`} fill="#0f0d0a" opacity="0.9" />
           <path d={`M ${cx} ${cy} L ${cx} ${cy + r} A ${r} ${r} 0 0 1 ${cx - r} ${cy} Z`} fill="#13100c" opacity="0.9" />
           <path d={`M ${cx} ${cy} L ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy - r} Z`} fill="#0f0d0a" opacity="0.9" />
 
-          {/* subtle dotted ring */}
           <circle
             cx={cx}
             cy={cy}
@@ -167,18 +162,18 @@ function SeasonWheel({
           <line x1={cx} y1={cy - r - 8} x2={cx} y2={cy + r + 8} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
           <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
 
-          {/* labels */}
-          <text x={cx} y={cy - r - 14} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="1">
-            SPRING
+          {/* abbreviated labels */}
+          <text x={cx} y={cy - r - 14} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+            SPR
           </text>
-          <text x={cx + r + 18} y={cy + 3} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="1">
-            SUMMER
+          <text x={cx + r + 18} y={cy + 3} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+            SMR
           </text>
-          <text x={cx} y={cy + r + 26} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="1">
-            FALL
+          <text x={cx} y={cy + r + 26} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+            FAL
           </text>
-          <text x={cx - r - 18} y={cy + 3} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="1">
-            WINTER
+          <text x={cx - r - 18} y={cy + 3} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+            WTR
           </text>
 
           {/* hand */}
@@ -245,7 +240,10 @@ export default function SeasonsPage() {
 
   const season = data?.ascYear?.season ?? null;
   const modality = data?.ascYear?.modality ?? null;
-  const cyclePosition = typeof data?.ascYear?.cyclePosition === "number" ? data!.ascYear!.cyclePosition : null;
+
+  const cyclePosition =
+    typeof data?.ascYear?.cyclePosition === "number" ? data!.ascYear!.cyclePosition : null;
+
   const degreesIntoModality =
     typeof data?.ascYear?.degreesIntoModality === "number" ? data!.ascYear!.degreesIntoModality : null;
 
@@ -283,7 +281,6 @@ export default function SeasonsPage() {
   return (
     <div className="min-h-[100svh] bg-[#0b0906] text-[#efe6d8] flex items-center justify-center p-6">
       <div className="w-full max-w-6xl space-y-5">
-        {/* Hero */}
         <div className="rounded-2xl border border-[#2a241d] bg-gradient-to-b from-[#0f0d0a] to-[#0b0906] p-6">
           <div className="flex items-start justify-between gap-6">
             <div>
@@ -312,9 +309,7 @@ export default function SeasonsPage() {
           {statusLine ? <div className="mt-4 text-[12px] text-[#c7b9a6]">{statusLine}</div> : null}
         </div>
 
-        {/* Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Left: form + payload */}
           <div className="space-y-5">
             <AstroInputForm
               title="URA • Input"
@@ -353,13 +348,9 @@ export default function SeasonsPage() {
             ) : null}
           </div>
 
-          {/* Right: visuals + details */}
           <div className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <SeasonWheel
-                cyclePositionDeg={cyclePosition}
-                ringColor={theme.ring}
-              />
+              <SeasonWheel cyclePositionDeg={cyclePosition} ringColor={theme.ring} />
               <Meter value01={progress01} />
             </div>
 
@@ -449,7 +440,7 @@ export default function SeasonsPage() {
         </div>
 
         <div className="text-[11px] text-[#8f7f6a] px-1">
-          /seasons is a presentation layer over /api/asc-year (12×30° model). :contentReference[oaicite:1]{index=1}
+          /seasons is a presentation layer over /api/asc-year (12×30° model).
         </div>
       </div>
     </div>
