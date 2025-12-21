@@ -1,7 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroInputForm";
+
+const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
 type AscYearResponse = {
   ok: boolean;
@@ -24,6 +27,17 @@ type AscYearResponse = {
     moonLon?: number;
     houses?: number[];
   };
+};
+
+type AstroFormInitial = {
+  birthDate?: string;
+  birthTime?: string;
+  timeZone?: string;
+  birthCityState?: string;
+  lat?: number;
+  lon?: number;
+  asOfDate?: string;
+  resolvedLabel?: string;
 };
 
 function clamp01(n: number) {
@@ -61,6 +75,49 @@ async function postText(endpoint: string, text: string) {
   }
 
   return { res, data: data as AscYearResponse };
+}
+
+/**
+ * Best-effort parse of the canonical payload text into initial form fields.
+ * This keeps /seasons unified with /input by rehydrating the last saved payload.
+ */
+function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormInitial> {
+  const get = (k: string) => {
+    const re = new RegExp(`^\\s*${k}\\s*:\\s*(.+?)\\s*$`, "mi");
+    const m = payloadText.match(re);
+    return m?.[1]?.trim() ?? null;
+  };
+
+  const birthDT = get("birth_datetime");
+  const asOf = get("as_of_date");
+  const latRaw = get("lat");
+  const lonRaw = get("lon");
+
+  let birthDate: string | undefined;
+  let birthTime: string | undefined;
+
+  if (birthDT) {
+    const m = birthDT.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/);
+    if (m) {
+      birthDate = m[1];
+      birthTime = m[2];
+    }
+  }
+
+  const lat = latRaw ? Number(latRaw) : undefined;
+  const lon = lonRaw ? Number(lonRaw) : undefined;
+
+  return {
+    birthDate,
+    birthTime,
+    // tz_offset cannot be reliably reversed to IANA from payloadText.
+    // Use a sane default; user can change it in the form.
+    timeZone: "America/New_York",
+    birthCityState: "",
+    lat: Number.isFinite(lat as number) ? (lat as number) : undefined,
+    lon: Number.isFinite(lon as number) ? (lon as number) : undefined,
+    asOfDate: asOf ?? undefined,
+  };
 }
 
 // ------------------------------------
@@ -545,6 +602,24 @@ export default function SeasonsPage() {
   const [errorOut, setErrorOut] = useState<string>("");
   const [statusLine, setStatusLine] = useState<string>("");
 
+  const [savedPayload, setSavedPayload] = useState<string>("");
+
+  // Load saved payload once, and hydrate the payload panel so the page feels “continuous”
+  useEffect(() => {
+    try {
+      const x = window.localStorage.getItem(LS_PAYLOAD_KEY) || "";
+      setSavedPayload(x);
+      if (x) setPayloadOut(x);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const initialFromSaved = useMemo<AstroFormInitial>(() => {
+    if (!savedPayload) return {};
+    return safeParsePayloadTextToInitial(savedPayload);
+  }, [savedPayload]);
+
   const season = data?.ascYear?.season ?? null;
   const modality = data?.ascYear?.modality ?? null;
 
@@ -594,6 +669,15 @@ export default function SeasonsPage() {
 
   async function handleGenerate(payloadText: AstroPayloadText) {
     setPayloadOut(payloadText);
+
+    // Persist for reuse across URA (/input, /lunation, /seasons)
+    try {
+      window.localStorage.setItem(LS_PAYLOAD_KEY, payloadText);
+      setSavedPayload(payloadText);
+    } catch {
+      // ignore
+    }
+
     setData(null);
     setErrorOut("");
     setStatusLine("Computing seasons…");
@@ -636,10 +720,28 @@ export default function SeasonsPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className={`h-3 w-3 rounded-full ${theme.chip} ${theme.chipGlow}`} />
-              <div className="text-[12px] text-[#b9a88f]">
-                Earth-tone palette keyed to the current season
+            <div className="flex flex-col items-end gap-3">
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/input"
+                  className="rounded-xl border border-[#2a241d] bg-black/20 px-4 py-2 text-[12px] text-[#efe6d8] hover:bg-black/30"
+                >
+                  Edit input
+                </Link>
+
+                <Link
+                  href="/lunation"
+                  className="rounded-xl border border-[#2a241d] bg-black/20 px-4 py-2 text-[12px] text-[#efe6d8] hover:bg-black/30"
+                >
+                  Go to /lunation
+                </Link>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className={`h-3 w-3 rounded-full ${theme.chip} ${theme.chipGlow}`} />
+                <div className="text-[12px] text-[#b9a88f]">
+                  Earth-tone palette keyed to the current season
+                </div>
               </div>
             </div>
           </div>
@@ -662,12 +764,15 @@ export default function SeasonsPage() {
               title="URA • Input"
               defaultAsOfToToday
               initial={{
-                birthDate: "1990-01-24",
-                birthTime: "01:39",
-                timeZone: "America/New_York",
-                birthCityState: "Danville, VA",
-                lat: 36.585,
-                lon: -79.395,
+                // hydrate from saved payload if present, otherwise fall back to stable defaults
+                birthDate: initialFromSaved.birthDate ?? "1990-01-24",
+                birthTime: initialFromSaved.birthTime ?? "01:39",
+                timeZone: initialFromSaved.timeZone ?? "America/New_York",
+                birthCityState: initialFromSaved.birthCityState ?? "Danville, VA",
+                lat: typeof initialFromSaved.lat === "number" ? initialFromSaved.lat : 36.585,
+                lon: typeof initialFromSaved.lon === "number" ? initialFromSaved.lon : -79.395,
+                asOfDate: initialFromSaved.asOfDate,
+                resolvedLabel: initialFromSaved.resolvedLabel,
               }}
               onGenerate={handleGenerate}
             />
@@ -834,7 +939,8 @@ export default function SeasonsPage() {
         </div>
 
         <div className="text-[11px] text-[#8f7f6a] px-1">
-          /seasons is a presentation layer over /api/asc-year (12×30° model).
+          /seasons is a presentation layer over /api/asc-year (12×30° model). Saved payload key:{" "}
+          <span className="text-[#c7b9a6]">{LS_PAYLOAD_KEY}</span>
         </div>
       </div>
     </div>
