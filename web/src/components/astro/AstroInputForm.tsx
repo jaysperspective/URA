@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type GeoResult =
   | {
@@ -27,6 +27,10 @@ export type AstroInputFormProps = {
     resolvedLabel?: string;
   };
   onGenerate: (payloadText: AstroPayloadText) => Promise<void> | void;
+
+  // ✅ new optional behavior flags
+  randomizeBirthDate?: boolean;      // default birthDate becomes random (only if initial.birthDate not provided)
+  lockAsOfToToday?: boolean;         // as_of_date always = today (local), and the input becomes read-only
 };
 
 const TIMEZONES = [
@@ -37,7 +41,26 @@ const TIMEZONES = [
   { label: "UTC", value: "UTC" },
 ] as const;
 
-// ---- Timezone offset helpers (no libs) ----
+function localISODate(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function randomISODateBetween(start: Date, end: Date) {
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  const t = startMs + Math.floor(Math.random() * Math.max(1, endMs - startMs));
+  return localISODate(new Date(t));
+}
+
+// Reasonable demo range: 1950 → 2010 (adjust anytime)
+function defaultRandomBirthDate() {
+  return randomISODateBetween(new Date("1950-01-01T00:00:00"), new Date("2010-12-31T00:00:00"));
+}
+
+// ---- Timezone offset helpers (DST-safe, no libs) ----
 function offsetMinutesAtInstant(date: Date, timeZone: string): number {
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -72,13 +95,11 @@ function computeOffsetForLocalWallTime(
   minute: number,
   timeZone: string
 ): number {
-  // Start with a naive guess: interpret wall time as UTC, then iterate.
   let guessUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
 
   for (let i = 0; i < 4; i++) {
     const off = offsetMinutesAtInstant(new Date(guessUTC), timeZone);
-    const nextGuess =
-      Date.UTC(year, month - 1, day, hour, minute, 0) - off * 60_000;
+    const nextGuess = Date.UTC(year, month - 1, day, hour, minute, 0) - off * 60_000;
     if (Math.abs(nextGuess - guessUTC) < 1_000) {
       guessUTC = nextGuess;
       break;
@@ -113,28 +134,45 @@ export default function AstroInputForm({
   title = "URA • Input",
   initial,
   onGenerate,
+  randomizeBirthDate = false,
+  lockAsOfToToday = false,
 }: AstroInputFormProps) {
-  const [birthDate, setBirthDate] = useState(initial?.birthDate ?? "1990-01-24");
-  const [birthTime, setBirthTime] = useState(initial?.birthTime ?? "01:39");
-  const [timeZone, setTimeZone] = useState<string>(
-    initial?.timeZone ?? "America/New_York"
-  );
+  const [birthDate, setBirthDate] = useState(() => {
+    if (initial?.birthDate) return initial.birthDate;
+    if (randomizeBirthDate) return defaultRandomBirthDate();
+    return "1990-01-24";
+  });
 
-  const [birthCityState, setBirthCityState] = useState(
-    initial?.birthCityState ?? "Danville, VA"
-  );
+  const [birthTime, setBirthTime] = useState(initial?.birthTime ?? "01:39");
+  const [timeZone, setTimeZone] = useState<string>(initial?.timeZone ?? "America/New_York");
+
+  const [birthCityState, setBirthCityState] = useState(initial?.birthCityState ?? "Danville, VA");
   const [resolvedLat, setResolvedLat] = useState<number | null>(
     typeof initial?.lat === "number" ? initial.lat : 36.585
   );
   const [resolvedLon, setResolvedLon] = useState<number | null>(
     typeof initial?.lon === "number" ? initial.lon : -79.395
   );
+  const [resolvedLabel, setResolvedLabel] = useState<string>(initial?.resolvedLabel ?? "");
 
-  const [resolvedLabel, setResolvedLabel] = useState<string>(
-    initial?.resolvedLabel ?? ""
-  );
+  const [asOfDate, setAsOfDate] = useState(() => {
+    if (lockAsOfToToday) return localISODate();
+    return initial?.asOfDate ?? "2025-12-19";
+  });
 
-  const [asOfDate, setAsOfDate] = useState(initial?.asOfDate ?? "2025-12-19");
+  // If locked to today, keep it current (and update if midnight passes)
+  useEffect(() => {
+    if (!lockAsOfToToday) return;
+
+    const sync = () => {
+      const today = localISODate();
+      setAsOfDate((prev) => (prev === today ? prev : today));
+    };
+
+    sync();
+    const id = setInterval(sync, 60_000); // check once/minute
+    return () => clearInterval(id);
+  }, [lockAsOfToToday]);
 
   const [loading, setLoading] = useState(false);
   const [statusLine, setStatusLine] = useState<string>("");
@@ -162,15 +200,7 @@ export default function AstroInputForm({
       `lat: ${resolvedLat}`,
       `lon: ${resolvedLon}`,
     ].join("\n");
-  }, [
-    birthDate,
-    birthTime,
-    timeZone,
-    asOfDate,
-    resolvedLat,
-    resolvedLon,
-    hasResolvedLocation,
-  ]);
+  }, [birthDate, birthTime, timeZone, asOfDate, resolvedLat, resolvedLon, hasResolvedLocation]);
 
   async function geocodeCityState(): Promise<GeoResult> {
     const q = birthCityState.trim();
@@ -196,7 +226,6 @@ export default function AstroInputForm({
   async function resolveLocation(): Promise<boolean> {
     setLocationNudge("");
 
-    // Clear previous location first (so UI reflects we’re resolving fresh)
     setResolvedLat(null);
     setResolvedLon(null);
     setResolvedLabel("");
@@ -303,7 +332,6 @@ export default function AstroInputForm({
         </button>
       </div>
 
-      {/* Birth */}
       <div className="text-[12px] text-neutral-400 mb-2">Birth</div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -345,7 +373,6 @@ export default function AstroInputForm({
         </div>
       </div>
 
-      {/* Location */}
       <div className="mt-4">
         <div className="text-[11px] text-neutral-500 mb-1">
           Birth location (City, State)
@@ -395,8 +422,7 @@ export default function AstroInputForm({
             <div className="space-y-1">
               {resolvedLabel ? (
                 <div className="text-neutral-400">
-                  Resolved to:{" "}
-                  <span className="text-neutral-200">{resolvedLabel}</span>
+                  Resolved to: <span className="text-neutral-200">{resolvedLabel}</span>
                 </div>
               ) : (
                 <div className="text-neutral-400">Resolved.</div>
@@ -413,7 +439,6 @@ export default function AstroInputForm({
         </div>
       </div>
 
-      {/* As-of */}
       <div className="mt-5 pt-4 border-t border-neutral-900">
         <div className="text-[12px] text-neutral-400 mb-2">As-of</div>
 
@@ -424,15 +449,18 @@ export default function AstroInputForm({
               type="date"
               value={asOfDate}
               onChange={(e) => setAsOfDate(e.target.value)}
-              className="w-full rounded-md bg-black/40 border border-neutral-800 px-3 py-2 text-[13px] outline-none"
+              disabled={lockAsOfToToday}
+              className="w-full rounded-md bg-black/40 border border-neutral-800 px-3 py-2 text-[13px] outline-none disabled:opacity-60"
               style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+              title={lockAsOfToToday ? "As-of date is locked to today on this page." : "As-of date"}
             />
           </div>
 
           <div className="flex items-end">
             <div className="text-[11px] text-neutral-500">
-              tz_offset is computed automatically from your selected time zone +
-              birth time (DST-safe).
+              {lockAsOfToToday
+                ? "as_of_date is locked to today (local)."
+                : "tz_offset is computed automatically from your selected time zone + birth time (DST-safe)."}
             </div>
           </div>
         </div>
