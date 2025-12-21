@@ -138,15 +138,34 @@ function SeasonWheel({
       </div>
 
       <div className="flex items-center justify-center">
-        <svg width="180" height="180" viewBox="0 0 180 180">
+        {/* Expanded viewBox prevents label clipping */}
+        <svg width="180" height="180" viewBox="-20 -20 220 220">
+          {/* outer ring */}
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="#2a241d" strokeWidth="12" />
 
           {/* quadrants */}
-          <path d={`M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy} Z`} fill="#13100c" opacity="0.9" />
-          <path d={`M ${cx} ${cy} L ${cx + r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy + r} Z`} fill="#0f0d0a" opacity="0.9" />
-          <path d={`M ${cx} ${cy} L ${cx} ${cy + r} A ${r} ${r} 0 0 1 ${cx - r} ${cy} Z`} fill="#13100c" opacity="0.9" />
-          <path d={`M ${cx} ${cy} L ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy - r} Z`} fill="#0f0d0a" opacity="0.9" />
+          <path
+            d={`M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy} Z`}
+            fill="#13100c"
+            opacity="0.9"
+          />
+          <path
+            d={`M ${cx} ${cy} L ${cx + r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy + r} Z`}
+            fill="#0f0d0a"
+            opacity="0.9"
+          />
+          <path
+            d={`M ${cx} ${cy} L ${cx} ${cy + r} A ${r} ${r} 0 0 1 ${cx - r} ${cy} Z`}
+            fill="#13100c"
+            opacity="0.9"
+          />
+          <path
+            d={`M ${cx} ${cy} L ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy - r} Z`}
+            fill="#0f0d0a"
+            opacity="0.9"
+          />
 
+          {/* subtle dotted ring */}
           <circle
             cx={cx}
             cy={cy}
@@ -159,26 +178,85 @@ function SeasonWheel({
           />
 
           {/* crosshair */}
-          <line x1={cx} y1={cy - r - 8} x2={cx} y2={cy + r + 8} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
-          <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
+          <line
+            x1={cx}
+            y1={cy - r - 8}
+            x2={cx}
+            y2={cy + r + 8}
+            stroke="#2a241d"
+            strokeWidth="1"
+            opacity="0.9"
+          />
+          <line
+            x1={cx - r - 8}
+            y1={cy}
+            x2={cx + r + 8}
+            y2={cy}
+            stroke="#2a241d"
+            strokeWidth="1"
+            opacity="0.9"
+          />
 
-          {/* abbreviated labels */}
-          <text x={cx} y={cy - r - 14} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+          {/* abbreviated labels with baseline alignment */}
+          <text
+            x={cx}
+            y={cy - r - 8}
+            textAnchor="middle"
+            dominantBaseline="hanging"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             SPR
           </text>
-          <text x={cx + r + 18} y={cy + 3} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+
+          <text
+            x={cx + r + 12}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             SMR
           </text>
-          <text x={cx} y={cy + r + 26} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+
+          <text
+            x={cx}
+            y={cy + r + 18}
+            textAnchor="middle"
+            dominantBaseline="alphabetic"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             FAL
           </text>
-          <text x={cx - r - 18} y={cy + 3} textAnchor="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+
+          <text
+            x={cx - r - 12}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             WTR
           </text>
 
           {/* hand */}
           <circle cx={cx} cy={cy} r="3.5" fill={ringColor} />
-          <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={ringColor} strokeWidth="2.6" strokeLinecap="round" />
+          <line
+            x1={cx}
+            y1={cy}
+            x2={x2}
+            y2={y2}
+            stroke={ringColor}
+            strokeWidth="2.6"
+            strokeLinecap="round"
+          />
           <circle cx={x2} cy={y2} r="3" fill={ringColor} opacity="0.9" />
         </svg>
       </div>
