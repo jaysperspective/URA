@@ -22,6 +22,9 @@ type AscYearResponse = {
   natal?: {
     ascendant: number;
     mc: number;
+    sunLon?: number;
+    moonLon?: number;
+    houses?: number[];
   };
 };
 
@@ -62,6 +65,75 @@ async function postText(endpoint: string, text: string) {
   return { res, data: data as AscYearResponse };
 }
 
+// ---- zodiac formatting helpers ----
+
+const SIGN_NAMES = [
+  "Aries",
+  "Taurus",
+  "Gemini",
+  "Cancer",
+  "Leo",
+  "Virgo",
+  "Libra",
+  "Scorpio",
+  "Sagittarius",
+  "Capricorn",
+  "Aquarius",
+  "Pisces",
+] as const;
+
+const SIGN_GLYPHS: Record<(typeof SIGN_NAMES)[number], string> = {
+  Aries: "♈︎",
+  Taurus: "♉︎",
+  Gemini: "♊︎",
+  Cancer: "♋︎",
+  Leo: "♌︎",
+  Virgo: "♍︎",
+  Libra: "♎︎",
+  Scorpio: "♏︎",
+  Sagittarius: "♐︎",
+  Capricorn: "♑︎",
+  Aquarius: "♒︎",
+  Pisces: "♓︎",
+};
+
+function lonToSignParts(lon: number) {
+  const x = degNorm(lon);
+  const signIndex = Math.floor(x / 30);
+  const sign = SIGN_NAMES[signIndex] ?? "Aries";
+  const within = x - signIndex * 30;
+  const deg = Math.floor(within);
+  const min = Math.round((within - deg) * 60);
+  const minFixed = min === 60 ? 0 : min;
+  const degFixed = min === 60 ? deg + 1 : deg;
+  return { sign, deg: degFixed, min: minFixed };
+}
+
+function fmtSignLon(lon: number) {
+  const p = lonToSignParts(lon);
+  const glyph = SIGN_GLYPHS[p.sign] ?? "";
+  const mm = String(p.min).padStart(2, "0");
+  return { glyph, sign: p.sign, text: `${glyph} ${p.deg}°${mm}′`, raw: `${degNorm(lon).toFixed(2)}°` };
+}
+
+// ---- asc-year model mapping (UI label layer) ----
+function seasonFromCyclePos(pos: number) {
+  const p = degNorm(pos);
+  if (p < 90) return "Spring";
+  if (p < 180) return "Summer";
+  if (p < 270) return "Fall";
+  return "Winter";
+}
+
+function modalityFromCyclePos(pos: number) {
+  const p = degNorm(pos);
+  const withinSeason = p % 90;
+  const idx = Math.floor(withinSeason / 30);
+  const mods = ["Cardinal", "Fixed", "Mutable"] as const;
+  return mods[idx] ?? "Cardinal";
+}
+
+// ---- theme ----
 function seasonTheme(season: string | null) {
   const s = (season ?? "").toLowerCase();
   if (s.includes("spring"))
@@ -138,9 +210,7 @@ function SeasonWheel({
       </div>
 
       <div className="flex items-center justify-center">
-        {/* Expanded viewBox prevents label clipping */}
         <svg width="180" height="180" viewBox="-20 -20 220 220">
-          {/* outer ring */}
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="#2a241d" strokeWidth="12" />
 
           {/* quadrants */}
@@ -165,7 +235,6 @@ function SeasonWheel({
             opacity="0.9"
           />
 
-          {/* subtle dotted ring */}
           <circle
             cx={cx}
             cy={cy}
@@ -178,26 +247,10 @@ function SeasonWheel({
           />
 
           {/* crosshair */}
-          <line
-            x1={cx}
-            y1={cy - r - 8}
-            x2={cx}
-            y2={cy + r + 8}
-            stroke="#2a241d"
-            strokeWidth="1"
-            opacity="0.9"
-          />
-          <line
-            x1={cx - r - 8}
-            y1={cy}
-            x2={cx + r + 8}
-            y2={cy}
-            stroke="#2a241d"
-            strokeWidth="1"
-            opacity="0.9"
-          />
+          <line x1={cx} y1={cy - r - 8} x2={cx} y2={cy + r + 8} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
+          <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
 
-          {/* abbreviated labels with baseline alignment */}
+          {/* labels */}
           <text
             x={cx}
             y={cy - r - 8}
@@ -248,15 +301,7 @@ function SeasonWheel({
 
           {/* hand */}
           <circle cx={cx} cy={cy} r="3.5" fill={ringColor} />
-          <line
-            x1={cx}
-            y1={cy}
-            x2={x2}
-            y2={y2}
-            stroke={ringColor}
-            strokeWidth="2.6"
-            strokeLinecap="round"
-          />
+          <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={ringColor} strokeWidth="2.6" strokeLinecap="round" />
           <circle cx={x2} cy={y2} r="3" fill={ringColor} opacity="0.9" />
         </svg>
       </div>
@@ -276,10 +321,7 @@ function Meter({ value01 }: { value01: number }) {
         <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
           30° boundary
         </div>
-        <div
-          className="text-[12px] text-[#9e8e79]"
-          style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-        >
+        <div className="text-[12px] text-[#9e8e79]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
           {pct}%
         </div>
       </div>
@@ -299,13 +341,42 @@ function MiniCard({ label, value, note }: { label: string; value: string; note: 
   return (
     <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
       <div className="text-[11px] text-[#b9a88f]">{label}</div>
-      <div
-        className="mt-1 text-[18px] text-[#efe6d8]"
-        style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-      >
+      <div className="mt-1 text-[18px] text-[#efe6d8]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
         {value}
       </div>
       <div className="mt-2 text-[11px] text-[#8f7f6a]">{note}</div>
+    </div>
+  );
+}
+
+function ReferenceRow({
+  label,
+  lon,
+}: {
+  label: string;
+  lon: number | null | undefined;
+}) {
+  if (typeof lon !== "number") {
+    return (
+      <div className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
+        <div className="text-[12px] text-[#c7b9a6]">{label}</div>
+        <div className="text-[12px] text-[#8f7f6a]">—</div>
+      </div>
+    );
+  }
+
+  const f = fmtSignLon(lon);
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
+      <div className="text-[12px] text-[#c7b9a6]">{label}</div>
+      <div className="flex items-center gap-3">
+        <div className="text-[12px] text-[#b9a88f]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+          {f.text}
+        </div>
+        <div className="text-[12px] text-[#8f7f6a]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+          {f.raw}
+        </div>
+      </div>
     </div>
   );
 }
@@ -331,6 +402,35 @@ export default function SeasonsPage() {
   }, [degreesIntoModality]);
 
   const theme = useMemo(() => seasonTheme(season), [season]);
+
+  const boundariesList = useMemo(() => {
+    const b = data?.ascYear?.boundariesLongitude;
+    if (!b) return [];
+    const out: Array<{
+      key: string;
+      label: string;
+      lon: number;
+      season: string;
+      modality: string;
+    }> = [];
+
+    for (let i = 0; i <= 12; i++) {
+      const k = `deg${i * 30}`;
+      const lon = b[k];
+      if (typeof lon !== "number") continue;
+
+      const cyclePos = i === 12 ? 0 : i * 30; // deg360 is same as 0 in phase labeling
+      out.push({
+        key: k,
+        label: `${i * 30}°`,
+        lon,
+        season: seasonFromCyclePos(cyclePos),
+        modality: modalityFromCyclePos(cyclePos),
+      });
+    }
+
+    return out;
+  }, [data?.ascYear?.boundariesLongitude]);
 
   async function handleGenerate(payloadText: AstroPayloadText) {
     setPayloadOut(payloadText);
@@ -479,30 +579,77 @@ export default function SeasonsPage() {
                 />
               </div>
 
-              <details className="mt-5">
-                <summary className="text-[12px] text-[#b9a88f] cursor-pointer select-none">
-                  30° boundaries (longitudes)
-                </summary>
-
+              {/* NEW: Natal Reference */}
+              <div className="mt-6">
+                <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
+                  Natal reference
+                </div>
                 <div className="mt-3 rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
                   <div className="text-[11px] text-[#8f7f6a] mb-2">
-                    Boundaries are anchored to natal ASC in 30° steps.
+                    Positions are shown as zodiac sign + degree (and raw longitude).
                   </div>
 
-                  <pre
-                    className="text-[12px] leading-5 whitespace-pre-wrap break-words text-[#d9cfbf]"
-                    style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-                  >
-                    {data?.ascYear?.boundariesLongitude
-                      ? Object.entries(data.ascYear.boundariesLongitude)
-                          .map(([k, v]) => `${k}: ${degNorm(v).toFixed(2)}°`)
-                          .join("\n")
-                      : "—"}
-                  </pre>
+                  <div className="divide-y divide-[#201a13]">
+                    <ReferenceRow label="ASC" lon={data?.natal?.ascendant} />
+                    <ReferenceRow label="MC" lon={data?.natal?.mc} />
+                    <ReferenceRow label="Sun" lon={data?.natal?.sunLon} />
+                    <ReferenceRow label="Moon" lon={data?.natal?.moonLon} />
+                  </div>
                 </div>
-              </details>
+              </div>
 
-              <details className="mt-4">
+              {/* NEW: Boundary table */}
+              <div className="mt-6">
+                <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
+                  Asc-year boundaries (12 × 30°)
+                </div>
+
+                <div className="mt-3 rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
+                  <div className="text-[11px] text-[#8f7f6a] mb-3">
+                    Boundaries are anchored to your natal ASC (so they may not align with sign boundaries).
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    {boundariesList.length ? (
+                      boundariesList.map((row) => {
+                        const f = fmtSignLon(row.lon);
+                        return (
+                          <div
+                            key={row.key}
+                            className="flex items-center justify-between rounded-lg border border-[#201a13] bg-black/20 px-3 py-2"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="text-[12px] text-[#b9a88f] w-[56px]">
+                                {row.label}
+                              </div>
+                              <div
+                                className="text-[12px] text-[#efe6d8]"
+                                style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                              >
+                                {f.text}
+                              </div>
+                              <div
+                                className="text-[12px] text-[#8f7f6a]"
+                                style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                              >
+                                {f.raw}
+                              </div>
+                            </div>
+
+                            <div className="text-[12px] text-[#c7b9a6]">
+                              {row.season} • {row.modality}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-[12px] text-[#8f7f6a]">—</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <details className="mt-5">
                 <summary className="text-[12px] text-[#b9a88f] cursor-pointer select-none">
                   Raw response (debug)
                 </summary>
