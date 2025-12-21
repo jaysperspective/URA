@@ -42,6 +42,15 @@ const TIMEZONES = [
   { label: "UTC", value: "UTC" },
 ] as const;
 
+// Short UI labels (keeps IANA internally for DST-safe math)
+const TZ_ABBREVIATIONS: Record<string, string> = {
+  "America/New_York": "ET",
+  "America/Chicago": "CT",
+  "America/Denver": "MT",
+  "America/Los_Angeles": "PT",
+  UTC: "UTC",
+};
+
 function localISODate(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -381,13 +390,13 @@ export default function AstroInputForm({
             <select
               value={timeZone}
               onChange={(e) => setTimeZone(e.target.value)}
-              className="min-w-[220px] rounded-md bg-black/40 border border-neutral-800 px-2 py-2 text-[13px] outline-none text-neutral-100"
+              className="min-w-[110px] rounded-md bg-black/40 border border-neutral-800 px-2 py-2 text-[13px] outline-none text-neutral-100"
               style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
               title="Time zone (IANA)"
             >
               {TIMEZONES.map((tz) => (
                 <option key={tz.value} value={tz.value}>
-                  {tz.label}
+                  {TZ_ABBREVIATIONS[tz.value] ?? tz.label}
                 </option>
               ))}
             </select>
