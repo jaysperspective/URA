@@ -20,11 +20,30 @@ type AscYearResponse = {
     boundariesLongitude: Record<string, number>; // deg0..deg360
   };
   transit?: { sunLon: number };
+
+  // NOTE: Backend may evolve. We keep this flexible.
   natal?: {
     ascendant: number;
     mc: number;
     sunLon?: number;
     moonLon?: number;
+
+    // Optional future expansion:
+    mercuryLon?: number;
+    venusLon?: number;
+    marsLon?: number;
+    jupiterLon?: number;
+    saturnLon?: number;
+    uranusLon?: number;
+    neptuneLon?: number;
+    plutoLon?: number;
+    chironLon?: number;
+
+    northNodeLon?: number;
+    southNodeLon?: number;
+
+    // Some APIs pack planets under a `planets` map
+    planets?: Record<string, { lon?: number } | number>;
     houses?: number[];
   };
 };
@@ -198,23 +217,6 @@ function modalityFromCyclePos(pos: number) {
   return mods[idx] ?? "Cardinal";
 }
 
-function seasonAbbrev(season: string | null) {
-  const s = (season ?? "").toLowerCase();
-  if (s.includes("spring")) return "SPR";
-  if (s.includes("summer")) return "SMR";
-  if (s.includes("fall") || s.includes("autumn")) return "FAL";
-  if (s.includes("winter")) return "WTR";
-  return "—";
-}
-
-function modalityAbbrev(mod: string | null) {
-  const m = (mod ?? "").toLowerCase();
-  if (m.includes("card")) return "CAR";
-  if (m.includes("fix")) return "FIX";
-  if (m.includes("mut")) return "MUT";
-  return "—";
-}
-
 function safeParseAsOfDateFromPayload(payloadText: string): Date | null {
   const m = payloadText.match(/^\s*as_of_date:\s*(\d{4}-\d{2}-\d{2})\s*$/m);
   if (!m) return null;
@@ -304,6 +306,62 @@ function seasonTheme(season: string | null) {
     ring: "#6b6b6b",
     accent: "text-[#d9cfbf]",
   };
+}
+
+// ------------------------------------
+// Helpers: reading natal placements robustly
+// ------------------------------------
+
+function getLonFromPlanetsMap(planets: any, key: string): number | null {
+  if (!planets || typeof planets !== "object") return null;
+
+  // patterns:
+  // planets.sun.lon
+  // planets["sun"].lon
+  // planets["sun"] = number
+  const v = (planets as any)[key];
+  if (typeof v === "number") return v;
+  if (v && typeof v === "object" && typeof v.lon === "number") return v.lon;
+
+  // alternate key casing
+  const k2 = key.toLowerCase();
+  const v2 = (planets as any)[k2];
+  if (typeof v2 === "number") return v2;
+  if (v2 && typeof v2 === "object" && typeof v2.lon === "number") return v2.lon;
+
+  return null;
+}
+
+function pickFirstNumber(obj: any, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (typeof v === "number") return v;
+  }
+  return null;
+}
+
+function resolveNatalLon(natal: any, planetKey: string): number | null {
+  if (!natal) return null;
+
+  // direct fields (natal.sunLon etc.)
+  const direct = pickFirstNumber(natal, [
+    `${planetKey}Lon`,
+    `${planetKey}_lon`,
+    planetKey,
+  ]);
+  if (typeof direct === "number") return direct;
+
+  // planets map if present
+  const viaMap = getLonFromPlanetsMap(natal.planets, planetKey);
+  if (typeof viaMap === "number") return viaMap;
+
+  return null;
+}
+
+function computeSouthNodeLon(north: number | null, south: number | null): number | null {
+  if (typeof south === "number") return south;
+  if (typeof north === "number") return degNorm(north + 180);
+  return null;
 }
 
 // ------------------------------------
@@ -444,32 +502,6 @@ function MiniCard({ label, value, note }: { label: string; value: string; note: 
   );
 }
 
-function ReferenceRow({ label, lon }: { label: string; lon: number | null | undefined }) {
-  if (typeof lon !== "number") {
-    return (
-      <div className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
-        <div className="text-[12px] text-[#c7b9a6]">{label}</div>
-        <div className="text-[12px] text-[#8f7f6a]">—</div>
-      </div>
-    );
-  }
-
-  const f = fmtSignLon(lon);
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
-      <div className="text-[12px] text-[#c7b9a6]">{label}</div>
-      <div className="flex items-center gap-3">
-        <div className="text-[12px] text-[#b9a88f]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
-          {f.text}
-        </div>
-        <div className="text-[12px] text-[#8f7f6a]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
-          {f.raw}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function NowNextShiftStrip({
   nowSeason,
   nowModality,
@@ -492,27 +524,22 @@ function NowNextShiftStrip({
   }, [degreesIntoModality]);
 
   const shift = useMemo(() => {
-    // Sun moves ~0.9856°/day on average; we keep it approximate.
+    // Sun moves ~0.9856°/day on average; approximate is fine for UX.
     const DEG_PER_DAY = 0.9856;
 
     if (remainingDeg == null) return { days: null as number | null, date: null as Date | null };
 
-    const days = remainingDeg / DEG_PER_DAY; // fractional
+    const days = remainingDeg / DEG_PER_DAY;
     const base = safeParseAsOfDateFromPayload(payloadText) ?? new Date();
-    const date = addDays(base, Math.max(0, Math.round(days))); // date-level ETA
+    const date = addDays(base, Math.max(0, Math.round(days)));
     return { days, date };
   }, [remainingDeg, payloadText]);
 
   const nowText = `${nowSeason ?? "—"} • ${nowModality ?? "—"}`;
   const nextText = `${next.season} • ${next.modality}`;
 
-  const shiftDaysText =
-    typeof shift.days === "number"
-      ? `~${shift.days.toFixed(1)} days`
-      : "—";
-
-  const shiftDateText =
-    shift.date ? fmtDateShort(shift.date) : "—";
+  const shiftDaysText = typeof shift.days === "number" ? `~${shift.days.toFixed(1)} days` : "—";
+  const shiftDateText = shift.date ? fmtDateShort(shift.date) : "—";
 
   return (
     <div className="rounded-2xl border border-[#2a241d] bg-[#0f0d0a] p-5">
@@ -529,17 +556,13 @@ function NowNextShiftStrip({
         <div className="rounded-xl border border-[#201a13] bg-black/20 p-4">
           <div className="text-[11px] text-[#b9a88f]">Now</div>
           <div className={`mt-1 text-[16px] ${accentClass}`}>{nowText}</div>
-          <div className="mt-2 text-[11px] text-[#8f7f6a]">
-            Current season + modality.
-          </div>
+          <div className="mt-2 text-[11px] text-[#8f7f6a]">Current season + modality.</div>
         </div>
 
         <div className="rounded-xl border border-[#201a13] bg-black/20 p-4">
           <div className="text-[11px] text-[#b9a88f]">Next</div>
           <div className="mt-1 text-[16px] text-[#efe6d8]">{nextText}</div>
-          <div className="mt-2 text-[11px] text-[#8f7f6a]">
-            The next 30° segment.
-          </div>
+          <div className="mt-2 text-[11px] text-[#8f7f6a]">The next 30° segment.</div>
         </div>
 
         <div className="rounded-xl border border-[#201a13] bg-black/20 p-4">
@@ -549,10 +572,117 @@ function NowNextShiftStrip({
             <span className="text-[#8f7f6a]"> • </span>
             <span className="text-[#c7b9a6]">{shiftDateText}</span>
           </div>
-          <div className="mt-2 text-[11px] text-[#8f7f6a]">
-            Based on remaining degrees in this segment.
-          </div>
+          <div className="mt-2 text-[11px] text-[#8f7f6a]">Based on remaining degrees in this segment.</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | null | undefined }) {
+  const n: any = natal ?? null;
+
+  const lonASC = typeof n?.ascendant === "number" ? n.ascendant : null;
+  const lonMC = typeof n?.mc === "number" ? n.mc : null;
+
+  // canonical planets
+  const lonSun = resolveNatalLon(n, "sun") ?? (typeof n?.sunLon === "number" ? n.sunLon : null);
+  const lonMoon = resolveNatalLon(n, "moon") ?? (typeof n?.moonLon === "number" ? n.moonLon : null);
+  const lonMercury = resolveNatalLon(n, "mercury") ?? (typeof n?.mercuryLon === "number" ? n.mercuryLon : null);
+  const lonVenus = resolveNatalLon(n, "venus") ?? (typeof n?.venusLon === "number" ? n.venusLon : null);
+  const lonMars = resolveNatalLon(n, "mars") ?? (typeof n?.marsLon === "number" ? n.marsLon : null);
+  const lonJupiter = resolveNatalLon(n, "jupiter") ?? (typeof n?.jupiterLon === "number" ? n.jupiterLon : null);
+  const lonSaturn = resolveNatalLon(n, "saturn") ?? (typeof n?.saturnLon === "number" ? n.saturnLon : null);
+  const lonUranus = resolveNatalLon(n, "uranus") ?? (typeof n?.uranusLon === "number" ? n.uranusLon : null);
+  const lonNeptune = resolveNatalLon(n, "neptune") ?? (typeof n?.neptuneLon === "number" ? n.neptuneLon : null);
+  const lonPluto = resolveNatalLon(n, "pluto") ?? (typeof n?.plutoLon === "number" ? n.plutoLon : null);
+
+  // chiron + nodes (many possible keys)
+  const lonChiron =
+    resolveNatalLon(n, "chiron") ??
+    pickFirstNumber(n, ["chironLon", "chiron_lon"]) ??
+    getLonFromPlanetsMap(n?.planets, "chiron") ??
+    getLonFromPlanetsMap(n?.planets, "chiron_") ??
+    null;
+
+  const lonNorth =
+    pickFirstNumber(n, ["northNodeLon", "north_node_lon", "trueNodeLon", "true_node_lon", "meanNodeLon", "mean_node_lon", "nodeLon", "node_lon", "rahuLon", "rahu_lon"]) ??
+    getLonFromPlanetsMap(n?.planets, "northNode") ??
+    getLonFromPlanetsMap(n?.planets, "north_node") ??
+    getLonFromPlanetsMap(n?.planets, "trueNode") ??
+    getLonFromPlanetsMap(n?.planets, "meanNode") ??
+    getLonFromPlanetsMap(n?.planets, "rahu") ??
+    null;
+
+  const lonSouthRaw =
+    pickFirstNumber(n, ["southNodeLon", "south_node_lon", "ketuLon", "ketu_lon"]) ??
+    getLonFromPlanetsMap(n?.planets, "southNode") ??
+    getLonFromPlanetsMap(n?.planets, "south_node") ??
+    getLonFromPlanetsMap(n?.planets, "ketu") ??
+    null;
+
+  const lonSouth = computeSouthNodeLon(lonNorth, lonSouthRaw);
+
+  const rows: Array<{ label: string; lon: number | null }> = [
+    { label: "ASC", lon: lonASC },
+    { label: "MC", lon: lonMC },
+    { label: "Sun", lon: lonSun },
+    { label: "Moon", lon: lonMoon },
+    { label: "Mercury", lon: lonMercury },
+    { label: "Venus", lon: lonVenus },
+    { label: "Mars", lon: lonMars },
+    { label: "Jupiter", lon: lonJupiter },
+    { label: "Saturn", lon: lonSaturn },
+    { label: "Uranus", lon: lonUranus },
+    { label: "Neptune", lon: lonNeptune },
+    { label: "Pluto", lon: lonPluto },
+    { label: "Chiron", lon: lonChiron },
+    { label: "North Node", lon: lonNorth },
+    { label: "South Node", lon: lonSouth },
+  ];
+
+  const hasAnyExtra =
+    rows.some((r) => r.label !== "ASC" && r.label !== "MC" && r.label !== "Sun" && r.label !== "Moon" && typeof r.lon === "number");
+
+  return (
+    <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
+      <div className="text-[11px] text-[#8f7f6a] mb-2">
+        Natal placements (zodiac + degree + raw longitude)
+      </div>
+
+      {!hasAnyExtra ? (
+        <div className="text-[11px] text-[#8f7f6a] mb-3">
+          Note: If you only see ASC/MC/Sun/Moon, the remaining bodies are not yet being returned by <span className="text-[#c7b9a6]">/api/asc-year</span>.
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        {rows.map((r) => {
+          const lon = r.lon;
+          if (typeof lon !== "number") {
+            return (
+              <div key={r.label} className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
+                <div className="text-[12px] text-[#c7b9a6]">{r.label}</div>
+                <div className="text-[12px] text-[#8f7f6a]">—</div>
+              </div>
+            );
+          }
+
+          const f = fmtSignLon(lon);
+          return (
+            <div key={r.label} className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
+              <div className="text-[12px] text-[#c7b9a6]">{r.label}</div>
+              <div className="flex items-center gap-3">
+                <div className="text-[12px] text-[#b9a88f]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+                  {f.text}
+                </div>
+                <div className="text-[12px] text-[#8f7f6a]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+                  {f.raw}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -604,7 +734,6 @@ export default function SeasonsPage() {
 
   const theme = useMemo(() => seasonTheme(season), [season]);
 
-  // Boundaries: start points at 0..360 (0 and 360 are the same longitude)
   const boundariesList = useMemo(() => {
     const b = data?.ascYear?.boundariesLongitude;
     if (!b) return [];
@@ -612,7 +741,6 @@ export default function SeasonsPage() {
       key: string;
       label: string;
       lon: number;
-      cyclePos: number;
       season: string;
       modality: string;
     }> = [];
@@ -627,71 +755,13 @@ export default function SeasonsPage() {
         key: k,
         label: `${i * 30}°`,
         lon,
-        cyclePos,
         season: seasonFromCyclePos(cyclePos),
         modality: modalityFromCyclePos(cyclePos),
       });
     }
 
-    // Ensure sorted by cyclePos (0..360)
-    out.sort((a, b) => a.cyclePos - b.cyclePos);
     return out;
   }, [data?.ascYear?.boundariesLongitude]);
-
-  // Calibration strip: each 30° segment range from boundary[i] -> boundary[i+1]
-  const segmentRanges = useMemo(() => {
-    if (!boundariesList.length) return [];
-    const out: Array<{
-      startCyclePos: number;
-      endCyclePos: number;
-      segLabel: string; // e.g., "0–30"
-      season: string;
-      modality: string;
-      startLon: number;
-      endLon: number;
-    }> = [];
-
-    // Expect 13 items (0..360), but we handle anything >= 2
-    for (let i = 0; i < boundariesList.length - 1; i++) {
-      const a = boundariesList[i];
-      const b = boundariesList[i + 1];
-
-      const start = a.cyclePos;
-      const end = b.cyclePos;
-
-      out.push({
-        startCyclePos: start,
-        endCyclePos: end,
-        segLabel: `${start}–${end}`,
-        season: a.season,
-        modality: a.modality,
-        startLon: a.lon,
-        endLon: b.lon,
-      });
-    }
-
-    // If last is 360 (cyclePos 0 alias), the loop already covers 330–0? Not in numeric order.
-    // boundariesList includes 360 mapped to cyclePos 0 in our builder. So we typically get 0..330 plus another 0.
-    // The simplest stable behavior: if we don't have a 330–360 row, we add it using deg330 -> deg360 (deg360 key).
-    const has330 = out.some((x) => x.startCyclePos === 330);
-    const lastStart = boundariesList.find((x) => x.label === "330°");
-    const deg360 = boundariesList.find((x) => x.label === "360°");
-    if (!has330 && lastStart && deg360) {
-      out.push({
-        startCyclePos: 330,
-        endCyclePos: 360,
-        segLabel: `330–360`,
-        season: seasonFromCyclePos(330),
-        modality: modalityFromCyclePos(330),
-        startLon: lastStart.lon,
-        endLon: deg360.lon,
-      });
-    }
-
-    // Sort by startCyclePos
-    out.sort((a, b) => a.startCyclePos - b.startCyclePos);
-    return out;
-  }, [boundariesList]);
 
   async function handleGenerate(payloadText: AstroPayloadText) {
     setPayloadOut(payloadText);
@@ -775,7 +845,6 @@ export default function SeasonsPage() {
           {statusLine ? <div className="mt-4 text-[12px] text-[#c7b9a6]">{statusLine}</div> : null}
         </div>
 
-        {/* Now / Next / Shift strip */}
         <NowNextShiftStrip
           nowSeason={season}
           nowModality={modality}
@@ -878,90 +947,17 @@ export default function SeasonsPage() {
                 />
               </div>
 
-              {/* ✅ NEW: Instrument calibration layer */}
+              {/* ✅ Updated: Natal Dial expanded */}
               <div className="mt-7">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
-                  Instrument calibration
+                  Natal dial
                 </div>
-
-                <div className="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-4">
-                  {/* Calibration: natal dial */}
-                  <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
-                    <div className="text-[11px] text-[#8f7f6a] mb-2">
-                      Natal dial (your fixed reference points)
-                    </div>
-                    <div className="divide-y divide-[#201a13]">
-                      <ReferenceRow label="ASC" lon={data?.natal?.ascendant} />
-                      <ReferenceRow label="MC" lon={data?.natal?.mc} />
-                      <ReferenceRow label="Sun" lon={data?.natal?.sunLon} />
-                      <ReferenceRow label="Moon" lon={data?.natal?.moonLon} />
-                    </div>
-                  </div>
-
-                  {/* Calibration: asc-year ring */}
-                  <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
-                    <div className="text-[11px] text-[#8f7f6a] mb-2">
-                      Asc-Year ring (12 × 30°) — your custom boundary wheel
-                    </div>
-
-                    {segmentRanges.length ? (
-                      <div className="space-y-2">
-                        {segmentRanges.map((seg) => {
-                          const start = fmtSignLon(seg.startLon);
-                          const end = fmtSignLon(seg.endLon);
-
-                          const chip = `${seasonAbbrev(seg.season)} • ${modalityAbbrev(seg.modality)}`;
-
-                          return (
-                            <div
-                              key={`${seg.startCyclePos}-${seg.endCyclePos}`}
-                              className="flex flex-col gap-2 rounded-lg border border-[#201a13] bg-black/20 px-3 py-2"
-                            >
-                              <div className="flex items-center justify-between gap-4">
-                                <div className="flex items-center gap-3">
-                                  <div className="text-[12px] text-[#b9a88f] w-[72px]">
-                                    {seg.segLabel}°
-                                  </div>
-
-                                  <div
-                                    className="text-[12px] text-[#efe6d8]"
-                                    style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-                                  >
-                                    {chip}
-                                  </div>
-                                </div>
-
-                                <div
-                                  className="text-[12px] text-[#c7b9a6]"
-                                  style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-                                  title="Segment span is defined by your ASC-anchored boundaries"
-                                >
-                                  {start.text} <span className="text-[#8f7f6a]">→</span> {end.text}
-                                </div>
-                              </div>
-
-                              <div
-                                className="text-[11px] text-[#8f7f6a]"
-                                style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-                              >
-                                {degNorm(seg.startLon).toFixed(2)}° → {degNorm(seg.endLon).toFixed(2)}°
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="text-[12px] text-[#8f7f6a]">Generate to load your boundary ring.</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-3 text-[11px] text-[#8f7f6a]">
-                  The ring boundaries are anchored to your natal ASC — they won’t necessarily align with sign boundaries.
+                <div className="mt-3">
+                  <NatalPlacementsTable natal={data?.natal ?? null} />
                 </div>
               </div>
 
-              {/* Boundaries (original list stays, as a raw reference) */}
+              {/* Boundaries */}
               <div className="mt-6">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
                   Asc-year boundaries (12 × 30°)
@@ -982,9 +978,7 @@ export default function SeasonsPage() {
                             className="flex items-center justify-between rounded-lg border border-[#201a13] bg-black/20 px-3 py-2"
                           >
                             <div className="flex items-center gap-3">
-                              <div className="text-[12px] text-[#b9a88f] w-[56px]">
-                                {row.label}
-                              </div>
+                              <div className="text-[12px] text-[#b9a88f] w-[56px]">{row.label}</div>
                               <div
                                 className="text-[12px] text-[#efe6d8]"
                                 style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
