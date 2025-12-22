@@ -26,15 +26,16 @@ type ParsedInput = {
   lon?: number;
 };
 
+/**
+ * We widen the astro-service response typing so we don't silently drop bodies.
+ * If astro-service returns only sun/moon, that's fine — these keys will be absent.
+ */
 type AstroServiceChart = {
   ok: boolean;
   error?: string;
   data?: {
     julianDay: number;
-    planets: {
-      sun?: { lon: number };
-      moon?: { lon: number };
-    };
+    planets: Record<string, { lon: number } | undefined>;
     houses?: number[];
     ascendant?: number | null;
     mc?: number | null;
@@ -49,7 +50,9 @@ const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 // Cache (in-memory)
 // ------------------------------
 
-const ASCYEAR_CACHE_VERSION = "asc-year:natal-asc+transit-sun:12x30:v2:natal-sun-moon";
+// bump cache version because payload now includes additional natal bodies
+const ASCYEAR_CACHE_VERSION =
+  "asc-year:natal-asc+transit-sun:12x30:v3:natal-planets+chiron+nodes";
 const ASCYEAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 type CacheEntry = { expiresAt: number; payload: any };
@@ -66,6 +69,7 @@ function getCache(key: string) {
   }
   return hit.payload;
 }
+
 function setCache(key: string, payload: any) {
   if (ASCYEAR_CACHE.size > 1200) {
     const now = Date.now();
@@ -74,7 +78,10 @@ function setCache(key: string, payload: any) {
       if (ASCYEAR_CACHE.size <= 950) break;
     }
   }
-  ASCYEAR_CACHE.set(key, { expiresAt: Date.now() + ASCYEAR_CACHE_TTL_MS, payload });
+  ASCYEAR_CACHE.set(key, {
+    expiresAt: Date.now() + ASCYEAR_CACHE_TTL_MS,
+    payload,
+  });
 }
 
 // ------------------------------
@@ -234,6 +241,24 @@ async function fetchChartByYMDHM(
   return json.data;
 }
 
+function readPlanetLon(data: AstroServiceData, key: string): number | null {
+  const p = data.planets?.[key];
+  if (!p || typeof p.lon !== "number") return null;
+  return wrap360(p.lon);
+}
+
+/**
+ * Node naming varies between implementations.
+ * We'll try several common keys and pick the first that exists.
+ */
+function readFirstPlanetLon(data: AstroServiceData, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = readPlanetLon(data, k);
+    if (typeof v === "number") return v;
+  }
+  return null;
+}
+
 async function fetchNatalAnchor(birthUTC: Date, lat: number, lon: number) {
   const data = await fetchChartByYMDHM(
     birthUTC.getUTCFullYear(),
@@ -248,21 +273,67 @@ async function fetchNatalAnchor(birthUTC: Date, lat: number, lon: number) {
   const asc = data.ascendant;
   const mc = data.mc;
   const houses = data.houses ?? [];
-  const natalSun = data.planets?.sun?.lon;
-  const natalMoon = data.planets?.moon?.lon;
 
-  if (typeof asc !== "number") throw new Error("astro-service missing ascendant (check lat/lon)");
-  if (typeof mc !== "number") throw new Error("astro-service missing mc (check lat/lon)");
+  if (typeof asc !== "number")
+    throw new Error("astro-service missing ascendant (check lat/lon)");
+  if (typeof mc !== "number")
+    throw new Error("astro-service missing mc (check lat/lon)");
+
+  // Required for the current page experience
+  const natalSun = readPlanetLon(data, "sun");
+  const natalMoon = readPlanetLon(data, "moon");
   if (typeof natalSun !== "number") throw new Error("astro-service missing natal sun lon");
   if (typeof natalMoon !== "number") throw new Error("astro-service missing natal moon lon");
+
+  // Optional expansions (only returned if astro-service provides them)
+  const mercury = readPlanetLon(data, "mercury");
+  const venus = readPlanetLon(data, "venus");
+  const mars = readPlanetLon(data, "mars");
+  const jupiter = readPlanetLon(data, "jupiter");
+  const saturn = readPlanetLon(data, "saturn");
+  const uranus = readPlanetLon(data, "uranus");
+  const neptune = readPlanetLon(data, "neptune");
+  const pluto = readPlanetLon(data, "pluto");
+  const chiron = readFirstPlanetLon(data, ["chiron"]);
+
+  // Nodes: try common naming schemes
+  const northNode = readFirstPlanetLon(data, [
+    "northNode",
+    "north_node",
+    "trueNode",
+    "true_node",
+    "meanNode",
+    "mean_node",
+    "node",
+    "rahu",
+  ]);
+
+  const southNode =
+    readFirstPlanetLon(data, ["southNode", "south_node", "ketu"]) ??
+    (typeof northNode === "number" ? wrap360(northNode + 180) : null);
 
   return {
     julianDay: data.julianDay,
     asc: wrap360(asc),
     mc: wrap360(mc),
     houses,
-    sunLon: wrap360(natalSun),
-    moonLon: wrap360(natalMoon),
+
+    // always
+    sunLon: natalSun,
+    moonLon: natalMoon,
+
+    // optional
+    mercuryLon: mercury,
+    venusLon: venus,
+    marsLon: mars,
+    jupiterLon: jupiter,
+    saturnLon: saturn,
+    uranusLon: uranus,
+    neptuneLon: neptune,
+    plutoLon: pluto,
+    chironLon: chiron,
+    northNodeLon: northNode,
+    southNodeLon: southNode,
   };
 }
 
@@ -277,9 +348,9 @@ async function fetchTransitingSun(asOfUTC: Date, lat: number, lon: number) {
     lon
   );
 
-  const sunLon = data.planets?.sun?.lon;
+  const sunLon = readPlanetLon(data, "sun");
   if (typeof sunLon !== "number") throw new Error("astro-service missing sun lon");
-  return { julianDay: data.julianDay, sunLon: wrap360(sunLon) };
+  return { julianDay: data.julianDay, sunLon };
 }
 
 // ------------------------------
@@ -299,7 +370,12 @@ function modalityFromCyclePos(pos: number) {
   const withinSeason = p % 90; // 0..90
   const idx = Math.floor(withinSeason / 30); // 0,1,2
   const mods = ["Cardinal", "Fixed", "Mutable"] as const;
-  return { modality: mods[idx] ?? "Cardinal", segment: idx + 1, total: 3, within: withinSeason % 30 };
+  return {
+    modality: mods[idx] ?? "Cardinal",
+    segment: idx + 1,
+    total: 3,
+    within: withinSeason % 30,
+  };
 }
 
 function boundariesFromAsc(asc: number) {
@@ -353,6 +429,31 @@ export async function POST(req: Request) {
     lines.push(`Natal MC:   ${natal.mc.toFixed(2)}° (${angleToSign(natal.mc)})`);
     lines.push(`Natal Sun:  ${natal.sunLon.toFixed(2)}° (${angleToSign(natal.sunLon)})`);
     lines.push(`Natal Moon: ${natal.moonLon.toFixed(2)}° (${angleToSign(natal.moonLon)})`);
+
+    // Only print additional bodies if present (keeps output clean)
+    const optionalLines: Array<[string, number | null]> = [
+      ["Natal Mercury", natal.mercuryLon],
+      ["Natal Venus", natal.venusLon],
+      ["Natal Mars", natal.marsLon],
+      ["Natal Jupiter", natal.jupiterLon],
+      ["Natal Saturn", natal.saturnLon],
+      ["Natal Uranus", natal.uranusLon],
+      ["Natal Neptune", natal.neptuneLon],
+      ["Natal Pluto", natal.plutoLon],
+      ["Natal Chiron", natal.chironLon],
+      ["Natal North Node", natal.northNodeLon],
+      ["Natal South Node", natal.southNodeLon],
+    ];
+
+    const anyOptional = optionalLines.some(([, v]) => typeof v === "number");
+    if (anyOptional) {
+      lines.push("");
+      for (const [label, v] of optionalLines) {
+        if (typeof v !== "number") continue;
+        lines.push(`${label}: ${v.toFixed(2)}° (${angleToSign(v)})`);
+      }
+    }
+
     lines.push("");
     lines.push(`Transiting Sun: ${transit.sunLon.toFixed(2)}° (${angleToSign(transit.sunLon)})`);
     lines.push("");
@@ -378,9 +479,23 @@ export async function POST(req: Request) {
         julianDay: natal.julianDay,
         ascendant: natal.asc,
         mc: natal.mc,
+        houses: natal.houses,
+
         sunLon: natal.sunLon,
         moonLon: natal.moonLon,
-        houses: natal.houses,
+
+        // optional (may be null if astro-service doesn't provide)
+        mercuryLon: natal.mercuryLon,
+        venusLon: natal.venusLon,
+        marsLon: natal.marsLon,
+        jupiterLon: natal.jupiterLon,
+        saturnLon: natal.saturnLon,
+        uranusLon: natal.uranusLon,
+        neptuneLon: natal.neptuneLon,
+        plutoLon: natal.plutoLon,
+        chironLon: natal.chironLon,
+        northNodeLon: natal.northNodeLon,
+        southNodeLon: natal.southNodeLon,
       },
       transit: {
         julianDay: transit.julianDay,
