@@ -79,7 +79,7 @@ async function postText(endpoint: string, text: string) {
 
 /**
  * Best-effort parse of the canonical payload text into initial form fields.
- * This keeps /seasons unified with /input by rehydrating the last saved payload.
+ * Keeps /seasons unified with /input by rehydrating the last saved payload.
  */
 function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormInitial> {
   const get = (k: string) => {
@@ -207,13 +207,19 @@ function seasonAbbrev(season: string | null) {
   return "—";
 }
 
+function modalityAbbrev(mod: string | null) {
+  const m = (mod ?? "").toLowerCase();
+  if (m.includes("card")) return "CAR";
+  if (m.includes("fix")) return "FIX";
+  if (m.includes("mut")) return "MUT";
+  return "—";
+}
+
 function safeParseAsOfDateFromPayload(payloadText: string): Date | null {
-  // expects a line: as_of_date: YYYY-MM-DD
   const m = payloadText.match(/^\s*as_of_date:\s*(\d{4}-\d{2}-\d{2})\s*$/m);
   if (!m) return null;
   const [y, mo, d] = m[1].split("-").map((x) => Number(x));
   if (!y || !mo || !d) return null;
-  // treat as local date for display; shift math is approximate anyway
   return new Date(y, mo - 1, d, 12, 0, 0);
 }
 
@@ -224,7 +230,6 @@ function addDays(d: Date, days: number) {
 }
 
 function fmtDateShort(d: Date) {
-  // MM/DD/YYYY
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   const yy = d.getFullYear();
@@ -241,7 +246,6 @@ function computeNextSegment(nowSeason: string | null, nowModality: string | null
   const safeS = sIdx >= 0 ? sIdx : 0;
   const safeM = mIdx >= 0 ? mIdx : 0;
 
-  // Next modality within season; if we roll past Mutable, advance season and reset to Cardinal
   if (safeM < 2) {
     return { season: seasons[safeS], modality: modalities[safeM + 1] };
   }
@@ -330,10 +334,7 @@ function SeasonWheel({
         <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
           Cycle wheel
         </div>
-        <div
-          className="text-[12px] text-[#9e8e79]"
-          style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-        >
+        <div className="text-[12px] text-[#9e8e79]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
           {typeof cyclePositionDeg === "number" ? `${pos.toFixed(2)}°` : "—"}
         </div>
       </div>
@@ -380,51 +381,16 @@ function SeasonWheel({
           <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
 
           {/* labels */}
-          <text
-            x={cx}
-            y={cy - r - 8}
-            textAnchor="middle"
-            dominantBaseline="hanging"
-            fontSize="10"
-            fill="#b9a88f"
-            letterSpacing="2"
-          >
+          <text x={cx} y={cy - r - 8} textAnchor="middle" dominantBaseline="hanging" fontSize="10" fill="#b9a88f" letterSpacing="2">
             SPR
           </text>
-
-          <text
-            x={cx + r + 12}
-            y={cy}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fontSize="10"
-            fill="#b9a88f"
-            letterSpacing="2"
-          >
+          <text x={cx + r + 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
             SMR
           </text>
-
-          <text
-            x={cx}
-            y={cy + r + 18}
-            textAnchor="middle"
-            dominantBaseline="alphabetic"
-            fontSize="10"
-            fill="#b9a88f"
-            letterSpacing="2"
-          >
+          <text x={cx} y={cy + r + 18} textAnchor="middle" dominantBaseline="alphabetic" fontSize="10" fill="#b9a88f" letterSpacing="2">
             FAL
           </text>
-
-          <text
-            x={cx - r - 12}
-            y={cy}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fontSize="10"
-            fill="#b9a88f"
-            letterSpacing="2"
-          >
+          <text x={cx - r - 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
             WTR
           </text>
 
@@ -604,7 +570,7 @@ export default function SeasonsPage() {
 
   const [savedPayload, setSavedPayload] = useState<string>("");
 
-  // Load saved payload once, and hydrate the payload panel so the page feels “continuous”
+  // Load saved payload once, hydrate the payload panel so the page feels continuous
   useEffect(() => {
     try {
       const x = window.localStorage.getItem(LS_PAYLOAD_KEY) || "";
@@ -638,6 +604,7 @@ export default function SeasonsPage() {
 
   const theme = useMemo(() => seasonTheme(season), [season]);
 
+  // Boundaries: start points at 0..360 (0 and 360 are the same longitude)
   const boundariesList = useMemo(() => {
     const b = data?.ascYear?.boundariesLongitude;
     if (!b) return [];
@@ -645,6 +612,7 @@ export default function SeasonsPage() {
       key: string;
       label: string;
       lon: number;
+      cyclePos: number;
       season: string;
       modality: string;
     }> = [];
@@ -659,13 +627,71 @@ export default function SeasonsPage() {
         key: k,
         label: `${i * 30}°`,
         lon,
+        cyclePos,
         season: seasonFromCyclePos(cyclePos),
         modality: modalityFromCyclePos(cyclePos),
       });
     }
 
+    // Ensure sorted by cyclePos (0..360)
+    out.sort((a, b) => a.cyclePos - b.cyclePos);
     return out;
   }, [data?.ascYear?.boundariesLongitude]);
+
+  // Calibration strip: each 30° segment range from boundary[i] -> boundary[i+1]
+  const segmentRanges = useMemo(() => {
+    if (!boundariesList.length) return [];
+    const out: Array<{
+      startCyclePos: number;
+      endCyclePos: number;
+      segLabel: string; // e.g., "0–30"
+      season: string;
+      modality: string;
+      startLon: number;
+      endLon: number;
+    }> = [];
+
+    // Expect 13 items (0..360), but we handle anything >= 2
+    for (let i = 0; i < boundariesList.length - 1; i++) {
+      const a = boundariesList[i];
+      const b = boundariesList[i + 1];
+
+      const start = a.cyclePos;
+      const end = b.cyclePos;
+
+      out.push({
+        startCyclePos: start,
+        endCyclePos: end,
+        segLabel: `${start}–${end}`,
+        season: a.season,
+        modality: a.modality,
+        startLon: a.lon,
+        endLon: b.lon,
+      });
+    }
+
+    // If last is 360 (cyclePos 0 alias), the loop already covers 330–0? Not in numeric order.
+    // boundariesList includes 360 mapped to cyclePos 0 in our builder. So we typically get 0..330 plus another 0.
+    // The simplest stable behavior: if we don't have a 330–360 row, we add it using deg330 -> deg360 (deg360 key).
+    const has330 = out.some((x) => x.startCyclePos === 330);
+    const lastStart = boundariesList.find((x) => x.label === "330°");
+    const deg360 = boundariesList.find((x) => x.label === "360°");
+    if (!has330 && lastStart && deg360) {
+      out.push({
+        startCyclePos: 330,
+        endCyclePos: 360,
+        segLabel: `330–360`,
+        season: seasonFromCyclePos(330),
+        modality: modalityFromCyclePos(330),
+        startLon: lastStart.lon,
+        endLon: deg360.lon,
+      });
+    }
+
+    // Sort by startCyclePos
+    out.sort((a, b) => a.startCyclePos - b.startCyclePos);
+    return out;
+  }, [boundariesList]);
 
   async function handleGenerate(payloadText: AstroPayloadText) {
     setPayloadOut(payloadText);
@@ -749,7 +775,7 @@ export default function SeasonsPage() {
           {statusLine ? <div className="mt-4 text-[12px] text-[#c7b9a6]">{statusLine}</div> : null}
         </div>
 
-        {/* NEW: Now / Next / Shift strip */}
+        {/* Now / Next / Shift strip */}
         <NowNextShiftStrip
           nowSeason={season}
           nowModality={modality}
@@ -764,7 +790,6 @@ export default function SeasonsPage() {
               title="URA • Input"
               defaultAsOfToToday
               initial={{
-                // hydrate from saved payload if present, otherwise fall back to stable defaults
                 birthDate: initialFromSaved.birthDate ?? "1990-01-24",
                 birthTime: initialFromSaved.birthTime ?? "01:39",
                 timeZone: initialFromSaved.timeZone ?? "America/New_York",
@@ -853,26 +878,90 @@ export default function SeasonsPage() {
                 />
               </div>
 
-              {/* Natal reference */}
-              <div className="mt-6">
+              {/* ✅ NEW: Instrument calibration layer */}
+              <div className="mt-7">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
-                  Natal reference
+                  Instrument calibration
                 </div>
-                <div className="mt-3 rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
-                  <div className="text-[11px] text-[#8f7f6a] mb-2">
-                    Positions shown as zodiac sign + degree (and raw longitude).
+
+                <div className="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {/* Calibration: natal dial */}
+                  <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
+                    <div className="text-[11px] text-[#8f7f6a] mb-2">
+                      Natal dial (your fixed reference points)
+                    </div>
+                    <div className="divide-y divide-[#201a13]">
+                      <ReferenceRow label="ASC" lon={data?.natal?.ascendant} />
+                      <ReferenceRow label="MC" lon={data?.natal?.mc} />
+                      <ReferenceRow label="Sun" lon={data?.natal?.sunLon} />
+                      <ReferenceRow label="Moon" lon={data?.natal?.moonLon} />
+                    </div>
                   </div>
 
-                  <div className="divide-y divide-[#201a13]">
-                    <ReferenceRow label="ASC" lon={data?.natal?.ascendant} />
-                    <ReferenceRow label="MC" lon={data?.natal?.mc} />
-                    <ReferenceRow label="Sun" lon={data?.natal?.sunLon} />
-                    <ReferenceRow label="Moon" lon={data?.natal?.moonLon} />
+                  {/* Calibration: asc-year ring */}
+                  <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
+                    <div className="text-[11px] text-[#8f7f6a] mb-2">
+                      Asc-Year ring (12 × 30°) — your custom boundary wheel
+                    </div>
+
+                    {segmentRanges.length ? (
+                      <div className="space-y-2">
+                        {segmentRanges.map((seg) => {
+                          const start = fmtSignLon(seg.startLon);
+                          const end = fmtSignLon(seg.endLon);
+
+                          const chip = `${seasonAbbrev(seg.season)} • ${modalityAbbrev(seg.modality)}`;
+
+                          return (
+                            <div
+                              key={`${seg.startCyclePos}-${seg.endCyclePos}`}
+                              className="flex flex-col gap-2 rounded-lg border border-[#201a13] bg-black/20 px-3 py-2"
+                            >
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="text-[12px] text-[#b9a88f] w-[72px]">
+                                    {seg.segLabel}°
+                                  </div>
+
+                                  <div
+                                    className="text-[12px] text-[#efe6d8]"
+                                    style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                                  >
+                                    {chip}
+                                  </div>
+                                </div>
+
+                                <div
+                                  className="text-[12px] text-[#c7b9a6]"
+                                  style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                                  title="Segment span is defined by your ASC-anchored boundaries"
+                                >
+                                  {start.text} <span className="text-[#8f7f6a]">→</span> {end.text}
+                                </div>
+                              </div>
+
+                              <div
+                                className="text-[11px] text-[#8f7f6a]"
+                                style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                              >
+                                {degNorm(seg.startLon).toFixed(2)}° → {degNorm(seg.endLon).toFixed(2)}°
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-[12px] text-[#8f7f6a]">Generate to load your boundary ring.</div>
+                    )}
                   </div>
+                </div>
+
+                <div className="mt-3 text-[11px] text-[#8f7f6a]">
+                  The ring boundaries are anchored to your natal ASC — they won’t necessarily align with sign boundaries.
                 </div>
               </div>
 
-              {/* Boundaries */}
+              {/* Boundaries (original list stays, as a raw reference) */}
               <div className="mt-6">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
                   Asc-year boundaries (12 × 30°)
