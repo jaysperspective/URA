@@ -7,51 +7,53 @@ import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroI
 
 const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
-type AscYearResponse = {
+// -----------------------------
+// Types (Core API)
+// -----------------------------
+
+type CoreBody = { lon?: number | null; lat?: number | null; speed?: number | null };
+type CoreChart = {
+  jd_ut?: number;
+  ascendant?: number | null;
+  mc?: number | null;
+  houses?: number[] | null;
+  bodies?: Record<string, CoreBody | number | null | undefined> | null;
+};
+
+type CoreSummary = {
+  ascYearLabel?: string;
+  ascYearCyclePos?: number;
+  ascYearDegreesInto?: number;
+  lunationLabel?: string;
+  lunationSeparation?: number;
+  natal?: { asc?: number; ascSign?: string; mc?: number; mcSign?: string };
+  asOf?: { sun?: number; sunSign?: string };
+};
+
+type CoreAscYear = {
+  anchorAsc: number;
+  cyclePosition: number;
+  season: "Spring" | "Summer" | "Fall" | "Winter" | string;
+  modality: "Cardinal" | "Fixed" | "Mutable" | string;
+  modalitySegment?: string;
+  degreesIntoModality: number; // 0..30
+  boundariesLongitude: Record<string, number>; // deg0..deg360
+};
+
+type CoreResponse = {
   ok: boolean;
   error?: string;
+  input?: any;
+  birthUTC?: string;
+  asOfUTC?: string;
+  natal?: CoreChart;
+  asOf?: CoreChart;
+  derived?: {
+    ascYear?: CoreAscYear;
+    lunation?: any;
+    summary?: CoreSummary;
+  };
   text?: string;
-  ascYear?: {
-    anchorAsc: number;
-    cyclePosition: number;
-    season: "Spring" | "Summer" | "Fall" | "Winter" | string;
-    modality: "Cardinal" | "Fixed" | "Mutable" | string;
-    modalitySegment?: string;
-    degreesIntoModality: number; // 0..30
-    boundariesLongitude: Record<string, number>; // deg0..deg360
-  };
-  transit?: { sunLon: number };
-
-  // NOTE: Backend may evolve. We keep this flexible.
-  natal?: {
-    ascendant: number;
-    mc: number;
-    sunLon?: number;
-    moonLon?: number;
-
-    // Optional future expansion:
-    mercuryLon?: number;
-    venusLon?: number;
-    marsLon?: number;
-    jupiterLon?: number;
-    saturnLon?: number;
-    uranusLon?: number;
-    neptuneLon?: number;
-    plutoLon?: number;
-    chironLon?: number;
-
-    northNodeLon?: number;
-    southNodeLon?: number;
-
-    // Some APIs pack planets under a `planets` map
-    planets?: Record<string, { lon?: number } | number>;
-    // /api/core uses bodies:{ sun:{lon}, ... } so we support that too
-    bodies?: Record<string, { lon?: number | null } | number>;
-    houses?: number[];
-  };
-
-  // keep anything extra without crashing
-  [k: string]: any;
 };
 
 type AstroFormInitial = {
@@ -64,6 +66,10 @@ type AstroFormInitial = {
   asOfDate?: string;
   resolvedLabel?: string;
 };
+
+// -----------------------------
+// Utility
+// -----------------------------
 
 function clamp01(n: number) {
   if (!Number.isFinite(n)) return 0;
@@ -135,8 +141,6 @@ function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormIn
   return {
     birthDate,
     birthTime,
-    // tz_offset cannot be reliably reversed to IANA from payloadText.
-    // Use a sane default; user can change it in the form.
     timeZone: "America/New_York",
     birthCityState: "",
     lat: Number.isFinite(lat as number) ? (lat as number) : undefined,
@@ -145,9 +149,9 @@ function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormIn
   };
 }
 
-// ------------------------------------
+// -----------------------------
 // Zodiac formatting helpers
-// ------------------------------------
+// -----------------------------
 
 const SIGN_NAMES = [
   "Aries",
@@ -203,9 +207,9 @@ function fmtSignLon(lon: number) {
   };
 }
 
-// ------------------------------------
-// Asc-year model helpers
-// ------------------------------------
+// -----------------------------
+// Asc-year helpers
+// -----------------------------
 
 function seasonFromCyclePos(pos: number) {
   const p = degNorm(pos);
@@ -262,9 +266,9 @@ function computeNextSegment(nowSeason: string | null, nowModality: string | null
   return { season: nextSeason, modality: "Cardinal" as const };
 }
 
-// ------------------------------------
+// -----------------------------
 // Theme
-// ------------------------------------
+// -----------------------------
 
 function seasonTheme(season: string | null) {
   const s = (season ?? "").toLowerCase();
@@ -314,22 +318,17 @@ function seasonTheme(season: string | null) {
   };
 }
 
-// ------------------------------------
+// -----------------------------
 // Helpers: reading natal placements robustly
-// ------------------------------------
+// -----------------------------
 
 function getLonFromPlanetsMap(planets: any, key: string): number | null {
   if (!planets || typeof planets !== "object") return null;
 
-  // patterns:
-  // planets.sun.lon
-  // planets["sun"].lon
-  // planets["sun"] = number
   const v = (planets as any)[key];
   if (typeof v === "number") return v;
   if (v && typeof v === "object" && typeof v.lon === "number") return v.lon;
 
-  // alternate key casing
   const k2 = key.toLowerCase();
   const v2 = (planets as any)[k2];
   if (typeof v2 === "number") return v2;
@@ -349,15 +348,12 @@ function pickFirstNumber(obj: any, keys: string[]): number | null {
 function resolveNatalLon(natal: any, planetKey: string): number | null {
   if (!natal) return null;
 
-  // /api/core: natal.bodies.sun.lon
   const viaBodies = getLonFromPlanetsMap(natal.bodies, planetKey);
   if (typeof viaBodies === "number") return viaBodies;
 
-  // direct fields (natal.sunLon etc.)
   const direct = pickFirstNumber(natal, [`${planetKey}Lon`, `${planetKey}_lon`, planetKey]);
   if (typeof direct === "number") return direct;
 
-  // planets map if present
   const viaMap = getLonFromPlanetsMap(natal.planets, planetKey);
   if (typeof viaMap === "number") return viaMap;
 
@@ -370,9 +366,9 @@ function computeSouthNodeLon(north: number | null, south: number | null): number
   return null;
 }
 
-// ------------------------------------
+// -----------------------------
 // UI pieces
-// ------------------------------------
+// -----------------------------
 
 function SeasonWheel({
   cyclePositionDeg,
@@ -591,7 +587,6 @@ function NowNextShiftStrip({
   }, [degreesIntoModality]);
 
   const shift = useMemo(() => {
-    // Sun moves ~0.9856°/day on average; approximate is fine for UX.
     const DEG_PER_DAY = 0.9856;
 
     if (remainingDeg == null) return { days: null as number | null, date: null as Date | null };
@@ -612,9 +607,7 @@ function NowNextShiftStrip({
     <div className="rounded-2xl border border-[#2a241d] bg-[#0f0d0a] p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">Orientation</div>
-        <div className="text-[11px] text-[#8f7f6a]">
-          Next segment change estimate (Sun motion).
-        </div>
+        <div className="text-[11px] text-[#8f7f6a]">Next segment change estimate (Sun motion).</div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -646,61 +639,35 @@ function NowNextShiftStrip({
   );
 }
 
-function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | null | undefined }) {
+function NatalPlacementsTable({ natal }: { natal: CoreChart | null | undefined }) {
   const n: any = natal ?? null;
 
   const lonASC = typeof n?.ascendant === "number" ? n.ascendant : null;
   const lonMC = typeof n?.mc === "number" ? n.mc : null;
 
-  // canonical planets
-  const lonSun = resolveNatalLon(n, "sun") ?? (typeof n?.sunLon === "number" ? n.sunLon : null);
-  const lonMoon = resolveNatalLon(n, "moon") ?? (typeof n?.moonLon === "number" ? n.moonLon : null);
-  const lonMercury = resolveNatalLon(n, "mercury") ?? (typeof n?.mercuryLon === "number" ? n.mercuryLon : null);
-  const lonVenus = resolveNatalLon(n, "venus") ?? (typeof n?.venusLon === "number" ? n.venusLon : null);
-  const lonMars = resolveNatalLon(n, "mars") ?? (typeof n?.marsLon === "number" ? n.marsLon : null);
-  const lonJupiter = resolveNatalLon(n, "jupiter") ?? (typeof n?.jupiterLon === "number" ? n.jupiterLon : null);
-  const lonSaturn = resolveNatalLon(n, "saturn") ?? (typeof n?.saturnLon === "number" ? n.saturnLon : null);
-  const lonUranus = resolveNatalLon(n, "uranus") ?? (typeof n?.uranusLon === "number" ? n.uranusLon : null);
-  const lonNeptune = resolveNatalLon(n, "neptune") ?? (typeof n?.neptuneLon === "number" ? n.neptuneLon : null);
-  const lonPluto = resolveNatalLon(n, "pluto") ?? (typeof n?.plutoLon === "number" ? n.plutoLon : null);
+  const lonSun = resolveNatalLon(n, "sun");
+  const lonMoon = resolveNatalLon(n, "moon");
+  const lonMercury = resolveNatalLon(n, "mercury");
+  const lonVenus = resolveNatalLon(n, "venus");
+  const lonMars = resolveNatalLon(n, "mars");
+  const lonJupiter = resolveNatalLon(n, "jupiter");
+  const lonSaturn = resolveNatalLon(n, "saturn");
+  const lonUranus = resolveNatalLon(n, "uranus");
+  const lonNeptune = resolveNatalLon(n, "neptune");
+  const lonPluto = resolveNatalLon(n, "pluto");
 
-  // chiron + nodes (many possible keys)
-  const lonChiron =
-    resolveNatalLon(n, "chiron") ??
-    pickFirstNumber(n, ["chironLon", "chiron_lon"]) ??
-    getLonFromPlanetsMap(n?.planets, "chiron") ??
-    getLonFromPlanetsMap(n?.bodies, "chiron") ??
-    null;
+  const lonChiron = resolveNatalLon(n, "chiron");
 
   const lonNorth =
-    pickFirstNumber(n, [
-      "northNodeLon",
-      "north_node_lon",
-      "trueNodeLon",
-      "true_node_lon",
-      "meanNodeLon",
-      "mean_node_lon",
-      "nodeLon",
-      "node_lon",
-      "rahuLon",
-      "rahu_lon",
-    ]) ??
-    getLonFromPlanetsMap(n?.planets, "northNode") ??
-    getLonFromPlanetsMap(n?.planets, "north_node") ??
-    getLonFromPlanetsMap(n?.planets, "trueNode") ??
-    getLonFromPlanetsMap(n?.planets, "meanNode") ??
-    getLonFromPlanetsMap(n?.planets, "rahu") ??
     getLonFromPlanetsMap(n?.bodies, "northNode") ??
     getLonFromPlanetsMap(n?.bodies, "trueNode") ??
     getLonFromPlanetsMap(n?.bodies, "meanNode") ??
+    getLonFromPlanetsMap(n?.bodies, "rahu") ??
     null;
 
   const lonSouthRaw =
-    pickFirstNumber(n, ["southNodeLon", "south_node_lon", "ketuLon", "ketu_lon"]) ??
-    getLonFromPlanetsMap(n?.planets, "southNode") ??
-    getLonFromPlanetsMap(n?.planets, "south_node") ??
-    getLonFromPlanetsMap(n?.planets, "ketu") ??
     getLonFromPlanetsMap(n?.bodies, "southNode") ??
+    getLonFromPlanetsMap(n?.bodies, "ketu") ??
     null;
 
   const lonSouth = computeSouthNodeLon(lonNorth, lonSouthRaw);
@@ -723,28 +690,11 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
     { label: "South Node", lon: lonSouth },
   ];
 
-  const hasAnyExtra =
-    rows.some(
-      (r) =>
-        r.label !== "ASC" &&
-        r.label !== "MC" &&
-        r.label !== "Sun" &&
-        r.label !== "Moon" &&
-        typeof r.lon === "number"
-    );
-
   return (
     <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
       <div className="text-[11px] text-[#8f7f6a] mb-2">
         Natal placements (zodiac + degree + raw longitude)
       </div>
-
-      {!hasAnyExtra ? (
-        <div className="text-[11px] text-[#8f7f6a] mb-3">
-          Note: If you only see ASC/MC/Sun/Moon, the remaining bodies are not yet being returned by{" "}
-          <span className="text-[#c7b9a6]">/api/core</span>.
-        </div>
-      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
         {rows.map((r) => {
@@ -790,19 +740,18 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
   );
 }
 
-// ------------------------------------
+// -----------------------------
 // Page
-// ------------------------------------
+// -----------------------------
 
 export default function SeasonsPage() {
   const [payloadOut, setPayloadOut] = useState<string>("");
-  const [data, setData] = useState<AscYearResponse | null>(null);
+  const [core, setCore] = useState<CoreResponse | null>(null);
   const [errorOut, setErrorOut] = useState<string>("");
   const [statusLine, setStatusLine] = useState<string>("");
 
   const [savedPayload, setSavedPayload] = useState<string>("");
 
-  // Load saved payload once, hydrate the payload panel so the page feels continuous
   useEffect(() => {
     try {
       const x = window.localStorage.getItem(LS_PAYLOAD_KEY) || "";
@@ -818,14 +767,29 @@ export default function SeasonsPage() {
     return safeParsePayloadTextToInitial(savedPayload);
   }, [savedPayload]);
 
-  const season = data?.ascYear?.season ?? null;
-  const modality = data?.ascYear?.modality ?? null;
+  const ascYear = core?.derived?.ascYear ?? null;
+  const summary = core?.derived?.summary ?? null;
+
+  // Prefer summary for labels (stable + UI-safe)
+  const season = summary?.ascYearLabel?.split("·")[0]?.trim() || ascYear?.season || null;
+  const modality =
+    summary?.ascYearLabel?.includes("·")
+      ? summary.ascYearLabel.split("·")[1]?.trim()
+      : ascYear?.modality || null;
 
   const cyclePosition =
-    typeof data?.ascYear?.cyclePosition === "number" ? data!.ascYear!.cyclePosition : null;
+    typeof summary?.ascYearCyclePos === "number"
+      ? summary.ascYearCyclePos
+      : typeof ascYear?.cyclePosition === "number"
+        ? ascYear.cyclePosition
+        : null;
 
   const degreesIntoModality =
-    typeof data?.ascYear?.degreesIntoModality === "number" ? data!.ascYear!.degreesIntoModality : null;
+    typeof summary?.ascYearDegreesInto === "number"
+      ? summary.ascYearDegreesInto
+      : typeof ascYear?.degreesIntoModality === "number"
+        ? ascYear.degreesIntoModality
+        : null;
 
   const progress01 = useMemo(() => {
     if (typeof degreesIntoModality !== "number") return 0;
@@ -835,7 +799,7 @@ export default function SeasonsPage() {
   const theme = useMemo(() => seasonTheme(season), [season]);
 
   const boundariesList = useMemo(() => {
-    const b = data?.ascYear?.boundariesLongitude;
+    const b = ascYear?.boundariesLongitude;
     if (!b) return [];
     const out: Array<{
       key: string;
@@ -847,7 +811,7 @@ export default function SeasonsPage() {
 
     for (let i = 0; i <= 12; i++) {
       const k = `deg${i * 30}`;
-      const lon = b[k];
+      const lon = (b as any)[k];
       if (typeof lon !== "number") continue;
 
       const cyclePos = i === 12 ? 0 : i * 30;
@@ -861,12 +825,16 @@ export default function SeasonsPage() {
     }
 
     return out;
-  }, [data?.ascYear?.boundariesLongitude]);
+  }, [ascYear?.boundariesLongitude]);
+
+  const transitingSunLon =
+    typeof core?.asOf?.bodies?.sun === "object" && core?.asOf?.bodies?.sun
+      ? (core.asOf.bodies.sun as any)?.lon
+      : null;
 
   async function handleGenerate(payloadText: AstroPayloadText) {
     setPayloadOut(payloadText);
 
-    // Persist for reuse across URA (/input, /lunation, /seasons)
     try {
       window.localStorage.setItem(LS_PAYLOAD_KEY, payloadText);
       setSavedPayload(payloadText);
@@ -874,11 +842,10 @@ export default function SeasonsPage() {
       // ignore
     }
 
-    setData(null);
+    setCore(null);
     setErrorOut("");
     setStatusLine("Computing seasons…");
 
-    // ✅ SWITCHED: /api/core (Single Core API)
     const out = await postText("/api/core", payloadText);
 
     if (!out.res.ok || out.data?.ok === false) {
@@ -893,43 +860,7 @@ export default function SeasonsPage() {
       return;
     }
 
-    const core = out.data;
-
-    // ✅ ADAPT: core → AscYearResponse expected by this UI
-    const adapted: AscYearResponse = {
-      ok: true,
-      text: core?.text,
-      ascYear: core?.derived?.ascYear,
-      transit: {
-        sunLon: core?.asOf?.bodies?.sun?.lon,
-      },
-      natal: {
-        ascendant: core?.natal?.ascendant,
-        mc: core?.natal?.mc,
-        houses: core?.natal?.houses,
-        // expose both (some helpers read planets, some read bodies)
-        bodies: core?.natal?.bodies,
-        planets: core?.natal?.bodies,
-        // (optional) also provide direct lon fields if ever needed
-        sunLon: core?.natal?.bodies?.sun?.lon ?? undefined,
-        moonLon: core?.natal?.bodies?.moon?.lon ?? undefined,
-        mercuryLon: core?.natal?.bodies?.mercury?.lon ?? undefined,
-        venusLon: core?.natal?.bodies?.venus?.lon ?? undefined,
-        marsLon: core?.natal?.bodies?.mars?.lon ?? undefined,
-        jupiterLon: core?.natal?.bodies?.jupiter?.lon ?? undefined,
-        saturnLon: core?.natal?.bodies?.saturn?.lon ?? undefined,
-        uranusLon: core?.natal?.bodies?.uranus?.lon ?? undefined,
-        neptuneLon: core?.natal?.bodies?.neptune?.lon ?? undefined,
-        plutoLon: core?.natal?.bodies?.pluto?.lon ?? undefined,
-        chironLon: core?.natal?.bodies?.chiron?.lon ?? undefined,
-        northNodeLon: core?.natal?.bodies?.northNode?.lon ?? undefined,
-        southNodeLon: core?.natal?.bodies?.southNode?.lon ?? undefined,
-      },
-      // keep whole core response around if you ever need it later
-      core,
-    };
-
-    setData(adapted);
+    setCore(out.data as CoreResponse);
     setStatusLine("");
   }
 
@@ -1043,19 +974,15 @@ export default function SeasonsPage() {
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <MiniCard
                   label="Cycle position"
-                  value={
-                    typeof data?.ascYear?.cyclePosition === "number"
-                      ? `${degNorm(data.ascYear.cyclePosition).toFixed(2)}°`
-                      : "—"
-                  }
+                  value={typeof cyclePosition === "number" ? `${degNorm(cyclePosition).toFixed(2)}°` : "—"}
                   note="Sun from ASC (0–360)."
                 />
 
                 <MiniCard
                   label="Degrees into modality"
                   value={
-                    typeof data?.ascYear?.degreesIntoModality === "number"
-                      ? `${data.ascYear.degreesIntoModality.toFixed(2)}°`
+                    typeof degreesIntoModality === "number"
+                      ? `${degreesIntoModality.toFixed(2)}°`
                       : "—"
                   }
                   note="0–30 inside the current modality segment."
@@ -1064,8 +991,8 @@ export default function SeasonsPage() {
                 <MiniCard
                   label="Natal ASC (anchor)"
                   value={
-                    typeof data?.ascYear?.anchorAsc === "number"
-                      ? `${degNorm(data.ascYear.anchorAsc).toFixed(2)}°`
+                    typeof ascYear?.anchorAsc === "number"
+                      ? `${degNorm(ascYear.anchorAsc).toFixed(2)}°`
                       : "—"
                   }
                   note="The fixed reference point for the year cycle."
@@ -1074,25 +1001,23 @@ export default function SeasonsPage() {
                 <MiniCard
                   label="Transiting Sun (mover)"
                   value={
-                    typeof data?.transit?.sunLon === "number"
-                      ? `${degNorm(data.transit.sunLon).toFixed(2)}°`
+                    typeof transitingSunLon === "number"
+                      ? `${degNorm(transitingSunLon).toFixed(2)}°`
                       : "—"
                   }
                   note="Sun longitude used for the motion."
                 />
               </div>
 
-              {/* ✅ Natal Dial expanded */}
               <div className="mt-7">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
                   Natal dial
                 </div>
                 <div className="mt-3">
-                  <NatalPlacementsTable natal={data?.natal ?? null} />
+                  <NatalPlacementsTable natal={core?.natal ?? null} />
                 </div>
               </div>
 
-              {/* Boundaries */}
               <div className="mt-6">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
                   Asc-year boundaries (12 × 30°)
@@ -1100,8 +1025,7 @@ export default function SeasonsPage() {
 
                 <div className="mt-3 rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
                   <div className="text-[11px] text-[#8f7f6a] mb-3">
-                    Boundaries are anchored to your natal ASC (so they may not align with sign
-                    boundaries).
+                    Boundaries are anchored to your natal ASC (so they may not align with sign boundaries).
                   </div>
 
                   <div className="grid grid-cols-1 gap-2">
@@ -1142,17 +1066,7 @@ export default function SeasonsPage() {
                 </div>
               </div>
 
-              <details className="mt-5">
-                <summary className="text-[12px] text-[#b9a88f] cursor-pointer select-none">
-                  Raw response (debug)
-                </summary>
-                <pre
-                  className="mt-3 rounded-xl border border-[#2a241d] bg-[#0b0906] p-4 text-[12px] leading-5 whitespace-pre-wrap break-words text-[#d9cfbf]"
-                  style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
-                >
-                  {data ? pretty(data) : "No data yet."}
-                </pre>
-              </details>
+              {/* No raw JSON block here — intentionally */}
             </div>
           </div>
         </div>
