@@ -5,27 +5,15 @@ BASE="${1:-http://127.0.0.1:3000}"
 
 PAYLOAD=$'birth_datetime: 1990-01-24 01:39\nas_of_date: 2025-12-22\ntz_offset: -05:00\nlat: 36.585\nlon: -79.395\n'
 
-post_raw() {
-  local path="$1"
-  # Print status code on the first line, then body after a blank separator line.
-  curl -sS -i -X POST "${BASE}${path}" \
-    -H "Content-Type: text/plain" \
-    --data-binary "${PAYLOAD}"
-}
-
-extract_status() {
-  # Reads full HTTP response from stdin, prints status code (e.g. 200)
-  awk 'BEGIN{code=""} /^HTTP\/[0-9.]+/ {code=$2} END{print code}'
-}
-
-extract_body() {
-  sed -n '/^\r\{0,1\}$/,$p' | sed '1d'
-}
-
 py_extract_json() {
 python3 - <<'PY'
 import json, sys
-raw = sys.stdin.read()
+raw = sys.stdin.read().strip()
+if not raw:
+    print("ERROR: empty JSON body")
+    sys.exit(1)
+
+# Sometimes a leading BOM/whitespace can sneak in; strip already handles whitespace.
 d = json.loads(raw)
 
 def g(*keys, default=None):
@@ -81,34 +69,56 @@ check_route() {
   local path="$1"
   echo "-- ${path} --"
 
-  local full
-  full="$(post_raw "${path}")" || {
-    echo "curl FAILED for ${path}"
+  local tmpdir hdr body code ct
+  tmpdir="$(mktemp -d)"
+  hdr="${tmpdir}/hdr.txt"
+  body="${tmpdir}/body.txt"
+
+  # -D writes headers to file; body goes to file
+  # -w prints status code only
+  code="$(curl -sS -D "${hdr}" -o "${body}" -w "%{http_code}" \
+    -X POST "${BASE}${path}" \
+    -H "Content-Type: text/plain" \
+    --data-binary "${PAYLOAD}" || true)"
+
+  echo "http_status: ${code:-unknown}"
+
+  if [[ -z "${code}" || "${code}" == "000" ]]; then
+    echo "ERROR: curl failed (status 000). Check server/port."
+    echo "---- curl headers ----"
+    cat "${hdr}" 2>/dev/null || true
+    rm -rf "${tmpdir}"
     return 1
-  }
+  fi
 
-  local status body
-  status="$(printf "%s" "$full" | extract_status)"
-  body="$(printf "%s" "$full" | extract_body)"
+  # Content-Type from headers (if present)
+  ct="$(grep -i '^content-type:' "${hdr}" | tail -n 1 | tr -d '\r' | cut -d':' -f2- | xargs || true)"
+  if [[ -n "${ct}" ]]; then
+    echo "content_type: ${ct}"
+  fi
 
-  echo "http_status: ${status:-unknown}"
-
-  if [[ -z "${body}" ]]; then
+  if [[ ! -s "${body}" ]]; then
     echo "ERROR: empty body from ${path}"
-    echo "---- raw headers (first 30 lines) ----"
-    printf "%s" "$full" | head -n 30
+    echo "---- raw headers (first 40 lines) ----"
+    head -n 40 "${hdr}" | sed 's/\r$//'
+    rm -rf "${tmpdir}"
     return 1
   fi
 
-  # Only parse JSON if it starts with '{'
-  if [[ "${body:0:1}" != "{" ]]; then
-    echo "ERROR: non-JSON body from ${path} (showing first 300 chars):"
-    echo "${body:0:300}"
+  # If response isn't JSON, show a snippet
+  local first
+  first="$(head -c 1 "${body}" || true)"
+  if [[ "${first}" != "{" ]]; then
+    echo "ERROR: non-JSON body from ${path} (first 400 chars):"
+    head -c 400 "${body}" || true
+    rm -rf "${tmpdir}"
     return 1
   fi
 
-  printf "%s" "$body" | py_extract_json
+  cat "${body}" | py_extract_json
   echo
+
+  rm -rf "${tmpdir}"
 }
 
 echo "== URA Health Check =="
