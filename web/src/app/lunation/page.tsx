@@ -7,6 +7,59 @@ import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroI
 
 const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
+// -----------------------------
+// Types (Core API)
+// -----------------------------
+
+type CoreBody = { lon?: number | null; lat?: number | null; speed?: number | null };
+
+type CoreChart = {
+  jd_ut?: number;
+  ascendant?: number | null;
+  mc?: number | null;
+  houses?: number[] | null;
+  bodies?: Record<string, CoreBody | number | null | undefined> | null;
+};
+
+type CoreSummary = {
+  ascYearLabel?: string;
+  ascYearCyclePos?: number;
+  ascYearDegreesInto?: number;
+
+  lunationLabel?: string;
+  lunationSeparation?: number;
+
+  natal?: { asc?: number; ascSign?: string; mc?: number; mcSign?: string };
+  asOf?: { sun?: number; sunSign?: string };
+};
+
+type CoreLunation = {
+  progressedDateUTC?: string;
+  progressedSunLon?: number;
+  progressedMoonLon?: number;
+  separation?: number;
+  phase?: string;
+  subPhase?: { label?: string; segment?: number; total?: number; within?: number };
+  boundaries?: Array<{ deg?: number; label?: string; dateUTC?: string }>;
+  nextNewMoonUTC?: string;
+};
+
+type CoreResponse = {
+  ok: boolean;
+  error?: string;
+  input?: any;
+  birthUTC?: string;
+  asOfUTC?: string;
+  natal?: CoreChart;
+  asOf?: CoreChart;
+  derived?: {
+    lunation?: CoreLunation;
+    ascYear?: any;
+    summary?: CoreSummary;
+  };
+  text?: string;
+};
+
 type AstroFormInitial = {
   birthDate?: string;
   birthTime?: string;
@@ -15,8 +68,66 @@ type AstroFormInitial = {
   lat?: number;
   lon?: number;
   asOfDate?: string;
+  resolvedLabel?: string;
 };
 
+// -----------------------------
+// Utility
+// -----------------------------
+
+function clamp01(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function degNorm(d: number) {
+  let x = d % 360;
+  if (x < 0) x += 360;
+  return x;
+}
+
+function pretty(x: any) {
+  try {
+    return JSON.stringify(x, null, 2);
+  } catch {
+    return String(x);
+  }
+}
+
+function fmtYMD(isoOrDate: any) {
+  const d = isoOrDate instanceof Date ? isoOrDate : new Date(String(isoOrDate));
+  if (Number.isNaN(d.getTime())) return String(isoOrDate ?? "");
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtYMDHM(isoOrDate: any) {
+  const d = isoOrDate instanceof Date ? isoOrDate : new Date(String(isoOrDate));
+  if (Number.isNaN(d.getTime())) return String(isoOrDate ?? "");
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
+
+async function postText(endpoint: string, text: string) {
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: text,
+  });
+
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    const raw = await res.text().catch(() => "");
+    data = { ok: false, error: "Non-JSON response", raw };
+  }
+
+  return { res, data };
+}
+
+/**
+ * Best-effort parse of the canonical payload text into initial form fields.
+ * Keeps /lunation unified with /input by rehydrating the last saved payload.
+ */
 function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormInitial> {
   const get = (k: string) => {
     const re = new RegExp(`^\\s*${k}\\s*:\\s*(.+?)\\s*$`, "mi");
@@ -54,186 +165,282 @@ function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormIn
   };
 }
 
-function pretty(x: any) {
-  try {
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return String(x);
-  }
+// -----------------------------
+// Zodiac formatting
+// -----------------------------
+
+const SIGN_NAMES = [
+  "Aries",
+  "Taurus",
+  "Gemini",
+  "Cancer",
+  "Leo",
+  "Virgo",
+  "Libra",
+  "Scorpio",
+  "Sagittarius",
+  "Capricorn",
+  "Aquarius",
+  "Pisces",
+] as const;
+
+const SIGN_GLYPHS: Record<(typeof SIGN_NAMES)[number], string> = {
+  Aries: "♈︎",
+  Taurus: "♉︎",
+  Gemini: "♊︎",
+  Cancer: "♋︎",
+  Leo: "♌︎",
+  Virgo: "♍︎",
+  Libra: "♎︎",
+  Scorpio: "♏︎",
+  Sagittarius: "♐︎",
+  Capricorn: "♑︎",
+  Aquarius: "♒︎",
+  Pisces: "♓︎",
+};
+
+function lonToSignParts(lon: number) {
+  const x = degNorm(lon);
+  const signIndex = Math.floor(x / 30);
+  const sign = SIGN_NAMES[signIndex] ?? "Aries";
+  const within = x - signIndex * 30;
+  const deg = Math.floor(within);
+  const min = Math.round((within - deg) * 60);
+  const minFixed = min === 60 ? 0 : min;
+  const degFixed = min === 60 ? deg + 1 : deg;
+  return { sign, deg: degFixed, min: minFixed };
 }
 
-function fmtYMDHM(isoOrDate: any) {
-  const d = isoOrDate instanceof Date ? isoOrDate : new Date(String(isoOrDate));
-  if (Number.isNaN(d.getTime())) return String(isoOrDate ?? "");
-  return d.toISOString().slice(0, 16).replace("T", " ");
+function fmtSignLon(lon: number) {
+  const p = lonToSignParts(lon);
+  const glyph = SIGN_GLYPHS[p.sign] ?? "";
+  const mm = String(p.min).padStart(2, "0");
+  return {
+    glyph,
+    sign: p.sign,
+    text: `${glyph} ${p.deg}°${mm}′`,
+    raw: `${degNorm(lon).toFixed(2)}°`,
+  };
 }
 
-function fmtYMD(isoOrDate: any) {
-  const d = isoOrDate instanceof Date ? isoOrDate : new Date(String(isoOrDate));
-  if (Number.isNaN(d.getTime())) return String(isoOrDate ?? "");
-  return d.toISOString().slice(0, 10);
+// -----------------------------
+// Moonstone theme
+// -----------------------------
+
+function moonstoneTheme() {
+  return {
+    pageBg: "bg-black",
+    text: "text-[#0f0f12]",
+    shellBorder: "border-[#d9d4ca]",
+    shellBg: "bg-gradient-to-b from-[#fbfaf7] to-[#ece7de]",
+    shellSub: "text-[#3a3a44]",
+    shellMuted: "text-[#6b6b76]",
+    chipBg: "bg-[#d6d2cb]",
+    chipGlow: "shadow-[0_0_26px_rgba(210,205,198,0.55)]",
+    accent: "text-[#23232a]",
+    ring: "#bfb9b1",
+    panelBg: "bg-[#fbfaf7]",
+    panelBorder: "border-[#d9d4ca]",
+    panelInner: "bg-[#f3efe7]",
+    panelMuted: "text-[#6b6b76]",
+    panelMono: { fontFamily: "Menlo, Monaco, Consolas, monospace" as const },
+    dangerBg: "bg-[#fff2f2]",
+    dangerBorder: "border-[#e4bcbc]",
+    dangerText: "text-[#4a1f1f]",
+  };
 }
 
-function angleToSign(deg: number) {
-  const signs = [
-    "Aries",
-    "Taurus",
-    "Gemini",
-    "Cancer",
-    "Leo",
-    "Virgo",
-    "Libra",
-    "Scorpio",
-    "Sagittarius",
-    "Capricorn",
-    "Aquarius",
-    "Pisces",
-  ];
-  const w = ((deg % 360) + 360) % 360;
-  return signs[Math.floor(w / 30)] || "Aries";
+// -----------------------------
+// UI pieces (moonstone variants)
+// -----------------------------
+
+function MoonDial({
+  separationDeg,
+  ringColor,
+}: {
+  separationDeg: number | null;
+  ringColor: string;
+}) {
+  const cx = 90;
+  const cy = 90;
+  const r = 68;
+
+  const sep = typeof separationDeg === "number" ? degNorm(separationDeg) : 0;
+  const angle = -90 + sep; // 0° at top, clockwise
+  const rad = (Math.PI / 180) * angle;
+
+  const x2 = cx + r * Math.cos(rad);
+  const y2 = cy + r * Math.sin(rad);
+
+  return (
+    <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
+          Lunation dial
+        </div>
+        <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+          {typeof separationDeg === "number" ? `${sep.toFixed(2)}°` : "—"}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-center">
+        <svg width="180" height="180" viewBox="-20 -20 220 220">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e6e1d8" strokeWidth="12" />
+
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke={ringColor}
+            strokeWidth="12"
+            strokeDasharray="2 12"
+            opacity="0.5"
+          />
+
+          {/* crosshair */}
+          <line
+            x1={cx}
+            y1={cy - r - 8}
+            x2={cx}
+            y2={cy + r + 8}
+            stroke="#d9d4ca"
+            strokeWidth="1"
+            opacity="0.9"
+          />
+          <line
+            x1={cx - r - 8}
+            y1={cy}
+            x2={cx + r + 8}
+            y2={cy}
+            stroke="#d9d4ca"
+            strokeWidth="1"
+            opacity="0.9"
+          />
+
+          {/* labels */}
+          <text x={cx} y={cy - r - 8} textAnchor="middle" dominantBaseline="hanging" fontSize="10" fill="#6b6b76" letterSpacing="2">
+            NEW
+          </text>
+          <text x={cx + r + 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#6b6b76" letterSpacing="2">
+            1Q
+          </text>
+          <text x={cx} y={cy + r + 18} textAnchor="middle" dominantBaseline="alphabetic" fontSize="10" fill="#6b6b76" letterSpacing="2">
+            FULL
+          </text>
+          <text x={cx - r - 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#6b6b76" letterSpacing="2">
+            3Q
+          </text>
+
+          {/* hand */}
+          <circle cx={cx} cy={cy} r="3.5" fill={ringColor} />
+          <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={ringColor} strokeWidth="2.6" strokeLinecap="round" />
+          <circle cx={x2} cy={y2} r="3" fill={ringColor} opacity="0.95" />
+        </svg>
+      </div>
+
+      <div className="mt-3 text-[11px] text-[#6b6b76]">
+        0° = New Moon separation. The hand tracks Sun–Moon separation (0–360).
+      </div>
+    </div>
+  );
 }
 
-/**
- * Summary-first console text:
- * - uses core.derived.summary labels
- * - falls back to core.text if needed
- * - still prints key computed fields for confidence
- */
-function buildLunationTextFromCore(core: any) {
-  const input = core?.input;
-  const summary = core?.derived?.summary;
-  const lun = core?.derived?.lunation;
+function Meter({ value01, label, note }: { value01: number; label: string; note: string }) {
+  const pct = Math.round(clamp01(value01) * 100);
+  return (
+    <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">{label}</div>
+        <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+          {pct}%
+        </div>
+      </div>
 
-  const lines: string[] = [];
-  lines.push("URA • Progressed Lunation Model");
-  lines.push("");
+      <div className="h-2 w-full rounded-full bg-[#ece7de] overflow-hidden">
+        <div className="h-2 rounded-full bg-[#bfb9b1]" style={{ width: `${pct}%` }} />
+      </div>
 
-  if (input) {
-    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
-    if (core?.birthUTC) lines.push(`Birth (UTC):   ${fmtYMDHM(core.birthUTC)}`);
-    if (core?.asOfUTC) lines.push(`As-of (UTC):   ${fmtYMDHM(core.asOfUTC)}`);
-    else if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date}`);
-  }
-
-  lines.push("");
-
-  const lunLabel = summary?.lunationLabel;
-  const sep = summary?.lunationSeparation;
-
-  if (lunLabel) lines.push(`Current: ${lunLabel}`);
-  if (typeof sep === "number") lines.push(`Separation: ${sep.toFixed(2)}°`);
-
-  // extra details (kept minimal)
-  if (lun?.progressedDateUTC) {
-    lines.push("");
-    lines.push(`Progressed date (UTC): ${fmtYMDHM(lun.progressedDateUTC)}`);
-  }
-
-  if (typeof lun?.progressedSunLon === "number" && typeof lun?.progressedMoonLon === "number") {
-    lines.push("");
-    lines.push(
-      `Progressed Sun:  ${lun.progressedSunLon.toFixed(2)}° (${angleToSign(lun.progressedSunLon)})`
-    );
-    lines.push(
-      `Progressed Moon: ${lun.progressedMoonLon.toFixed(2)}° (${angleToSign(lun.progressedMoonLon)})`
-    );
-  }
-
-  // boundaries (kept because it's useful)
-  const b = Array.isArray(lun?.boundaries) ? lun.boundaries : [];
-  if (b.length) {
-    lines.push("");
-    lines.push("Cycle boundaries:");
-    for (const item of b) {
-      const label = item?.label ?? "";
-      const date = item?.dateUTC ? fmtYMD(item.dateUTC) : "";
-      if (label && date) lines.push(`- ${label}: ${date}`);
-    }
-    if (lun?.nextNewMoonUTC) lines.push(`- Next New Moon (360°): ${fmtYMD(lun.nextNewMoonUTC)}`);
-  }
-
-  return lines.join("\n");
+      <div className="mt-3 text-[11px] text-[#6b6b76]">{note}</div>
+    </div>
+  );
 }
 
-function buildAscYearTextFromCore(core: any) {
-  const input = core?.input;
-  const summary = core?.derived?.summary;
-  const ay = core?.derived?.ascYear;
-  const natal = core?.natal;
-  const asOf = core?.asOf;
-
-  const lines: string[] = [];
-  lines.push("URA • Ascendant Year Cycle");
-  lines.push("");
-
-  if (input) {
-    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
-    if (core?.birthUTC) lines.push(`Birth (UTC):   ${fmtYMDHM(core.birthUTC)}`);
-    if (core?.asOfUTC) lines.push(`As-of (UTC):   ${fmtYMDHM(core.asOfUTC)}`);
-    else if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date} 00:00`);
-  }
-
-  lines.push("");
-
-  // Summary-first
-  const label = summary?.ascYearLabel;
-  const cyclePos = summary?.ascYearCyclePos;
-
-  if (label) lines.push(`Current: ${label}`);
-  if (typeof cyclePos === "number") lines.push(`Cycle position: ${cyclePos.toFixed(2)}°`);
-
-  // angles (still helpful)
-  const asc = summary?.natal?.asc ?? natal?.ascendant;
-  const mc = summary?.natal?.mc ?? natal?.mc;
-
-  if (typeof asc === "number") lines.push(`Natal ASC: ${asc.toFixed(2)}° (${angleToSign(asc)})`);
-  if (typeof mc === "number") lines.push(`Natal MC:  ${mc.toFixed(2)}° (${angleToSign(mc)})`);
-
-  const ts = asOf?.bodies?.sun?.lon;
-  if (typeof ts === "number") lines.push(`Transiting Sun: ${ts.toFixed(2)}° (${angleToSign(ts)})`);
-
-  // boundaries (kept)
-  const bl = ay?.boundariesLongitude || {};
-  const hasBoundary = bl && typeof bl === "object" && Object.keys(bl).length > 0;
-
-  if (hasBoundary) {
-    lines.push("");
-    lines.push("Boundaries (longitude, 30°):");
-    for (let i = 0; i <= 12; i++) {
-      const key = `deg${i * 30}`;
-      const v = bl[key];
-      if (typeof v === "number") {
-        const label2 = `${i * 30}°`.padEnd(4, " ");
-        lines.push(`- ${label2} ${v.toFixed(2)}°`);
-      }
-    }
-  }
-
-  return lines.join("\n");
+function MiniCard({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="rounded-xl border border-[#d9d4ca] bg-[#f3efe7] p-4">
+      <div className="text-[11px] text-[#6b6b76]">{label}</div>
+      <div className="mt-1 text-[18px] text-[#0f0f12]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+        {value}
+      </div>
+      <div className="mt-2 text-[11px] text-[#6b6b76]">{note}</div>
+    </div>
+  );
 }
 
-async function postText(endpoint: string, text: string) {
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "content-type": "text/plain" },
-    body: text,
-  });
+function BoundariesList({
+  boundaries,
+  nextNewMoonUTC,
+}: {
+  boundaries: Array<{ deg?: number; label?: string; dateUTC?: string }>;
+  nextNewMoonUTC?: string;
+}) {
+  const items = Array.isArray(boundaries) ? boundaries : [];
+  return (
+    <div className="rounded-xl border border-[#d9d4ca] bg-[#f3efe7] p-4">
+      <div className="text-[11px] text-[#6b6b76] mb-3">
+        Current cycle boundaries (approx dates when separation hits the boundary).
+      </div>
 
-  let data: any = null;
-  try {
-    data = await res.json();
-  } catch {
-    const raw = await res.text().catch(() => "");
-    data = { ok: false, error: "Non-JSON response", raw };
-  }
+      <div className="grid grid-cols-1 gap-2">
+        {items.length ? (
+          items.map((b, idx) => {
+            const label = b?.label ?? `Boundary ${idx + 1}`;
+            const deg = typeof b?.deg === "number" ? `${b.deg}°` : "—";
+            const date = b?.dateUTC ? fmtYMD(b.dateUTC) : "—";
+            return (
+              <div
+                key={`${label}-${idx}`}
+                className="flex items-center justify-between rounded-lg border border-[#e3ded5] bg-[#fbfaf7] px-3 py-2"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="text-[12px] text-[#6b6b76] w-[86px]">{deg}</div>
+                  <div className="text-[12px] text-[#23232a]">{label}</div>
+                </div>
+                <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+                  {date}
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="text-[12px] text-[#6b6b76]">—</div>
+        )}
 
-  return { res, data };
+        {nextNewMoonUTC ? (
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-[#e3ded5] bg-[#fbfaf7] px-3 py-2">
+            <div className="text-[12px] text-[#23232a]">Next New Moon (360°)</div>
+            <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+              {fmtYMD(nextNewMoonUTC)}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
-export default function LunationConsolePage() {
-  const [lunationOut, setLunationOut] = useState<string>("");
-  const [ascYearOut, setAscYearOut] = useState<string>("");
+// -----------------------------
+// Page
+// -----------------------------
+
+export default function LunationPage() {
+  const theme = useMemo(() => moonstoneTheme(), []);
+
   const [payloadOut, setPayloadOut] = useState<string>("");
+  const [core, setCore] = useState<CoreResponse | null>(null);
+  const [errorOut, setErrorOut] = useState<string>("");
+  const [statusLine, setStatusLine] = useState<string>("");
 
   const [savedPayload, setSavedPayload] = useState<string>("");
 
@@ -247,124 +454,272 @@ export default function LunationConsolePage() {
     }
   }, []);
 
-  const initial = useMemo<AstroFormInitial>(() => {
+  const initialFromSaved = useMemo<AstroFormInitial>(() => {
     if (!savedPayload) return {};
     return safeParsePayloadTextToInitial(savedPayload);
   }, [savedPayload]);
 
-  function persistPayload(payloadText: string) {
+  const summary = core?.derived?.summary ?? null;
+  const lun = core?.derived?.lunation ?? null;
+
+  const lunationLabel = summary?.lunationLabel ?? lun?.phase ?? null;
+  const separation =
+    typeof summary?.lunationSeparation === "number"
+      ? summary.lunationSeparation
+      : typeof lun?.separation === "number"
+        ? lun.separation
+        : null;
+
+  const progressedDateUTC = lun?.progressedDateUTC ?? null;
+  const progressedSunLon = typeof lun?.progressedSunLon === "number" ? lun.progressedSunLon : null;
+  const progressedMoonLon = typeof lun?.progressedMoonLon === "number" ? lun.progressedMoonLon : null;
+
+  const sub = lun?.subPhase ?? null;
+  const subLabel = sub?.label ?? null;
+  const subWithin = typeof sub?.within === "number" ? sub.within : null;
+
+  // A clean progress meter: within the current 45° phase bucket (0..45)
+  // We don’t need perfect math here — it’s a UI “feel” meter.
+  const phaseProgress01 = useMemo(() => {
+    if (typeof separation !== "number") return 0;
+    const within45 = degNorm(separation) % 45;
+    return clamp01(within45 / 45);
+  }, [separation]);
+
+  // Subphase progress: within the 15° sub-segment (0..15) if available
+  const subProgress01 = useMemo(() => {
+    if (typeof subWithin !== "number") return 0;
+    return clamp01(subWithin / 15);
+  }, [subWithin]);
+
+  async function handleGenerate(payloadText: AstroPayloadText) {
+    setPayloadOut(payloadText);
+
     try {
       window.localStorage.setItem(LS_PAYLOAD_KEY, payloadText);
       setSavedPayload(payloadText);
     } catch {
       // ignore
     }
-  }
 
-  async function handleGenerate(payloadText: AstroPayloadText) {
-    setPayloadOut(payloadText);
-    persistPayload(payloadText);
+    setCore(null);
+    setErrorOut("");
+    setStatusLine("Computing lunation…");
 
-    setLunationOut("");
-    setAscYearOut("");
+    const out = await postText("/api/core", payloadText);
 
-    // Single request: /api/core
-    const core = await postText("/api/core", payloadText);
-
-    if (!core.res.ok || core.data?.ok === false) {
-      const err = pretty({ status: core.res.status, error: core.data?.error, data: core.data });
-      setLunationOut(err);
-      setAscYearOut(err);
+    if (!out.res.ok || out.data?.ok === false) {
+      setStatusLine("");
+      setErrorOut(
+        `ERROR\n${pretty({
+          status: out.res.status,
+          error: out.data?.error ?? "Unknown error",
+          response: out.data,
+        })}`
+      );
       return;
     }
 
-    // Summary-first, but fall back to `core.data.text` if needed
-    const lunText = buildLunationTextFromCore(core.data);
-    const ascText = buildAscYearTextFromCore(core.data);
-
-    setLunationOut(lunText || (core.data?.text ? String(core.data.text) : pretty(core.data)));
-    setAscYearOut(ascText || (core.data?.text ? String(core.data.text) : pretty(core.data)));
+    setCore(out.data as CoreResponse);
+    setStatusLine("");
   }
 
   return (
-    <div className="min-h-[100svh] bg-black text-neutral-100 p-6 flex items-center justify-center">
-      <div className="w-full max-w-5xl space-y-5">
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-6">
+    <div className={`min-h-[100svh] ${theme.pageBg} flex items-center justify-center p-6`}>
+      <div className="w-full max-w-6xl space-y-5">
+        {/* Header */}
+        <div className={`rounded-2xl border ${theme.shellBorder} ${theme.shellBg} p-6`}>
           <div className="flex items-start justify-between gap-6">
             <div>
-              <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase">
+              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
                 URA • Lunation
               </div>
-              <div className="mt-2 text-[26px] leading-[1.05] font-semibold">
-                Progressed Lunation + Ascendant Year Cycle
+
+              <div className={`mt-2 text-[34px] leading-[1.05] font-semibold ${theme.accent}`}>
+                {lunationLabel ?? "—"}
+                {subLabel ? <span className={`font-normal ${theme.shellMuted}`}> • {subLabel}</span> : null}
               </div>
-              <div className="mt-2 text-[13px] text-neutral-400">
-                Now powered by <span className="text-neutral-200">/api/core</span> (single request).
+
+              <div className={`mt-2 text-[13px] ${theme.shellSub} max-w-xl`}>
+                Progressed lunation (Sun–Moon separation) — rendered from <span style={theme.panelMono}>/api/core</span>.
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Link
-                href="/input"
-                className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-2 text-[12px] text-neutral-100 hover:bg-neutral-800"
-              >
-                Edit input
-              </Link>
-              <Link
-                href="/seasons"
-                className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-2 text-[12px] text-neutral-100 hover:bg-neutral-800"
-              >
-                Go to /seasons
-              </Link>
+            <div className="flex flex-col items-end gap-3">
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/input"
+                  className="rounded-xl border border-[#d9d4ca] bg-white/40 px-4 py-2 text-[12px] text-[#23232a] hover:bg-white/60"
+                >
+                  Edit input
+                </Link>
+
+                <Link
+                  href="/seasons"
+                  className="rounded-xl border border-[#d9d4ca] bg-white/40 px-4 py-2 text-[12px] text-[#23232a] hover:bg-white/60"
+                >
+                  Go to /seasons
+                </Link>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className={`h-3 w-3 rounded-full ${theme.chipBg} ${theme.chipGlow}`} />
+                <div className="text-[12px] text-[#6b6b76]">Moonstone palette</div>
+              </div>
             </div>
           </div>
+
+          {statusLine ? <div className="mt-4 text-[12px] text-[#3a3a44]">{statusLine}</div> : null}
         </div>
 
-        <AstroInputForm
-          title="URA • Input"
-          lockAsOfToToday
-          initial={{
-            birthTime: initial.birthTime ?? "01:39",
-            timeZone: initial.timeZone ?? "America/New_York",
-            birthCityState: initial.birthCityState ?? "Danville, VA",
-            lat: typeof initial.lat === "number" ? initial.lat : 36.585,
-            lon: typeof initial.lon === "number" ? initial.lon : -79.395,
-          }}
-          onGenerate={handleGenerate}
-        />
-
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-          <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-            Payload (text/plain)
-          </div>
-          <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
-            {payloadOut || "Generate to view the request payload."}
-          </pre>
-        </div>
-
+        {/* Body */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-            <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-              URA • Progressed Lunation Model (from /api/core)
+          {/* Left: input + payload + error */}
+          <div className="space-y-5">
+            <AstroInputForm
+              title="URA • Input"
+              defaultAsOfToToday
+              initial={{
+                birthDate: initialFromSaved.birthDate ?? "1990-01-24",
+                birthTime: initialFromSaved.birthTime ?? "01:39",
+                timeZone: initialFromSaved.timeZone ?? "America/New_York",
+                birthCityState: initialFromSaved.birthCityState ?? "Danville, VA",
+                lat: typeof initialFromSaved.lat === "number" ? initialFromSaved.lat : 36.585,
+                lon: typeof initialFromSaved.lon === "number" ? initialFromSaved.lon : -79.395,
+                asOfDate: initialFromSaved.asOfDate,
+                resolvedLabel: initialFromSaved.resolvedLabel,
+              }}
+              onGenerate={handleGenerate}
+            />
+
+            <div className={`rounded-2xl border ${theme.panelBorder} ${theme.panelBg} p-4`}>
+              <div className="text-[12px] text-[#6b6b76] mb-2">Payload (text/plain)</div>
+              <pre
+                className="text-[12px] leading-5 whitespace-pre-wrap break-words text-[#23232a]"
+                style={theme.panelMono}
+              >
+                {payloadOut || "Generate to view the request payload."}
+              </pre>
             </div>
-            <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
-              {lunationOut || "Generate to run /api/core."}
-            </pre>
+
+            {errorOut ? (
+              <div className={`rounded-2xl border ${theme.dangerBorder} ${theme.dangerBg} p-4`}>
+                <div className={`text-[12px] ${theme.dangerText} mb-2`}>Error</div>
+                <pre
+                  className={`text-[12px] leading-5 whitespace-pre-wrap break-words ${theme.dangerText}`}
+                  style={theme.panelMono}
+                >
+                  {errorOut}
+                </pre>
+              </div>
+            ) : null}
           </div>
 
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-            <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-              URA • Ascendant Year Cycle (from /api/core)
+          {/* Right: lunation panels */}
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <MoonDial separationDeg={separation} ringColor={theme.ring} />
+              <Meter
+                value01={phaseProgress01}
+                label="Phase progress"
+                note="Progress through the current 45° phase boundary (visual meter)."
+              />
             </div>
-            <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
-              {ascYearOut || "Generate to run /api/core."}
-            </pre>
+
+            <div className={`rounded-2xl border ${theme.panelBorder} ${theme.panelBg} p-6`}>
+              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
+                Details
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <MiniCard
+                  label="Separation"
+                  value={typeof separation === "number" ? `${degNorm(separation).toFixed(2)}°` : "—"}
+                  note="Sun–Moon angular distance."
+                />
+
+                <MiniCard
+                  label="Progressed date (UTC)"
+                  value={progressedDateUTC ? fmtYMDHM(progressedDateUTC) : "—"}
+                  note="Secondary progression date used to compute the phase."
+                />
+
+                <MiniCard
+                  label="Progressed Sun"
+                  value={
+                    typeof progressedSunLon === "number"
+                      ? `${fmtSignLon(progressedSunLon).text}`
+                      : "—"
+                  }
+                  note={
+                    typeof progressedSunLon === "number"
+                      ? `Raw ${fmtSignLon(progressedSunLon).raw}`
+                      : "Zodiac placement of progressed Sun."
+                  }
+                />
+
+                <MiniCard
+                  label="Progressed Moon"
+                  value={
+                    typeof progressedMoonLon === "number"
+                      ? `${fmtSignLon(progressedMoonLon).text}`
+                      : "—"
+                  }
+                  note={
+                    typeof progressedMoonLon === "number"
+                      ? `Raw ${fmtSignLon(progressedMoonLon).raw}`
+                      : "Zodiac placement of progressed Moon."
+                  }
+                />
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+                <Meter
+                  value01={subProgress01}
+                  label="Sub-phase"
+                  note={
+                    subLabel
+                      ? `Within “${subLabel}” (visual meter).`
+                      : "Sub-phase meter (uses subPhase.within if available)."
+                  }
+                />
+
+                <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
+                      Snapshot
+                    </div>
+                    <div className="text-[12px] text-[#3a3a44]" style={theme.panelMono}>
+                      {summary?.lunationLabel ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-[#6b6b76]">
+                    This panel is intentionally “human-readable” — the raw JSON stays in the API.
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-7">
+                <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
+                  Cycle boundaries
+                </div>
+                <div className="mt-3">
+                  <BoundariesList
+                    boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []}
+                    nextNewMoonUTC={lun?.nextNewMoonUTC}
+                  />
+                </div>
+              </div>
+
+              {/* no raw JSON on purpose */}
+            </div>
           </div>
         </div>
 
-        <div className="text-[11px] text-neutral-500 px-1">
-          Reuses the last saved payload from{" "}
-          <span className="text-neutral-300">{LS_PAYLOAD_KEY}</span>.
+        <div className="text-[11px] text-[#a9a3a0] px-1">
+          /lunation is a presentation layer over <span className="text-[#e9e6e1]">/api/core</span>.
+          Saved payload key: <span className="text-[#e9e6e1]">{LS_PAYLOAD_KEY}</span>
         </div>
       </div>
     </div>
