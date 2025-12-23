@@ -152,11 +152,81 @@ function sepWaxing(a: number, b: number) {
 
 function angleToSign(deg: number) {
   const signs = [
-    "Aries","Taurus","Gemini","Cancer","Leo","Virgo",
-    "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces",
+    "Aries",
+    "Taurus",
+    "Gemini",
+    "Cancer",
+    "Leo",
+    "Virgo",
+    "Libra",
+    "Scorpio",
+    "Sagittarius",
+    "Capricorn",
+    "Aquarius",
+    "Pisces",
   ];
   const idx = Math.floor(wrap360(deg) / 30);
   return signs[idx] || "Aries";
+}
+
+// ------------------------------
+// NEW: Derived summary helpers (for UI)
+// ------------------------------
+
+function signLabel(deg: number | null | undefined) {
+  if (typeof deg !== "number" || !Number.isFinite(deg)) return null;
+  return angleToSign(deg);
+}
+
+function fmtDeg(deg: number | null | undefined, digits = 2) {
+  if (typeof deg !== "number" || !Number.isFinite(deg)) return null;
+  return Number(wrap360(deg).toFixed(digits));
+}
+
+function buildDerivedSummary(params: {
+  natal: any;
+  asOf: any;
+  ascYear: any;
+  lunation: any;
+}) {
+  const { natal, asOf, ascYear, lunation } = params;
+
+  const natalAsc = fmtDeg(natal?.ascendant);
+  const natalMc = fmtDeg(natal?.mc);
+  const asOfSun = fmtDeg(asOf?.bodies?.sun?.lon);
+
+  const aySeason = typeof ascYear?.season === "string" ? ascYear.season : null;
+  const ayModality = typeof ascYear?.modality === "string" ? ascYear.modality : null;
+
+  const ascYearLabel =
+    aySeason && ayModality ? `${aySeason} · ${ayModality}` : aySeason || ayModality || null;
+
+  const lunPhase = typeof lunation?.phase === "string" ? lunation.phase : null;
+  const lunSub = typeof lunation?.subPhase?.label === "string" ? lunation.subPhase.label : null;
+
+  const lunationLabel =
+    lunPhase && lunSub ? `${lunPhase} · ${lunSub}` : lunPhase || lunSub || null;
+
+  return {
+    ascYearLabel,
+    ascYearCyclePos: fmtDeg(ascYear?.cyclePosition),
+    ascYearDegreesInto: fmtDeg(ascYear?.degreesIntoModality),
+
+    lunationLabel,
+    lunationSeparation: fmtDeg(lunation?.separation),
+
+    natal: {
+      asc: natalAsc,
+      ascSign: signLabel(natalAsc),
+      mc: natalMc,
+      mcSign: signLabel(natalMc),
+    },
+
+    asOf: {
+      sun: asOfSun,
+      sunSign: signLabel(asOfSun),
+    },
+  };
 }
 
 // ------------------------------
@@ -209,7 +279,14 @@ function readFirstPlanetLon(data: AstroServiceData, keys: string[]): number | nu
 // Build “bodies” with a stable key set (null allowed)
 function extractBodies(data: AstroServiceData) {
   const northNode = readFirstPlanetLon(data, [
-    "northNode","north_node","trueNode","true_node","meanNode","mean_node","node","rahu",
+    "northNode",
+    "north_node",
+    "trueNode",
+    "true_node",
+    "meanNode",
+    "mean_node",
+    "node",
+    "rahu",
   ]);
 
   const southNode =
@@ -614,6 +691,11 @@ export async function POST(req: Request) {
       nextNewMoonUTC: formatYMD(nextNewMoonUTC),
     };
 
+    // ------------------------------
+    // NEW: derived.summary (UI-ready “chips” + key numbers)
+    // ------------------------------
+    const summary = buildDerivedSummary({ natal, asOf, ascYear, lunation });
+
     // Optional: keep a compact text “readout” so your existing UI doesn’t lose that vibe.
     const textLines: string[] = [];
     textLines.push("URA • Core");
@@ -624,8 +706,12 @@ export async function POST(req: Request) {
     textLines.push(`Natal ASC: ${natal.ascendant.toFixed(2)}° (${angleToSign(natal.ascendant)})`);
     textLines.push(`AsOf Sun:   ${asOf.bodies.sun.lon.toFixed(2)}° (${angleToSign(asOf.bodies.sun.lon)})`);
     textLines.push("");
-    textLines.push(`Asc-Year: ${ascYear.season} · ${ascYear.modality} · ${ascYear.cyclePosition.toFixed(2)}°`);
-    textLines.push(`Lunation: ${lunation.phase} · ${lunation.subPhase.label} · sep ${lunation.separation.toFixed(2)}°`);
+    textLines.push(
+      `Asc-Year: ${ascYear.season} · ${ascYear.modality} · ${ascYear.cyclePosition.toFixed(2)}°`
+    );
+    textLines.push(
+      `Lunation: ${lunation.phase} · ${lunation.subPhase.label} · sep ${lunation.separation.toFixed(2)}°`
+    );
 
     const payload = {
       ok: true,
@@ -634,7 +720,7 @@ export async function POST(req: Request) {
       asOfUTC: asOfUTC.toISOString(),
       natal,
       asOf,
-      derived: { ascYear, lunation },
+      derived: { ascYear, lunation, summary },
       text: textLines.join("\n"),
     };
 
