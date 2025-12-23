@@ -29,6 +29,7 @@ def ok(v): return "OK" if v else "FAIL"
 
 print("ok:", ok(g("ok") is True))
 
+# summary exists only on /api/core
 sumry = g("derived","summary")
 if isinstance(sumry, dict):
     print("summary.ascYearLabel:", sumry.get("ascYearLabel"))
@@ -39,7 +40,10 @@ if isinstance(sumry, dict):
     print("summary.natal.mc:", n.get("mc"), n.get("mcSign"))
     print("summary.asOf.sun:", a.get("sun"), a.get("sunSign"))
 else:
-    print("summary:", "MISSING")
+    # only warn if this looks like a core payload
+    if isinstance(g("derived"), dict):
+        print("summary:", "MISSING (core regression?)")
+
 
 if "ascYear" in d:
     ay = g("ascYear") or {}
