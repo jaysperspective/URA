@@ -93,100 +93,119 @@ function angleToSign(deg: number) {
   return signs[Math.floor(w / 30)] || "Aries";
 }
 
-function buildLunationText(core: any) {
+/**
+ * Summary-first console text:
+ * - uses core.derived.summary labels
+ * - falls back to core.text if needed
+ * - still prints key computed fields for confidence
+ */
+function buildLunationTextFromCore(core: any) {
   const input = core?.input;
+  const summary = core?.derived?.summary;
   const lun = core?.derived?.lunation;
-  if (!lun) return "";
 
   const lines: string[] = [];
   lines.push("URA • Progressed Lunation Model");
   lines.push("");
+
   if (input) {
     lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
     if (core?.birthUTC) lines.push(`Birth (UTC):   ${fmtYMDHM(core.birthUTC)}`);
-    if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date}`);
+    if (core?.asOfUTC) lines.push(`As-of (UTC):   ${fmtYMDHM(core.asOfUTC)}`);
+    else if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date}`);
   }
+
   lines.push("");
-  if (lun.progressedDateUTC) lines.push(`Progressed date (UTC): ${fmtYMDHM(lun.progressedDateUTC)}`);
-  lines.push("");
-  if (typeof lun.progressedSunLon === "number")
-    lines.push(`Progressed Sun lon:  ${lun.progressedSunLon.toFixed(2)}°`);
-  if (typeof lun.progressedMoonLon === "number")
-    lines.push(`Progressed Moon lon: ${lun.progressedMoonLon.toFixed(2)}°`);
-  if (typeof lun.separation === "number")
-    lines.push(`Separation (Sun→Moon): ${lun.separation.toFixed(2)}°`);
-  lines.push("");
-  if (lun.phase) lines.push(`Current phase: ${lun.phase}`);
-  if (lun.subPhase?.label) {
+
+  const lunLabel = summary?.lunationLabel;
+  const sep = summary?.lunationSeparation;
+
+  if (lunLabel) lines.push(`Current: ${lunLabel}`);
+  if (typeof sep === "number") lines.push(`Separation: ${sep.toFixed(2)}°`);
+
+  // extra details (kept minimal)
+  if (lun?.progressedDateUTC) {
+    lines.push("");
+    lines.push(`Progressed date (UTC): ${fmtYMDHM(lun.progressedDateUTC)}`);
+  }
+
+  if (typeof lun?.progressedSunLon === "number" && typeof lun?.progressedMoonLon === "number") {
+    lines.push("");
     lines.push(
-      `Current sub-phase: ${lun.subPhase.label} (segment ${lun.subPhase.segment}/${lun.subPhase.total})`
+      `Progressed Sun:  ${lun.progressedSunLon.toFixed(2)}° (${angleToSign(lun.progressedSunLon)})`
     );
-    if (typeof lun.subPhase.within === "number")
-      lines.push(`Degrees into phase: ${lun.subPhase.within.toFixed(2)}°`);
+    lines.push(
+      `Progressed Moon: ${lun.progressedMoonLon.toFixed(2)}° (${angleToSign(lun.progressedMoonLon)})`
+    );
   }
-  lines.push("");
-  lines.push("Current cycle boundaries:");
-  const b = Array.isArray(lun.boundaries) ? lun.boundaries : [];
-  for (const item of b) {
-    const label = item?.label ?? "";
-    const date = item?.dateUTC ? fmtYMD(item.dateUTC) : "";
-    if (label && date) lines.push(`- ${label}: ${date}`);
+
+  // boundaries (kept because it's useful)
+  const b = Array.isArray(lun?.boundaries) ? lun.boundaries : [];
+  if (b.length) {
+    lines.push("");
+    lines.push("Cycle boundaries:");
+    for (const item of b) {
+      const label = item?.label ?? "";
+      const date = item?.dateUTC ? fmtYMD(item.dateUTC) : "";
+      if (label && date) lines.push(`- ${label}: ${date}`);
+    }
+    if (lun?.nextNewMoonUTC) lines.push(`- Next New Moon (360°): ${fmtYMD(lun.nextNewMoonUTC)}`);
   }
-  if (lun.nextNewMoonUTC) lines.push(`- Next New Moon (360°): ${fmtYMD(lun.nextNewMoonUTC)}`);
 
   return lines.join("\n");
 }
 
-function buildAscYearText(core: any) {
+function buildAscYearTextFromCore(core: any) {
   const input = core?.input;
+  const summary = core?.derived?.summary;
   const ay = core?.derived?.ascYear;
   const natal = core?.natal;
   const asOf = core?.asOf;
 
-  if (!ay || !natal || !asOf) return "";
-
   const lines: string[] = [];
   lines.push("URA • Ascendant Year Cycle");
   lines.push("");
+
   if (input) {
     lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
     if (core?.birthUTC) lines.push(`Birth (UTC):   ${fmtYMDHM(core.birthUTC)}`);
-    if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date} 00:00`);
+    if (core?.asOfUTC) lines.push(`As-of (UTC):   ${fmtYMDHM(core.asOfUTC)}`);
+    else if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date} 00:00`);
   }
-  lines.push("");
-  if (typeof natal.ascendant === "number")
-    lines.push(`Natal ASC:  ${natal.ascendant.toFixed(2)}° (${angleToSign(natal.ascendant)})`);
-  if (typeof natal.mc === "number")
-    lines.push(`Natal MC:   ${natal.mc.toFixed(2)}° (${angleToSign(natal.mc)})`);
-
-  const ns = natal?.bodies?.sun?.lon;
-  const nm = natal?.bodies?.moon?.lon;
-  if (typeof ns === "number") lines.push(`Natal Sun:  ${ns.toFixed(2)}° (${angleToSign(ns)})`);
-  if (typeof nm === "number") lines.push(`Natal Moon: ${nm.toFixed(2)}° (${angleToSign(nm)})`);
 
   lines.push("");
+
+  // Summary-first
+  const label = summary?.ascYearLabel;
+  const cyclePos = summary?.ascYearCyclePos;
+
+  if (label) lines.push(`Current: ${label}`);
+  if (typeof cyclePos === "number") lines.push(`Cycle position: ${cyclePos.toFixed(2)}°`);
+
+  // angles (still helpful)
+  const asc = summary?.natal?.asc ?? natal?.ascendant;
+  const mc = summary?.natal?.mc ?? natal?.mc;
+
+  if (typeof asc === "number") lines.push(`Natal ASC: ${asc.toFixed(2)}° (${angleToSign(asc)})`);
+  if (typeof mc === "number") lines.push(`Natal MC:  ${mc.toFixed(2)}° (${angleToSign(mc)})`);
 
   const ts = asOf?.bodies?.sun?.lon;
   if (typeof ts === "number") lines.push(`Transiting Sun: ${ts.toFixed(2)}° (${angleToSign(ts)})`);
 
-  lines.push("");
-  if (typeof ay.cyclePosition === "number")
-    lines.push(`Cycle position (Sun from ASC): ${ay.cyclePosition.toFixed(2)}°`);
-  if (ay.season) lines.push(`Season: ${ay.season}`);
-  if (ay.modality)
-    lines.push(`Modality: ${ay.modality}${ay.modalitySegment ? ` (${ay.modalitySegment})` : ""}`);
-  if (typeof ay.degreesIntoModality === "number")
-    lines.push(`Degrees into modality: ${ay.degreesIntoModality.toFixed(2)}°`);
+  // boundaries (kept)
+  const bl = ay?.boundariesLongitude || {};
+  const hasBoundary = bl && typeof bl === "object" && Object.keys(bl).length > 0;
 
-  lines.push("");
-  lines.push("Boundaries (longitude, 30°):");
-  const bl = ay.boundariesLongitude || {};
-  for (let i = 0; i <= 12; i++) {
-    const key = `deg${i * 30}`;
-    const v = bl[key];
-    if (typeof v === "number") {
-      const label = `${i * 30}°`.padEnd(4, " ");
-      lines.push(`- ${label} ${v.toFixed(2)}°`);
+  if (hasBoundary) {
+    lines.push("");
+    lines.push("Boundaries (longitude, 30°):");
+    for (let i = 0; i <= 12; i++) {
+      const key = `deg${i * 30}`;
+      const v = bl[key];
+      if (typeof v === "number") {
+        const label2 = `${i * 30}°`.padEnd(4, " ");
+        lines.push(`- ${label2} ${v.toFixed(2)}°`);
+      }
     }
   }
 
@@ -249,6 +268,7 @@ export default function LunationConsolePage() {
     setLunationOut("");
     setAscYearOut("");
 
+    // Single request: /api/core
     const core = await postText("/api/core", payloadText);
 
     if (!core.res.ok || core.data?.ok === false) {
@@ -258,8 +278,9 @@ export default function LunationConsolePage() {
       return;
     }
 
-    const lunText = buildLunationText(core.data);
-    const ascText = buildAscYearText(core.data);
+    // Summary-first, but fall back to `core.data.text` if needed
+    const lunText = buildLunationTextFromCore(core.data);
+    const ascText = buildAscYearTextFromCore(core.data);
 
     setLunationOut(lunText || (core.data?.text ? String(core.data.text) : pretty(core.data)));
     setAscYearOut(ascText || (core.data?.text ? String(core.data.text) : pretty(core.data)));
