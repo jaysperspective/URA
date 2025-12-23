@@ -118,22 +118,23 @@ export default function LunationConsolePage() {
     setLunationOut("");
     setAscYearOut("");
 
-    const [lun, asc] = await Promise.all([
-      postText("/api/lunation", payloadText),
-      postText("/api/asc-year", payloadText),
-    ]);
+    // ✅ Single Core API call
+    const core = await postText("/api/core", payloadText);
 
-    if (!lun.res.ok || lun.data?.ok === false) {
-      setLunationOut(pretty({ status: lun.res.status, error: lun.data?.error, data: lun.data }));
-    } else {
-      setLunationOut(lun.data?.text ? String(lun.data.text) : pretty(lun.data));
+    if (!core.res.ok || core.data?.ok === false) {
+      const err = pretty({ status: core.res.status, error: core.data?.error, data: core.data });
+      setLunationOut(err);
+      setAscYearOut(err);
+      return;
     }
 
-    if (!asc.res.ok || asc.data?.ok === false) {
-      setAscYearOut(pretty({ status: asc.res.status, error: asc.data?.error, data: asc.data }));
-    } else {
-      setAscYearOut(asc.data?.text ? String(asc.data.text) : pretty(asc.data));
-    }
+    // Prefer the structured outputs from /api/core
+    const lun = core.data?.derived?.lunation;
+    const asc = core.data?.derived?.ascYear;
+
+    // Keep the console vibe: show text if you want, otherwise show JSON
+    setLunationOut(lun ? pretty(lun) : core.data?.text ? String(core.data.text) : pretty(core.data));
+    setAscYearOut(asc ? pretty(asc) : core.data?.text ? String(core.data.text) : pretty(core.data));
   }
 
   return (
@@ -149,7 +150,7 @@ export default function LunationConsolePage() {
                 Progressed Lunation + Ascendant Year Cycle
               </div>
               <div className="mt-2 text-[13px] text-neutral-400">
-                Uses the same saved input as /input and /seasons.
+                Now powered by <span className="text-neutral-200">/api/core</span> (single request).
               </div>
             </div>
 
@@ -195,19 +196,19 @@ export default function LunationConsolePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
             <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-              URA • Progressed Lunation Model
+              URA • Progressed Lunation Model (from /api/core)
             </div>
             <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
-              {lunationOut || "Generate to run /api/lunation."}
+              {lunationOut || "Generate to run /api/core."}
             </pre>
           </div>
 
           <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
             <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-              URA • Ascendant Year Cycle
+              URA • Ascendant Year Cycle (from /api/core)
             </div>
             <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
-              {ascYearOut || "Generate to run /api/asc-year."}
+              {ascYearOut || "Generate to run /api/core."}
             </pre>
           </div>
         </div>
