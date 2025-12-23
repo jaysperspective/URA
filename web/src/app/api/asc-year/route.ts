@@ -1,58 +1,24 @@
-// web/src/app/api/asc-year/route.ts
-
+// src/app/api/asc-year/route.ts
 import { NextResponse } from "next/server";
+import { POST as corePOST } from "../core/route";
 
 /**
- * URA /api/asc-year
+ * URA /api/asc-year (WRAPPER)
  *
- * Ascendant Year Cycle (ANCHOR = natal ASC, MOVER = transiting Sun at as_of_date)
+ * This route now delegates computation to /api/core (single source of truth),
+ * then adapts the result into the legacy /api/asc-year response shape:
+ *   { ok, text, input, birthUTC, asOfUTC, natal, transit, ascYear }
  *
- * MODEL (12 x 30°):
- * - cyclePosition = sepWaxing(natalASC, transitSunLon) in [0,360)
- * - Seasons by quadrant:
- *    0–90   Spring
- *    90–180 Summer
- *    180–270 Fall
- *    270–360 Winter
- * - Sub-phase within each season (three 30° signs):
- *    Cardinal / Fixed / Mutable (in order)
+ * Why:
+ * - Prevent drift between /api/core, /api/lunation, /api/asc-year
+ * - Keep older UI/pages stable while we migrate everything to /api/core
  */
-
-type ParsedInput = {
-  birth_datetime: string; // "YYYY-MM-DD HH:MM" (local)
-  tz_offset: string; // "-05:00"
-  as_of_date: string; // "YYYY-MM-DD" (UTC date)
-  lat?: number;
-  lon?: number;
-};
-
-/**
- * We widen the astro-service response typing so we don't silently drop bodies.
- * If astro-service returns only sun/moon, that's fine — these keys will be absent.
- */
-type AstroServiceChart = {
-  ok: boolean;
-  error?: string;
-  data?: {
-    julianDay: number;
-    planets: Record<string, { lon: number } | undefined>;
-    houses?: number[];
-    ascendant?: number | null;
-    mc?: number | null;
-  };
-};
-
-type AstroServiceData = NonNullable<AstroServiceChart["data"]>;
-
-const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 
 // ------------------------------
 // Cache (in-memory)
 // ------------------------------
 
-// bump cache version because payload now includes additional natal bodies
-const ASCYEAR_CACHE_VERSION =
-  "asc-year:natal-asc+transit-sun:12x30:v3:natal-planets+chiron+nodes";
+const ASCYEAR_CACHE_VERSION = "asc-year:wrapper-over-core:v1";
 const ASCYEAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 type CacheEntry = { expiresAt: number; payload: any };
@@ -85,108 +51,11 @@ function setCache(key: string, payload: any) {
 }
 
 // ------------------------------
-// Parsing
-// ------------------------------
-
-function parseTextKV(body: string): ParsedInput {
-  const lines = body
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const out: any = {};
-  for (const line of lines) {
-    const idx = line.indexOf(":");
-    if (idx === -1) continue;
-    const key = line.slice(0, idx).trim();
-    const val = line.slice(idx + 1).trim();
-    out[key] = val;
-  }
-
-  if (!out.birth_datetime) throw new Error("missing birth_datetime");
-  if (!out.tz_offset) throw new Error("missing tz_offset");
-  if (!out.as_of_date) throw new Error("missing as_of_date");
-
-  if (out.lat != null) out.lat = Number(out.lat);
-  if (out.lon != null) out.lon = Number(out.lon);
-
-  return out as ParsedInput;
-}
-
-async function readInput(req: Request): Promise<ParsedInput> {
-  const raw = await req.text();
-  const contentType = req.headers.get("content-type") || "";
-  const trimmed = raw.trim();
-  const looksJson = trimmed.startsWith("{") || trimmed.startsWith("[");
-
-  if (contentType.includes("application/json") || looksJson) {
-    try {
-      const obj = JSON.parse(raw) as any;
-      if (obj && typeof obj === "object" && typeof obj.text === "string") {
-        return parseTextKV(obj.text);
-      }
-      return obj as ParsedInput;
-    } catch {
-      // fall through to text KV
-    }
-  }
-
-  return parseTextKV(raw);
-}
-
-// ------------------------------
-// Time helpers
-// ------------------------------
-
-function parseBirthToUTC(birth_datetime: string, tz_offset: string): Date {
-  const m = birth_datetime.match(
-    /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/
-  );
-  if (!m) throw new Error("birth_datetime format must be YYYY-MM-DD HH:MM");
-
-  const year = Number(m[1]);
-  const month = Number(m[2]) - 1;
-  const day = Number(m[3]);
-  const hour = Number(m[4]);
-  const minute = Number(m[5]);
-
-  const tz = tz_offset.match(/^([+-])(\d{2}):(\d{2})$/);
-  if (!tz) throw new Error("tz_offset format must be ±HH:MM");
-
-  const sign = tz[1] === "-" ? -1 : 1;
-  const tzh = Number(tz[2]);
-  const tzm = Number(tz[3]);
-  const offsetMinutes = sign * (tzh * 60 + tzm);
-
-  const localMillis = Date.UTC(year, month, day, hour, minute, 0);
-  const utcMillis = localMillis - offsetMinutes * 60_000;
-
-  return new Date(utcMillis);
-}
-
-function parseAsOfToUTCDate(as_of_date: string): Date {
-  const m = as_of_date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) throw new Error("as_of_date format must be YYYY-MM-DD");
-  const year = Number(m[1]);
-  const month = Number(m[2]) - 1;
-  const day = Number(m[3]);
-  return new Date(Date.UTC(year, month, day, 0, 0, 0)); // 00:00 UTC
-}
-
-function formatYMDHM(d: Date) {
-  return d.toISOString().slice(0, 16).replace("T", " ");
-}
-
-// ------------------------------
-// Math helpers
+// Helpers
 // ------------------------------
 
 function wrap360(deg: number) {
   return ((deg % 360) + 360) % 360;
-}
-
-function sepWaxing(a: number, b: number) {
-  return wrap360(b - a);
 }
 
 function angleToSign(deg: number) {
@@ -208,184 +77,133 @@ function angleToSign(deg: number) {
   return signs[idx] || "Aries";
 }
 
-// ------------------------------
-// Astro-service fetch
-// ------------------------------
-
-async function fetchChartByYMDHM(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  lat: number,
-  lon: number
-): Promise<AstroServiceData> {
-  const res = await fetch(`${ASTRO_URL}/chart`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      year,
-      month,
-      day,
-      hour,
-      minute,
-      latitude: lat,
-      longitude: lon,
-    }),
-  });
-
-  const json = (await res.json()) as AstroServiceChart;
-  if (!json.ok) throw new Error(json.error || "astro-service error");
-  if (!json.data) throw new Error("astro-service missing data");
-  return json.data;
-}
-
-function readPlanetLon(data: AstroServiceData, key: string): number | null {
-  const p = data.planets?.[key];
-  if (!p || typeof p.lon !== "number") return null;
-  return wrap360(p.lon);
-}
-
-/**
- * Node naming varies between implementations.
- * We'll try several common keys and pick the first that exists.
- */
-function readFirstPlanetLon(data: AstroServiceData, keys: string[]): number | null {
-  for (const k of keys) {
-    const v = readPlanetLon(data, k);
-    if (typeof v === "number") return v;
+function formatYMDHM(dISO: string) {
+  // expects an ISO string
+  try {
+    return new Date(dISO).toISOString().slice(0, 16).replace("T", " ");
+  } catch {
+    return dISO;
   }
+}
+
+function bodyLon(core: any, which: string): number | null {
+  const v = core?.[which]?.bodies?.[which]?.lon;
+  if (typeof v === "number") return wrap360(v);
+  // fallback in case caller passes natal/asOf objects differently
+  const v2 = core?.bodies?.[which]?.lon;
+  if (typeof v2 === "number") return wrap360(v2);
   return null;
 }
 
-async function fetchNatalAnchor(birthUTC: Date, lat: number, lon: number) {
-  const data = await fetchChartByYMDHM(
-    birthUTC.getUTCFullYear(),
-    birthUTC.getUTCMonth() + 1,
-    birthUTC.getUTCDate(),
-    birthUTC.getUTCHours(),
-    birthUTC.getUTCMinutes(),
-    lat,
-    lon
-  );
-
-  const asc = data.ascendant;
-  const mc = data.mc;
-  const houses = data.houses ?? [];
-
-  if (typeof asc !== "number")
-    throw new Error("astro-service missing ascendant (check lat/lon)");
-  if (typeof mc !== "number")
-    throw new Error("astro-service missing mc (check lat/lon)");
-
-  // Required for the current page experience
-  const natalSun = readPlanetLon(data, "sun");
-  const natalMoon = readPlanetLon(data, "moon");
-  if (typeof natalSun !== "number") throw new Error("astro-service missing natal sun lon");
-  if (typeof natalMoon !== "number") throw new Error("astro-service missing natal moon lon");
-
-  // Optional expansions (only returned if astro-service provides them)
-  const mercury = readPlanetLon(data, "mercury");
-  const venus = readPlanetLon(data, "venus");
-  const mars = readPlanetLon(data, "mars");
-  const jupiter = readPlanetLon(data, "jupiter");
-  const saturn = readPlanetLon(data, "saturn");
-  const uranus = readPlanetLon(data, "uranus");
-  const neptune = readPlanetLon(data, "neptune");
-  const pluto = readPlanetLon(data, "pluto");
-  const chiron = readFirstPlanetLon(data, ["chiron"]);
-
-  // Nodes: try common naming schemes
-  const northNode = readFirstPlanetLon(data, [
-    "northNode",
-    "north_node",
-    "trueNode",
-    "true_node",
-    "meanNode",
-    "mean_node",
-    "node",
-    "rahu",
-  ]);
-
-  const southNode =
-    readFirstPlanetLon(data, ["southNode", "south_node", "ketu"]) ??
-    (typeof northNode === "number" ? wrap360(northNode + 180) : null);
-
-  return {
-    julianDay: data.julianDay,
-    asc: wrap360(asc),
-    mc: wrap360(mc),
-    houses,
-
-    // always
-    sunLon: natalSun,
-    moonLon: natalMoon,
-
-    // optional
-    mercuryLon: mercury,
-    venusLon: venus,
-    marsLon: mars,
-    jupiterLon: jupiter,
-    saturnLon: saturn,
-    uranusLon: uranus,
-    neptuneLon: neptune,
-    plutoLon: pluto,
-    chironLon: chiron,
-    northNodeLon: northNode,
-    southNodeLon: southNode,
-  };
+function pickLon(coreNatal: any, key: string): number | null {
+  const v = coreNatal?.bodies?.[key]?.lon;
+  if (typeof v === "number") return wrap360(v);
+  return null;
 }
 
-async function fetchTransitingSun(asOfUTC: Date, lat: number, lon: number) {
-  const data = await fetchChartByYMDHM(
-    asOfUTC.getUTCFullYear(),
-    asOfUTC.getUTCMonth() + 1,
-    asOfUTC.getUTCDate(),
-    asOfUTC.getUTCHours(),
-    asOfUTC.getUTCMinutes(),
-    lat,
-    lon
-  );
-
-  const sunLon = readPlanetLon(data, "sun");
-  if (typeof sunLon !== "number") throw new Error("astro-service missing sun lon");
-  return { julianDay: data.julianDay, sunLon };
+function computeSouthNode(north: number | null, south: number | null) {
+  if (typeof south === "number") return wrap360(south);
+  if (typeof north === "number") return wrap360(north + 180);
+  return null;
 }
 
-// ------------------------------
-// Phase model: 12 x 30°
-// ------------------------------
+function buildAscYearText(core: any) {
+  const input = core?.input;
+  const birthUTC = core?.birthUTC;
+  const asOfUTC = core?.asOfUTC;
 
-function seasonFromCyclePos(pos: number) {
-  const p = wrap360(pos);
-  if (p < 90) return "Spring";
-  if (p < 180) return "Summer";
-  if (p < 270) return "Fall";
-  return "Winter";
-}
+  const natal = core?.natal;
+  const asOf = core?.asOf;
+  const ascYear = core?.derived?.ascYear;
 
-function modalityFromCyclePos(pos: number) {
-  const p = wrap360(pos);
-  const withinSeason = p % 90; // 0..90
-  const idx = Math.floor(withinSeason / 30); // 0,1,2
-  const mods = ["Cardinal", "Fixed", "Mutable"] as const;
-  return {
-    modality: mods[idx] ?? "Cardinal",
-    segment: idx + 1,
-    total: 3,
-    within: withinSeason % 30,
-  };
-}
+  const natalAsc = typeof natal?.ascendant === "number" ? wrap360(natal.ascendant) : null;
+  const natalMc = typeof natal?.mc === "number" ? wrap360(natal.mc) : null;
 
-function boundariesFromAsc(asc: number) {
-  // 12 boundaries every 30°
-  const b: Record<string, number> = {};
-  for (let i = 0; i <= 12; i++) {
-    const key = `deg${i * 30}`;
-    b[key] = i === 12 ? wrap360(asc) : wrap360(asc + i * 30);
+  const natalSun = pickLon(natal, "sun");
+  const natalMoon = pickLon(natal, "moon");
+
+  const tSun = pickLon(asOf, "sun");
+
+  const lines: string[] = [];
+  lines.push("URA • Ascendant Year Cycle");
+  lines.push("");
+
+  if (input?.birth_datetime && input?.tz_offset) {
+    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
   }
-  return b;
+  if (birthUTC) lines.push(`Birth (UTC):   ${formatYMDHM(birthUTC)}`);
+  if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date} 00:00`);
+  else if (asOfUTC) lines.push(`As-of (UTC):   ${formatYMDHM(asOfUTC).slice(0, 10)} 00:00`);
+
+  if (typeof natalAsc === "number") {
+    lines.push("");
+    lines.push(`Natal ASC:  ${natalAsc.toFixed(2)}° (${angleToSign(natalAsc)})`);
+  }
+  if (typeof natalMc === "number") {
+    lines.push(`Natal MC:   ${natalMc.toFixed(2)}° (${angleToSign(natalMc)})`);
+  }
+  if (typeof natalSun === "number") {
+    lines.push(`Natal Sun:  ${natalSun.toFixed(2)}° (${angleToSign(natalSun)})`);
+  }
+  if (typeof natalMoon === "number") {
+    lines.push(`Natal Moon: ${natalMoon.toFixed(2)}° (${angleToSign(natalMoon)})`);
+  }
+
+  // Optional bodies (print only if present)
+  const optional: Array<[string, number | null]> = [
+    ["Natal Mercury", pickLon(natal, "mercury")],
+    ["Natal Venus", pickLon(natal, "venus")],
+    ["Natal Mars", pickLon(natal, "mars")],
+    ["Natal Jupiter", pickLon(natal, "jupiter")],
+    ["Natal Saturn", pickLon(natal, "saturn")],
+    ["Natal Uranus", pickLon(natal, "uranus")],
+    ["Natal Neptune", pickLon(natal, "neptune")],
+    ["Natal Pluto", pickLon(natal, "pluto")],
+    ["Natal Chiron", pickLon(natal, "chiron")],
+    ["Natal North Node", pickLon(natal, "northNode")],
+    ["Natal South Node", pickLon(natal, "southNode")],
+  ];
+  const anyOptional = optional.some(([, v]) => typeof v === "number");
+  if (anyOptional) {
+    lines.push("");
+    for (const [label, v] of optional) {
+      if (typeof v !== "number") continue;
+      lines.push(`${label}: ${v.toFixed(2)}° (${angleToSign(v)})`);
+    }
+  }
+
+  if (typeof tSun === "number") {
+    lines.push("");
+    lines.push(`Transiting Sun: ${tSun.toFixed(2)}° (${angleToSign(tSun)})`);
+  }
+
+  if (ascYear) {
+    lines.push("");
+    if (typeof ascYear?.cyclePosition === "number") {
+      lines.push(`Cycle position (Sun from ASC): ${wrap360(ascYear.cyclePosition).toFixed(2)}°`);
+    }
+    if (ascYear?.season) lines.push(`Season: ${ascYear.season}`);
+    if (ascYear?.modalitySegment) lines.push(`Modality: ${ascYear.modalitySegment}`);
+    if (typeof ascYear?.degreesIntoModality === "number") {
+      lines.push(`Degrees into modality: ${ascYear.degreesIntoModality.toFixed(2)}°`);
+    }
+
+    const b = ascYear?.boundariesLongitude;
+    if (b && typeof b === "object") {
+      lines.push("");
+      lines.push("Boundaries (longitude, 30°):");
+      for (let i = 0; i <= 12; i++) {
+        const key = `deg${i * 30}`;
+        const val = b[key];
+        if (typeof val === "number") {
+          const label = `${i * 30}°`;
+          lines.push(`- ${label.padEnd(4, " ")} ${wrap360(val).toFixed(2)}°`);
+        }
+      }
+    }
+  }
+
+  return lines.join("\n");
 }
 
 // ------------------------------
@@ -394,122 +212,100 @@ function boundariesFromAsc(asc: number) {
 
 export async function POST(req: Request) {
   try {
-    const input = await readInput(req);
+    // Read the raw body once (streams can’t be re-read)
+    const raw = await req.text();
+    const contentType = req.headers.get("content-type") || "text/plain";
 
-    const lat = typeof input.lat === "number" ? input.lat : undefined;
-    const lon = typeof input.lon === "number" ? input.lon : undefined;
-    if (lat == null || lon == null) {
-      throw new Error("Missing lat/lon (required for ascendant).");
-    }
-
-    const birthUTC = parseBirthToUTC(input.birth_datetime, input.tz_offset);
-    const asOfUTC = parseAsOfToUTCDate(input.as_of_date);
-
-    const cacheKey = `${ASCYEAR_CACHE_VERSION}|birth=${birthUTC.toISOString()}|asof=${asOfUTC.toISOString()}|${lat}|${lon}`;
+    const cacheKey = `${ASCYEAR_CACHE_VERSION}|ct=${contentType}|${raw}`;
     const cached = getCache(cacheKey);
     if (cached) return NextResponse.json(cached);
 
-    const natal = await fetchNatalAnchor(birthUTC, lat, lon);
-    const transit = await fetchTransitingSun(asOfUTC, lat, lon);
+    // Delegate to /api/core by calling its POST handler directly
+    const coreReq = new Request("http://local/api/core", {
+      method: "POST",
+      headers: { "content-type": contentType },
+      body: raw,
+    });
 
-    const cyclePosition = sepWaxing(natal.asc, transit.sunLon); // 0..360
-    const season = seasonFromCyclePos(cyclePosition);
-    const mod = modalityFromCyclePos(cyclePosition);
+    const coreRes = await corePOST(coreReq);
 
-    const boundariesLongitude = boundariesFromAsc(natal.asc);
+    // corePOST returns a Response; parse JSON
+    const coreJson = await coreRes.json().catch(() => null);
 
-    const lines: string[] = [];
-    lines.push("URA • Ascendant Year Cycle");
-    lines.push("");
-    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
-    lines.push(`Birth (UTC):   ${formatYMDHM(birthUTC)}`);
-    lines.push(`As-of (UTC):   ${input.as_of_date} 00:00`);
-    lines.push("");
-    lines.push(`Natal ASC:  ${natal.asc.toFixed(2)}° (${angleToSign(natal.asc)})`);
-    lines.push(`Natal MC:   ${natal.mc.toFixed(2)}° (${angleToSign(natal.mc)})`);
-    lines.push(`Natal Sun:  ${natal.sunLon.toFixed(2)}° (${angleToSign(natal.sunLon)})`);
-    lines.push(`Natal Moon: ${natal.moonLon.toFixed(2)}° (${angleToSign(natal.moonLon)})`);
-
-    // Only print additional bodies if present (keeps output clean)
-    const optionalLines: Array<[string, number | null]> = [
-      ["Natal Mercury", natal.mercuryLon],
-      ["Natal Venus", natal.venusLon],
-      ["Natal Mars", natal.marsLon],
-      ["Natal Jupiter", natal.jupiterLon],
-      ["Natal Saturn", natal.saturnLon],
-      ["Natal Uranus", natal.uranusLon],
-      ["Natal Neptune", natal.neptuneLon],
-      ["Natal Pluto", natal.plutoLon],
-      ["Natal Chiron", natal.chironLon],
-      ["Natal North Node", natal.northNodeLon],
-      ["Natal South Node", natal.southNodeLon],
-    ];
-
-    const anyOptional = optionalLines.some(([, v]) => typeof v === "number");
-    if (anyOptional) {
-      lines.push("");
-      for (const [label, v] of optionalLines) {
-        if (typeof v !== "number") continue;
-        lines.push(`${label}: ${v.toFixed(2)}° (${angleToSign(v)})`);
-      }
+    if (!coreJson || coreJson?.ok === false) {
+      const errMsg =
+        coreJson?.error ||
+        `core returned non-ok (status ${coreRes.status || "unknown"})`;
+      return NextResponse.json({ ok: false, error: errMsg }, { status: 400 });
     }
 
-    lines.push("");
-    lines.push(`Transiting Sun: ${transit.sunLon.toFixed(2)}° (${angleToSign(transit.sunLon)})`);
-    lines.push("");
-    lines.push(`Cycle position (Sun from ASC): ${cyclePosition.toFixed(2)}°`);
-    lines.push(`Season: ${season}`);
-    lines.push(`Modality: ${mod.modality} (segment ${mod.segment}/${mod.total})`);
-    lines.push(`Degrees into modality: ${mod.within.toFixed(2)}°`);
-    lines.push("");
-    lines.push("Boundaries (longitude, 30°):");
-    for (let i = 0; i <= 12; i++) {
-      const label = `${i * 30}°`;
-      const key = `deg${i * 30}`;
-      lines.push(`- ${label.padEnd(4, " ")} ${boundariesLongitude[key].toFixed(2)}°`);
-    }
+    // Adapt core → legacy asc-year payload
+    const natalBodies = coreJson?.natal?.bodies ?? {};
+    const asOfBodies = coreJson?.asOf?.bodies ?? {};
+
+    const northNodeLon =
+      typeof natalBodies?.northNode?.lon === "number"
+        ? wrap360(natalBodies.northNode.lon)
+        : null;
+
+    const southNodeLon = computeSouthNode(
+      northNodeLon,
+      typeof natalBodies?.southNode?.lon === "number" ? natalBodies.southNode.lon : null
+    );
 
     const payload = {
       ok: true,
-      text: lines.join("\n"),
-      input,
-      birthUTC: birthUTC.toISOString(),
-      asOfUTC: asOfUTC.toISOString(),
+      text: buildAscYearText(coreJson),
+      input: coreJson?.input,
+      birthUTC: coreJson?.birthUTC,
+      asOfUTC: coreJson?.asOfUTC,
+
       natal: {
-        julianDay: natal.julianDay,
-        ascendant: natal.asc,
-        mc: natal.mc,
-        houses: natal.houses,
+        jd_ut: coreJson?.natal?.jd_ut ?? coreJson?.natal?.jdUT ?? coreJson?.natal?.julianDay,
+        ascendant: coreJson?.natal?.ascendant,
+        mc: coreJson?.natal?.mc,
+        houses: coreJson?.natal?.houses,
 
-        sunLon: natal.sunLon,
-        moonLon: natal.moonLon,
+        // legacy direct fields
+        sunLon: typeof natalBodies?.sun?.lon === "number" ? wrap360(natalBodies.sun.lon) : null,
+        moonLon:
+          typeof natalBodies?.moon?.lon === "number" ? wrap360(natalBodies.moon.lon) : null,
 
-        // optional (may be null if astro-service doesn't provide)
-        mercuryLon: natal.mercuryLon,
-        venusLon: natal.venusLon,
-        marsLon: natal.marsLon,
-        jupiterLon: natal.jupiterLon,
-        saturnLon: natal.saturnLon,
-        uranusLon: natal.uranusLon,
-        neptuneLon: natal.neptuneLon,
-        plutoLon: natal.plutoLon,
-        chironLon: natal.chironLon,
-        northNodeLon: natal.northNodeLon,
-        southNodeLon: natal.southNodeLon,
+        mercuryLon:
+          typeof natalBodies?.mercury?.lon === "number"
+            ? wrap360(natalBodies.mercury.lon)
+            : null,
+        venusLon:
+          typeof natalBodies?.venus?.lon === "number" ? wrap360(natalBodies.venus.lon) : null,
+        marsLon:
+          typeof natalBodies?.mars?.lon === "number" ? wrap360(natalBodies.mars.lon) : null,
+        jupiterLon:
+          typeof natalBodies?.jupiter?.lon === "number" ? wrap360(natalBodies.jupiter.lon) : null,
+        saturnLon:
+          typeof natalBodies?.saturn?.lon === "number" ? wrap360(natalBodies.saturn.lon) : null,
+        uranusLon:
+          typeof natalBodies?.uranus?.lon === "number" ? wrap360(natalBodies.uranus.lon) : null,
+        neptuneLon:
+          typeof natalBodies?.neptune?.lon === "number" ? wrap360(natalBodies.neptune.lon) : null,
+        plutoLon:
+          typeof natalBodies?.pluto?.lon === "number" ? wrap360(natalBodies.pluto.lon) : null,
+
+        chironLon:
+          typeof natalBodies?.chiron?.lon === "number" ? wrap360(natalBodies.chiron.lon) : null,
+
+        northNodeLon,
+        southNodeLon,
+
+        // also include bodies map (new) for forward-compat
+        bodies: natalBodies,
       },
+
       transit: {
-        julianDay: transit.julianDay,
-        sunLon: transit.sunLon,
+        jd_ut: coreJson?.asOf?.jd_ut ?? coreJson?.asOf?.jdUT ?? coreJson?.asOf?.julianDay,
+        sunLon: typeof asOfBodies?.sun?.lon === "number" ? wrap360(asOfBodies.sun.lon) : null,
       },
-      ascYear: {
-        anchorAsc: natal.asc,
-        cyclePosition,
-        season,
-        modality: mod.modality,
-        modalitySegment: `${mod.modality} (segment ${mod.segment}/${mod.total})`,
-        degreesIntoModality: mod.within,
-        boundariesLongitude,
-      },
+
+      ascYear: coreJson?.derived?.ascYear,
     };
 
     setCache(cacheKey, payload);
