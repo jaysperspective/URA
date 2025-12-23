@@ -19,8 +19,7 @@ extract_status() {
 }
 
 extract_body() {
-  # Reads full HTTP response from stdin, prints body only
-  awk 'BEGIN{h=1} h==1 && $0=="" {h=0; next} h==0 {print}'
+  sed -n '/^\r\{0,1\}$/,$p' | sed '1d'
 }
 
 py_extract_json() {
