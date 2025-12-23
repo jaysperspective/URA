@@ -7,36 +7,6 @@ import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroI
 
 const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
-// ---- Types (kept compatible with existing UI) ----
-
-type AscYearResponse = {
-  ok: boolean;
-  ascYear?: {
-    anchorAsc?: number;
-    cyclePosition?: number;
-    season?: string;
-    modality?: string;
-    modalitySegment?: string;
-    degreesIntoModality?: number;
-    boundariesLongitude?: Record<string, number>;
-    // allow extra keys
-    [k: string]: any;
-  };
-  natal?: {
-    ascendant?: number;
-    mc?: number;
-    houses?: number[];
-    bodies?: Record<string, { lon?: number | null }>;
-    [k: string]: any;
-  };
-  transit?: {
-    sunLon?: number | null;
-    [k: string]: any;
-  };
-  // allow extra keys
-  [k: string]: any;
-};
-
 type AstroFormInitial = {
   birthDate?: string;
   birthTime?: string;
@@ -133,12 +103,57 @@ function fmtDeg(x: any) {
   return typeof x === "number" && Number.isFinite(x) ? `${x.toFixed(2)}°` : "—";
 }
 
-// ---- Page ----
+function buildSeasonsText(core: any) {
+  const input = core?.input;
+  const natal = core?.natal;
+  const asOf = core?.asOf;
+  const ay = core?.derived?.ascYear;
+
+  if (!ay || !natal) return "";
+
+  const lines: string[] = [];
+
+  lines.push("URA • Seasons (Ascendant Year Cycle)");
+  lines.push("");
+
+  if (input) {
+    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
+    if (input?.as_of_date) lines.push(`As-of (UTC):   ${input.as_of_date} 00:00`);
+  }
+
+  lines.push("");
+  const asc = natal?.ascendant;
+  const mc = natal?.mc;
+  if (typeof asc === "number") lines.push(`Natal ASC: ${asc.toFixed(2)}° (${angleToSign(asc)})`);
+  if (typeof mc === "number") lines.push(`Natal MC:  ${mc.toFixed(2)}° (${angleToSign(mc)})`);
+
+  const tSun = asOf?.bodies?.sun?.lon;
+  if (typeof tSun === "number") lines.push(`Transit Sun: ${tSun.toFixed(2)}° (${angleToSign(tSun)})`);
+
+  lines.push("");
+  if (ay.season) lines.push(`Season: ${ay.season}`);
+  if (ay.modality) lines.push(`Modality: ${ay.modality}`);
+  if (typeof ay.cyclePosition === "number") lines.push(`Cycle position: ${ay.cyclePosition.toFixed(2)}°`);
+  if (typeof ay.degreesIntoModality === "number")
+    lines.push(`Degrees into modality: ${ay.degreesIntoModality.toFixed(2)}°`);
+
+  lines.push("");
+  lines.push("Boundaries (30°):");
+  const bl = ay.boundariesLongitude || {};
+  for (let i = 0; i <= 12; i++) {
+    const key = `deg${i * 30}`;
+    const v = bl[key];
+    if (typeof v === "number") lines.push(`- ${String(i * 30).padStart(3, " ")}°  ${v.toFixed(2)}°`);
+  }
+
+  return lines.join("\n");
+}
 
 export default function SeasonsPage() {
-  const [data, setData] = useState<AscYearResponse | null>(null);
-  const [errorOut, setErrorOut] = useState<string>("");
+  const [seasonsOut, setSeasonsOut] = useState<string>("");
   const [payloadOut, setPayloadOut] = useState<string>("");
+  const [errorOut, setErrorOut] = useState<string>("");
+
   const [savedPayload, setSavedPayload] = useState<string>("");
 
   useEffect(() => {
@@ -170,9 +185,9 @@ export default function SeasonsPage() {
     persistPayload(payloadText);
 
     setErrorOut("");
-    setData(null);
+    setSeasonsOut("");
 
-    // ✅ Single Core API call
+    // ✅ Switch from /api/asc-year to /api/core (single request)
     const out = await postText("/api/core", payloadText);
 
     if (!out.res.ok || out.data?.ok === false) {
@@ -180,27 +195,9 @@ export default function SeasonsPage() {
       return;
     }
 
-    const core = out.data;
-
-    // Adapt /api/core to the existing Seasons UI expectations
-    const adapted: AscYearResponse = {
-      ok: true,
-      ascYear: core?.derived?.ascYear,
-      natal: core?.natal,
-      transit: {
-        sunLon: core?.asOf?.bodies?.sun?.lon ?? null,
-      },
-      // keep the whole core payload around for debugging if you want
-      core,
-    };
-
-    setData(adapted);
+    const text = buildSeasonsText(out.data);
+    setSeasonsOut(text || (out.data?.text ? String(out.data.text) : pretty(out.data)));
   }
-
-  const asc = data?.natal?.ascendant;
-  const mc = data?.natal?.mc;
-  const sunT = data?.transit?.sunLon;
-  const cyclePos = data?.ascYear?.cyclePosition;
 
   return (
     <div className="min-h-[100svh] bg-black text-neutral-100 p-6 flex items-center justify-center">
@@ -215,7 +212,7 @@ export default function SeasonsPage() {
                 Ascendant Year Cycle (12×30°)
               </div>
               <div className="mt-2 text-[13px] text-neutral-400">
-                Now powered by <span className="text-neutral-200">/api/core</span> (single request).
+                Powered by <span className="text-neutral-200">/api/core</span> (single request).
               </div>
             </div>
 
@@ -249,6 +246,15 @@ export default function SeasonsPage() {
           onGenerate={handleGenerate}
         />
 
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
+          <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
+            Payload (text/plain)
+          </div>
+          <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
+            {payloadOut || "Generate to view the request payload."}
+          </pre>
+        </div>
+
         {errorOut ? (
           <div className="rounded-2xl border border-red-900/50 bg-red-950/30 p-5">
             <div className="text-[12px] tracking-[0.18em] text-red-200 uppercase mb-2">
@@ -262,72 +268,11 @@ export default function SeasonsPage() {
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
           <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-            Payload (text/plain)
+            URA • Seasons (readout)
           </div>
           <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
-            {payloadOut || "Generate to view the request payload."}
+            {seasonsOut || "Generate to run /api/core."}
           </pre>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-            <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-              Readout
-            </div>
-
-            {!data ? (
-              <div className="text-[12px] text-neutral-400">Generate to compute your season.</div>
-            ) : (
-              <div className="space-y-3">
-                <div className="rounded-xl border border-neutral-800 bg-neutral-900/30 p-4">
-                  <div className="text-[12px] text-neutral-400 mb-1">Ascendant Year</div>
-                  <div className="text-[18px] font-semibold leading-tight">
-                    {data?.ascYear?.season ?? "—"} · {data?.ascYear?.modality ?? "—"}
-                  </div>
-                  <div className="mt-2 text-[12px] text-neutral-300">
-                    Cycle position: <span className="text-neutral-100">{fmtDeg(cyclePos)}</span>
-                  </div>
-                  <div className="mt-1 text-[12px] text-neutral-400">
-                    {data?.ascYear?.modalitySegment ? data.ascYear.modalitySegment : ""}
-                    {typeof data?.ascYear?.degreesIntoModality === "number"
-                      ? ` · ${data.ascYear.degreesIntoModality.toFixed(2)}° into segment`
-                      : ""}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-neutral-800 bg-neutral-900/30 p-4">
-                  <div className="text-[12px] text-neutral-400 mb-1">Angles + Transit Sun</div>
-                  <div className="text-[12px] text-neutral-200">
-                    Natal ASC:{" "}
-                    <span className="text-neutral-100">
-                      {fmtDeg(asc)} {typeof asc === "number" ? `(${angleToSign(asc)})` : ""}
-                    </span>
-                  </div>
-                  <div className="text-[12px] text-neutral-200">
-                    Natal MC:{" "}
-                    <span className="text-neutral-100">
-                      {fmtDeg(mc)} {typeof mc === "number" ? `(${angleToSign(mc)})` : ""}
-                    </span>
-                  </div>
-                  <div className="text-[12px] text-neutral-200">
-                    Transit Sun:{" "}
-                    <span className="text-neutral-100">
-                      {fmtDeg(sunT)} {typeof sunT === "number" ? `(${angleToSign(sunT)})` : ""}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-            <div className="text-[12px] tracking-[0.18em] text-neutral-400 uppercase mb-2">
-              Debug (core payload)
-            </div>
-            <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-neutral-200">
-              {!data ? "Generate to view /api/core output." : pretty(data.core ?? data)}
-            </pre>
-          </div>
         </div>
 
         <div className="text-[11px] text-neutral-500 px-1">
