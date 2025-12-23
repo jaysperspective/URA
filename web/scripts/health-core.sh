@@ -6,25 +6,24 @@ BASE="${1:-http://127.0.0.1:3000}"
 PAYLOAD=$'birth_datetime: 1990-01-24 01:39\nas_of_date: 2025-12-22\ntz_offset: -05:00\nlat: 36.585\nlon: -79.395\n'
 
 py_extract_json() {
-python3 - <<'PY'
+  python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
 if not raw:
     print("ERROR: empty JSON body")
     sys.exit(1)
 
-# Sometimes a leading BOM/whitespace can sneak in; strip already handles whitespace.
 d = json.loads(raw)
 
 def g(*keys, default=None):
-  cur=d
-  for k in keys:
-    if cur is None: return default
-    if isinstance(cur, dict) and k in cur:
-      cur=cur[k]
-    else:
-      return default
-  return cur
+    cur=d
+    for k in keys:
+        if cur is None: return default
+        if isinstance(cur, dict) and k in cur:
+            cur=cur[k]
+        else:
+            return default
+    return cur
 
 def ok(v): return "OK" if v else "FAIL"
 
@@ -32,38 +31,37 @@ print("ok:", ok(g("ok") is True))
 
 sumry = g("derived","summary")
 if isinstance(sumry, dict):
-  print("summary.ascYearLabel:", sumry.get("ascYearLabel"))
-  print("summary.lunationLabel:", sumry.get("lunationLabel"))
-  n = sumry.get("natal", {}) or {}
-  a = sumry.get("asOf", {}) or {}
-  print("summary.natal.asc:", n.get("asc"), n.get("ascSign"))
-  print("summary.natal.mc:", n.get("mc"), n.get("mcSign"))
-  print("summary.asOf.sun:", a.get("sun"), a.get("sunSign"))
+    print("summary.ascYearLabel:", sumry.get("ascYearLabel"))
+    print("summary.lunationLabel:", sumry.get("lunationLabel"))
+    n = sumry.get("natal", {}) or {}
+    a = sumry.get("asOf", {}) or {}
+    print("summary.natal.asc:", n.get("asc"), n.get("ascSign"))
+    print("summary.natal.mc:", n.get("mc"), n.get("mcSign"))
+    print("summary.asOf.sun:", a.get("sun"), a.get("sunSign"))
 else:
-  print("summary:", "MISSING")
+    print("summary:", "MISSING")
 
-# wrapper shapes
 if "ascYear" in d:
-  ay = g("ascYear") or {}
-  print("ascYear.season/modality:", ay.get("season"), ay.get("modality"))
+    ay = g("ascYear") or {}
+    print("ascYear.season/modality:", ay.get("season"), ay.get("modality"))
 
 if "lunation" in d:
-  ln = g("lunation") or {}
-  print("lunation.phase:", ln.get("phase"), "sep:", ln.get("separation"))
+    ln = g("lunation") or {}
+    print("lunation.phase:", ln.get("phase"), "sep:", ln.get("separation"))
 
-# bodies sanity (core only)
 nb = g("natal","bodies", default={})
 ab = g("asOf","bodies", default={})
 if isinstance(nb, dict) and nb:
-  keys = ["sun","moon","mercury","venus","mars","jupiter","saturn","uranus","neptune","pluto","chiron","northNode","southNode"]
-  present = [k for k in keys if isinstance(nb.get(k), dict) and isinstance(nb.get(k,{}).get("lon"), (int,float))]
-  print("natal bodies:", ",".join(present))
+    keys = ["sun","moon","mercury","venus","mars","jupiter","saturn","uranus","neptune","pluto","chiron","northNode","southNode"]
+    present = [k for k in keys if isinstance(nb.get(k), dict) and isinstance((nb.get(k) or {}).get("lon"), (int,float))]
+    print("natal bodies:", ",".join(present))
 if isinstance(ab, dict) and ab:
-  keys = ["sun","moon","mercury","venus","mars"]
-  present = [k for k in keys if isinstance(ab.get(k), dict) and isinstance(ab.get(k,{}).get("lon"), (int,float))]
-  print("asOf bodies:", ",".join(present))
-PY
+    keys = ["sun","moon","mercury","venus","mars"]
+    present = [k for k in keys if isinstance(ab.get(k), dict) and isinstance((ab.get(k) or {}).get("lon"), (int,float))]
+    print("asOf bodies:", ",".join(present))
+'
 }
+
 
 check_route() {
   local path="$1"
