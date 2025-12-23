@@ -1,3 +1,4 @@
+// src/app/seasons/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -44,8 +45,13 @@ type AscYearResponse = {
 
     // Some APIs pack planets under a `planets` map
     planets?: Record<string, { lon?: number } | number>;
+    // /api/core uses bodies:{ sun:{lon}, ... } so we support that too
+    bodies?: Record<string, { lon?: number | null } | number>;
     houses?: number[];
   };
+
+  // keep anything extra without crashing
+  [k: string]: any;
 };
 
 type AstroFormInitial = {
@@ -93,7 +99,7 @@ async function postText(endpoint: string, text: string) {
     data = { ok: false, error: "Non-JSON response", raw };
   }
 
-  return { res, data: data as AscYearResponse };
+  return { res, data };
 }
 
 /**
@@ -343,12 +349,12 @@ function pickFirstNumber(obj: any, keys: string[]): number | null {
 function resolveNatalLon(natal: any, planetKey: string): number | null {
   if (!natal) return null;
 
+  // /api/core: natal.bodies.sun.lon
+  const viaBodies = getLonFromPlanetsMap(natal.bodies, planetKey);
+  if (typeof viaBodies === "number") return viaBodies;
+
   // direct fields (natal.sunLon etc.)
-  const direct = pickFirstNumber(natal, [
-    `${planetKey}Lon`,
-    `${planetKey}_lon`,
-    planetKey,
-  ]);
+  const direct = pickFirstNumber(natal, [`${planetKey}Lon`, `${planetKey}_lon`, planetKey]);
   if (typeof direct === "number") return direct;
 
   // planets map if present
@@ -389,10 +395,11 @@ function SeasonWheel({
   return (
     <div className="rounded-2xl border border-[#2a241d] bg-[#0f0d0a] p-5">
       <div className="flex items-center justify-between mb-3">
-        <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
-          Cycle wheel
-        </div>
-        <div className="text-[12px] text-[#9e8e79]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+        <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">Cycle wheel</div>
+        <div
+          className="text-[12px] text-[#9e8e79]"
+          style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+        >
           {typeof cyclePositionDeg === "number" ? `${pos.toFixed(2)}°` : "—"}
         </div>
       </div>
@@ -435,26 +442,82 @@ function SeasonWheel({
           />
 
           {/* crosshair */}
-          <line x1={cx} y1={cy - r - 8} x2={cx} y2={cy + r + 8} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
-          <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#2a241d" strokeWidth="1" opacity="0.9" />
+          <line
+            x1={cx}
+            y1={cy - r - 8}
+            x2={cx}
+            y2={cy + r + 8}
+            stroke="#2a241d"
+            strokeWidth="1"
+            opacity="0.9"
+          />
+          <line
+            x1={cx - r - 8}
+            y1={cy}
+            x2={cx + r + 8}
+            y2={cy}
+            stroke="#2a241d"
+            strokeWidth="1"
+            opacity="0.9"
+          />
 
           {/* labels */}
-          <text x={cx} y={cy - r - 8} textAnchor="middle" dominantBaseline="hanging" fontSize="10" fill="#b9a88f" letterSpacing="2">
+          <text
+            x={cx}
+            y={cy - r - 8}
+            textAnchor="middle"
+            dominantBaseline="hanging"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             SPR
           </text>
-          <text x={cx + r + 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+          <text
+            x={cx + r + 12}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             SMR
           </text>
-          <text x={cx} y={cy + r + 18} textAnchor="middle" dominantBaseline="alphabetic" fontSize="10" fill="#b9a88f" letterSpacing="2">
+          <text
+            x={cx}
+            y={cy + r + 18}
+            textAnchor="middle"
+            dominantBaseline="alphabetic"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             FAL
           </text>
-          <text x={cx - r - 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#b9a88f" letterSpacing="2">
+          <text
+            x={cx - r - 12}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="10"
+            fill="#b9a88f"
+            letterSpacing="2"
+          >
             WTR
           </text>
 
           {/* hand */}
           <circle cx={cx} cy={cy} r="3.5" fill={ringColor} />
-          <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={ringColor} strokeWidth="2.6" strokeLinecap="round" />
+          <line
+            x1={cx}
+            y1={cy}
+            x2={x2}
+            y2={y2}
+            stroke={ringColor}
+            strokeWidth="2.6"
+            strokeLinecap="round"
+          />
           <circle cx={x2} cy={y2} r="3" fill={ringColor} opacity="0.9" />
         </svg>
       </div>
@@ -471,10 +534,11 @@ function Meter({ value01 }: { value01: number }) {
   return (
     <div className="rounded-2xl border border-[#2a241d] bg-[#0f0d0a] p-5">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
-          30° boundary
-        </div>
-        <div className="text-[12px] text-[#9e8e79]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+        <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">30° boundary</div>
+        <div
+          className="text-[12px] text-[#9e8e79]"
+          style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+        >
           {pct}%
         </div>
       </div>
@@ -494,7 +558,10 @@ function MiniCard({ label, value, note }: { label: string; value: string; note: 
   return (
     <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
       <div className="text-[11px] text-[#b9a88f]">{label}</div>
-      <div className="mt-1 text-[18px] text-[#efe6d8]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+      <div
+        className="mt-1 text-[18px] text-[#efe6d8]"
+        style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+      >
         {value}
       </div>
       <div className="mt-2 text-[11px] text-[#8f7f6a]">{note}</div>
@@ -544,9 +611,7 @@ function NowNextShiftStrip({
   return (
     <div className="rounded-2xl border border-[#2a241d] bg-[#0f0d0a] p-5">
       <div className="flex items-center justify-between mb-4">
-        <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
-          Orientation
-        </div>
+        <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">Orientation</div>
         <div className="text-[11px] text-[#8f7f6a]">
           Next segment change estimate (Sun motion).
         </div>
@@ -572,7 +637,9 @@ function NowNextShiftStrip({
             <span className="text-[#8f7f6a]"> • </span>
             <span className="text-[#c7b9a6]">{shiftDateText}</span>
           </div>
-          <div className="mt-2 text-[11px] text-[#8f7f6a]">Based on remaining degrees in this segment.</div>
+          <div className="mt-2 text-[11px] text-[#8f7f6a]">
+            Based on remaining degrees in this segment.
+          </div>
         </div>
       </div>
     </div>
@@ -602,16 +669,30 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
     resolveNatalLon(n, "chiron") ??
     pickFirstNumber(n, ["chironLon", "chiron_lon"]) ??
     getLonFromPlanetsMap(n?.planets, "chiron") ??
-    getLonFromPlanetsMap(n?.planets, "chiron_") ??
+    getLonFromPlanetsMap(n?.bodies, "chiron") ??
     null;
 
   const lonNorth =
-    pickFirstNumber(n, ["northNodeLon", "north_node_lon", "trueNodeLon", "true_node_lon", "meanNodeLon", "mean_node_lon", "nodeLon", "node_lon", "rahuLon", "rahu_lon"]) ??
+    pickFirstNumber(n, [
+      "northNodeLon",
+      "north_node_lon",
+      "trueNodeLon",
+      "true_node_lon",
+      "meanNodeLon",
+      "mean_node_lon",
+      "nodeLon",
+      "node_lon",
+      "rahuLon",
+      "rahu_lon",
+    ]) ??
     getLonFromPlanetsMap(n?.planets, "northNode") ??
     getLonFromPlanetsMap(n?.planets, "north_node") ??
     getLonFromPlanetsMap(n?.planets, "trueNode") ??
     getLonFromPlanetsMap(n?.planets, "meanNode") ??
     getLonFromPlanetsMap(n?.planets, "rahu") ??
+    getLonFromPlanetsMap(n?.bodies, "northNode") ??
+    getLonFromPlanetsMap(n?.bodies, "trueNode") ??
+    getLonFromPlanetsMap(n?.bodies, "meanNode") ??
     null;
 
   const lonSouthRaw =
@@ -619,6 +700,7 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
     getLonFromPlanetsMap(n?.planets, "southNode") ??
     getLonFromPlanetsMap(n?.planets, "south_node") ??
     getLonFromPlanetsMap(n?.planets, "ketu") ??
+    getLonFromPlanetsMap(n?.bodies, "southNode") ??
     null;
 
   const lonSouth = computeSouthNodeLon(lonNorth, lonSouthRaw);
@@ -642,7 +724,14 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
   ];
 
   const hasAnyExtra =
-    rows.some((r) => r.label !== "ASC" && r.label !== "MC" && r.label !== "Sun" && r.label !== "Moon" && typeof r.lon === "number");
+    rows.some(
+      (r) =>
+        r.label !== "ASC" &&
+        r.label !== "MC" &&
+        r.label !== "Sun" &&
+        r.label !== "Moon" &&
+        typeof r.lon === "number"
+    );
 
   return (
     <div className="rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
@@ -652,7 +741,8 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
 
       {!hasAnyExtra ? (
         <div className="text-[11px] text-[#8f7f6a] mb-3">
-          Note: If you only see ASC/MC/Sun/Moon, the remaining bodies are not yet being returned by <span className="text-[#c7b9a6]">/api/asc-year</span>.
+          Note: If you only see ASC/MC/Sun/Moon, the remaining bodies are not yet being returned by{" "}
+          <span className="text-[#c7b9a6]">/api/core</span>.
         </div>
       ) : null}
 
@@ -661,7 +751,10 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
           const lon = r.lon;
           if (typeof lon !== "number") {
             return (
-              <div key={r.label} className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
+              <div
+                key={r.label}
+                className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0"
+              >
                 <div className="text-[12px] text-[#c7b9a6]">{r.label}</div>
                 <div className="text-[12px] text-[#8f7f6a]">—</div>
               </div>
@@ -670,13 +763,22 @@ function NatalPlacementsTable({ natal }: { natal: AscYearResponse["natal"] | nul
 
           const f = fmtSignLon(lon);
           return (
-            <div key={r.label} className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0">
+            <div
+              key={r.label}
+              className="flex items-center justify-between py-2 border-b border-[#201a13] last:border-b-0"
+            >
               <div className="text-[12px] text-[#c7b9a6]">{r.label}</div>
               <div className="flex items-center gap-3">
-                <div className="text-[12px] text-[#b9a88f]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+                <div
+                  className="text-[12px] text-[#b9a88f]"
+                  style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                >
                   {f.text}
                 </div>
-                <div className="text-[12px] text-[#8f7f6a]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
+                <div
+                  className="text-[12px] text-[#8f7f6a]"
+                  style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+                >
                   {f.raw}
                 </div>
               </div>
@@ -723,9 +825,7 @@ export default function SeasonsPage() {
     typeof data?.ascYear?.cyclePosition === "number" ? data!.ascYear!.cyclePosition : null;
 
   const degreesIntoModality =
-    typeof data?.ascYear?.degreesIntoModality === "number"
-      ? data!.ascYear!.degreesIntoModality
-      : null;
+    typeof data?.ascYear?.degreesIntoModality === "number" ? data!.ascYear!.degreesIntoModality : null;
 
   const progress01 = useMemo(() => {
     if (typeof degreesIntoModality !== "number") return 0;
@@ -778,7 +878,8 @@ export default function SeasonsPage() {
     setErrorOut("");
     setStatusLine("Computing seasons…");
 
-    const out = await postText("/api/asc-year", payloadText);
+    // ✅ SWITCHED: /api/core (Single Core API)
+    const out = await postText("/api/core", payloadText);
 
     if (!out.res.ok || out.data?.ok === false) {
       setStatusLine("");
@@ -792,7 +893,43 @@ export default function SeasonsPage() {
       return;
     }
 
-    setData(out.data);
+    const core = out.data;
+
+    // ✅ ADAPT: core → AscYearResponse expected by this UI
+    const adapted: AscYearResponse = {
+      ok: true,
+      text: core?.text,
+      ascYear: core?.derived?.ascYear,
+      transit: {
+        sunLon: core?.asOf?.bodies?.sun?.lon,
+      },
+      natal: {
+        ascendant: core?.natal?.ascendant,
+        mc: core?.natal?.mc,
+        houses: core?.natal?.houses,
+        // expose both (some helpers read planets, some read bodies)
+        bodies: core?.natal?.bodies,
+        planets: core?.natal?.bodies,
+        // (optional) also provide direct lon fields if ever needed
+        sunLon: core?.natal?.bodies?.sun?.lon ?? undefined,
+        moonLon: core?.natal?.bodies?.moon?.lon ?? undefined,
+        mercuryLon: core?.natal?.bodies?.mercury?.lon ?? undefined,
+        venusLon: core?.natal?.bodies?.venus?.lon ?? undefined,
+        marsLon: core?.natal?.bodies?.mars?.lon ?? undefined,
+        jupiterLon: core?.natal?.bodies?.jupiter?.lon ?? undefined,
+        saturnLon: core?.natal?.bodies?.saturn?.lon ?? undefined,
+        uranusLon: core?.natal?.bodies?.uranus?.lon ?? undefined,
+        neptuneLon: core?.natal?.bodies?.neptune?.lon ?? undefined,
+        plutoLon: core?.natal?.bodies?.pluto?.lon ?? undefined,
+        chironLon: core?.natal?.bodies?.chiron?.lon ?? undefined,
+        northNodeLon: core?.natal?.bodies?.northNode?.lon ?? undefined,
+        southNodeLon: core?.natal?.bodies?.southNode?.lon ?? undefined,
+      },
+      // keep whole core response around if you ever need it later
+      core,
+    };
+
+    setData(adapted);
     setStatusLine("");
   }
 
@@ -901,9 +1038,7 @@ export default function SeasonsPage() {
             </div>
 
             <div className="rounded-2xl border border-[#2a241d] bg-[#0f0d0a] p-6">
-              <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
-                Details
-              </div>
+              <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">Details</div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <MiniCard
@@ -947,7 +1082,7 @@ export default function SeasonsPage() {
                 />
               </div>
 
-              {/* ✅ Updated: Natal Dial expanded */}
+              {/* ✅ Natal Dial expanded */}
               <div className="mt-7">
                 <div className="text-[12px] tracking-[0.18em] text-[#b9a88f] uppercase">
                   Natal dial
@@ -965,7 +1100,8 @@ export default function SeasonsPage() {
 
                 <div className="mt-3 rounded-xl border border-[#2a241d] bg-[#0b0906] p-4">
                   <div className="text-[11px] text-[#8f7f6a] mb-3">
-                    Boundaries are anchored to your natal ASC (so they may not align with sign boundaries).
+                    Boundaries are anchored to your natal ASC (so they may not align with sign
+                    boundaries).
                   </div>
 
                   <div className="grid grid-cols-1 gap-2">
@@ -1022,7 +1158,8 @@ export default function SeasonsPage() {
         </div>
 
         <div className="text-[11px] text-[#8f7f6a] px-1">
-          /seasons is a presentation layer over /api/asc-year (12×30° model). Saved payload key:{" "}
+          /seasons is a presentation layer over <span className="text-[#c7b9a6]">/api/core</span>{" "}
+          (12×30° model). Saved payload key:{" "}
           <span className="text-[#c7b9a6]">{LS_PAYLOAD_KEY}</span>
         </div>
       </div>
