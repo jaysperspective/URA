@@ -23,9 +23,9 @@ type Star = {
 function makeStars(count: number): Star[] {
   const stars: Star[] = [];
   for (let i = 0; i < count; i++) {
-    const r = 0.6 + Math.random() * 1.3; // tiny
-    const a = 0.10 + Math.random() * 0.22; // ultra subtle
-    const speed = 0.003 + Math.random() * 0.008; // very slow drift
+    const r = 0.6 + Math.random() * 1.3;
+    const a = 0.10 + Math.random() * 0.22;
+    const speed = 0.003 + Math.random() * 0.008;
     const dir = Math.random() * Math.PI * 2;
 
     stars.push({
@@ -46,20 +46,15 @@ function clamp01(n: number) {
 }
 
 export default function IntroPage() {
-  // pointer parallax
   const [pos, setPos] = useState({ x: 0.5, y: 0.5 });
-
-  // audio-reactive (off by default)
   const [audioEnabled, setAudioEnabled] = useState(false);
-  const [audioLevel, setAudioLevel] = useState(0); // 0..1
+  const [audioLevel, setAudioLevel] = useState(0);
 
-  // canvas
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const starsRef = useRef<Star[]>([]);
   const rafRef = useRef<number | null>(null);
 
-  // audio nodes
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -82,7 +77,6 @@ export default function IntroPage() {
     return { dx, dy };
   }, [pos.x, pos.y]);
 
-  // Constellation canvas init + animation
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -129,18 +123,15 @@ export default function IntroPage() {
 
       cctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
-      // Parallax offset for starfield
       const px = (pos.x - 0.5) * 14;
       const py = (pos.y - 0.5) * 14;
 
-      // Stars
       for (let i = 0; i < stars.length; i++) {
         const s = stars[i];
 
         s.x += s.vx * dt;
         s.y += s.vy * dt;
 
-        // wrap
         if (s.x < -0.05) s.x = 1.05;
         if (s.x > 1.05) s.x = -0.05;
         if (s.y < -0.05) s.y = 1.05;
@@ -158,7 +149,6 @@ export default function IntroPage() {
         cctx.fill();
       }
 
-      // Constellation links (VERY subtle)
       const maxLinks = 60;
       const linkDist = 125 + lvl * 50;
       let links = 0;
@@ -208,7 +198,6 @@ export default function IntroPage() {
     };
   }, [pos.x, pos.y, audioEnabled, audioLevel]);
 
-  // AUDIO enable/disable
   const enableAudio = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -221,7 +210,8 @@ export default function IntroPage() {
       });
 
       const AudioCtx =
-        (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) ??
+        (window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) ??
         null;
 
       if (!AudioCtx) throw new Error("AudioContext not supported");
@@ -234,7 +224,8 @@ export default function IntroPage() {
       const src = ctx.createMediaStreamSource(stream);
       src.connect(analyser);
 
-      const data = new Uint8Array(analyser.frequencyBinCount);
+      // ✅ force ArrayBuffer-backed Uint8Array to satisfy TS DOM typings
+      const data = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
 
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
@@ -250,13 +241,11 @@ export default function IntroPage() {
 
         an.getByteFrequencyData(arr);
 
-        // low band energy
         const n = Math.max(8, Math.floor(arr.length * 0.12));
         let sum = 0;
         for (let i = 0; i < n; i++) sum += arr[i];
-        const avg = sum / n / 255; // 0..1
+        const avg = sum / n / 255;
 
-        // compress + keep subtle
         const lvl = clamp01(Math.pow(avg, 0.85));
         setAudioLevel(lvl);
 
@@ -265,7 +254,6 @@ export default function IntroPage() {
 
       audioRafRef.current = requestAnimationFrame(tick);
     } catch {
-      // denied/unavailable: remain off
       setAudioEnabled(false);
       setAudioLevel(0);
     }
@@ -278,14 +266,10 @@ export default function IntroPage() {
     if (audioRafRef.current) cancelAnimationFrame(audioRafRef.current);
     audioRafRef.current = null;
 
-    // stop mic tracks
     const stream = mediaStreamRef.current;
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
-    }
+    if (stream) stream.getTracks().forEach((t) => t.stop());
     mediaStreamRef.current = null;
 
-    // close audio ctx
     const ctx = audioCtxRef.current;
     if (ctx) {
       try {
@@ -301,10 +285,8 @@ export default function IntroPage() {
 
   return (
     <div className="relative min-h-[100svh] w-full overflow-hidden text-white" style={{ backgroundColor: BG }}>
-      {/* Constellation field */}
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-0" aria-hidden="true" />
 
-      {/* Ambient vignette */}
       <div
         className="pointer-events-none absolute inset-0 z-[1]"
         style={{
@@ -315,10 +297,8 @@ export default function IntroPage() {
         }}
       />
 
-      {/* Grain */}
       <div className="pointer-events-none absolute inset-0 z-[2] opacity-[0.10] mix-blend-overlay grain" />
 
-      {/* Audio toggle */}
       <div className="absolute right-4 top-4 z-[5]">
         <button
           onClick={() => (audioEnabled ? disableAudio() : enableAudio())}
@@ -332,7 +312,6 @@ export default function IntroPage() {
         </button>
       </div>
 
-      {/* Content */}
       <main className="relative z-[3] flex min-h-[100svh] items-center justify-center px-6">
         <div className="w-full max-w-4xl">
           <div className="flex flex-col items-center text-center">
