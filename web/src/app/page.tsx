@@ -23,10 +23,9 @@ export default function IntroPage() {
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
 
-  // Map mouse to small translate values
   const drift = useMemo(() => {
-    const dx = (pos.x - 0.5) * 18; // px
-    const dy = (pos.y - 0.5) * 18; // px
+    const dx = (pos.x - 0.5) * 18;
+    const dy = (pos.y - 0.5) * 18;
     return { dx, dy };
   }, [pos.x, pos.y]);
 
@@ -46,78 +45,82 @@ export default function IntroPage() {
         }}
       />
 
-      {/* Film grain overlay (cheap + effective) */}
+      {/* Film grain overlay */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay grain" />
 
       {/* Content */}
       <main className="relative z-10 flex min-h-[100svh] items-center justify-center px-6">
-        <div className="w-full max-w-5xl">
+        <div className="w-full max-w-4xl">
           <div className="flex flex-col items-center text-center">
             {/* Title */}
             <h1 className="select-none text-[40px] sm:text-[54px] font-light tracking-[0.35em]">
               URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM
             </h1>
 
-            {/* Subline (optional, subtle) */}
-            <div className="mt-4 text-[12px] tracking-[0.28em] uppercase text-white/55">
+            {/* Subline */}
+            <div className="mt-3 text-[12px] tracking-[0.28em] uppercase text-white/55">
               an orientation engine for cycles, timing, and meaning
             </div>
 
-            {/* Buttons */}
-            <div className="mt-14 flex flex-col sm:flex-row items-center gap-6">
+            {/* Buttons (boxed) */}
+            <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
               <Link
                 href="/signup"
                 className={cx(
                   "btn-frame",
-                  "px-12 py-4 text-[12px] tracking-[0.35em] uppercase",
-                  "hover:text-white"
+                  "px-12 py-4 text-[12px] tracking-[0.35em] uppercase"
                 )}
               >
-                Sign&nbsp;Up
+                SIGN&nbsp;UP
               </Link>
 
               <Link
                 href="/login"
                 className={cx(
                   "btn-frame",
-                  "px-12 py-4 text-[12px] tracking-[0.35em] uppercase",
-                  "hover:text-white"
+                  "px-12 py-4 text-[12px] tracking-[0.35em] uppercase"
                 )}
               >
-                Log&nbsp;In
+                LOG&nbsp;IN
               </Link>
             </div>
 
-            <div className="mt-8">
+            <div className="mt-6">
               <Link
                 href="/about"
                 className={cx(
                   "btn-frame",
-                  "px-16 py-4 text-[12px] tracking-[0.35em] uppercase",
-                  "hover:text-white"
+                  "px-16 py-4 text-[12px] tracking-[0.35em] uppercase"
                 )}
               >
-                About&nbsp;This&nbsp;System
+                ABOUT&nbsp;THIS&nbsp;SYSTEM
               </Link>
             </div>
 
-            {/* Orbital symbol: slow rotation + mouse parallax */}
+            {/* Orbital symbol (pulled up + slightly smaller) */}
             <div
-              className="mt-24 sm:mt-28 opacity-85"
+              className="mt-12 sm:mt-14 opacity-85"
               style={{
-                transform: `translate(${drift.dx * 0.35}px, ${drift.dy * 0.35}px)`,
+                transform: `translate(${drift.dx * 0.25}px, ${drift.dy * 0.25}px)`,
                 transition: "transform 140ms ease-out",
               }}
             >
               <div className="orbital">
                 <svg
-                  width="320"
-                  height="320"
+                  width="260"
+                  height="260"
                   viewBox="0 0 260 260"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
                 >
-                  <circle cx="130" cy="130" r="90" stroke="white" strokeWidth="1" opacity="0.9" />
+                  <circle
+                    cx="130"
+                    cy="130"
+                    r="90"
+                    stroke="white"
+                    strokeWidth="1"
+                    opacity="0.9"
+                  />
                   <ellipse
                     cx="130"
                     cy="130"
@@ -132,8 +135,8 @@ export default function IntroPage() {
               </div>
             </div>
 
-            {/* Footer microcopy */}
-            <div className="mt-12 text-[11px] text-white/40 tracking-[0.20em] uppercase">
+            {/* Footer microcopy (kept, tighter) */}
+            <div className="mt-10 text-[11px] text-white/40 tracking-[0.20em] uppercase">
               enter quietly · observe precisely
             </div>
           </div>
@@ -141,7 +144,6 @@ export default function IntroPage() {
       </main>
 
       <style jsx>{`
-        /* Grain using layered gradients (no images needed) */
         .grain {
           background-image:
             radial-gradient(circle at 20% 30%, rgba(255,255,255,0.20) 0.5px, transparent 0.6px),
@@ -155,7 +157,6 @@ export default function IntroPage() {
           100% { transform: translate3d(-140px,-140px,0); }
         }
 
-        /* Button: thin frame + inner glow on hover */
         .btn-frame {
           border: 1px solid rgba(255,255,255,0.75);
           color: rgba(255,255,255,0.92);
@@ -173,7 +174,6 @@ export default function IntroPage() {
           box-shadow: 0 0 18px rgba(255,255,255,0.08);
         }
 
-        /* Orbital: very slow precession */
         .orbital {
           display: inline-block;
           animation: precess 18s linear infinite;
