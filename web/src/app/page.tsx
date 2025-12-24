@@ -25,7 +25,7 @@ function makeStars(count: number): Star[] {
   for (let i = 0; i < count; i++) {
     const r = 0.6 + Math.random() * 1.4; // tiny
     const a = 0.12 + Math.random() * 0.35; // subtle
-    const speed = 0.004 + Math.random() * 0.010; // very slow
+    const speed = 0.004 + Math.random() * 0.01; // very slow
     const dir = Math.random() * Math.PI * 2;
     stars.push({
       x: Math.random(),
@@ -81,30 +81,37 @@ export default function IntroPage() {
     if (!ctx) return;
 
     function resize() {
+      const c = canvasRef.current;
+      if (!c) return;
+
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      canvas.width = Math.floor(window.innerWidth * dpr);
-      canvas.height = Math.floor(window.innerHeight * dpr);
-      canvas.style.width = `${window.innerWidth}px`;
-      canvas.style.height = `${window.innerHeight}px`;
+      c.width = Math.floor(window.innerWidth * dpr);
+      c.height = Math.floor(window.innerHeight * dpr);
+      c.style.width = `${window.innerWidth}px`;
+      c.style.height = `${window.innerHeight}px`;
+
+      // ctx was created from canvas, but transform is global to the context
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function ensureStars() {
       const base = window.innerWidth * window.innerHeight;
-      const count = Math.max(70, Math.min(190, Math.floor(base / 12000))); // adaptive
+      const count = Math.max(70, Math.min(190, Math.floor(base / 12000)));
       if (!starsRef.current.length) starsRef.current = makeStars(count);
     }
 
     let last = performance.now();
 
     function step(now: number) {
+      const c = canvasRef.current;
+      if (!c) return; // guard if unmounted mid-frame
+
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
 
       ensureStars();
       const stars = starsRef.current;
 
-      // audioLevel subtly modulates twinkle intensity & line visibility
       const lvl = audioEnabled ? audioLevel : 0;
       const twinkleBoost = 1 + lvl * 0.8;
 
@@ -129,7 +136,6 @@ export default function IntroPage() {
         const x = s.x * window.innerWidth + px;
         const y = s.y * window.innerHeight + py;
 
-        // twinkle
         const tw = 0.85 + 0.15 * Math.sin(now / 1200 + s.tw) * twinkleBoost;
         const a = Math.max(0, Math.min(1, s.a * tw));
 
@@ -139,10 +145,9 @@ export default function IntroPage() {
         ctx.fill();
       }
 
-      // Draw sparse constellation lines (nearest-ish links under threshold)
-      // Keep it extremely subtle, only a few per frame.
+      // Constellation lines (subtle)
       const maxLinks = 70;
-      const linkDist = 135 + lvl * 60; // px
+      const linkDist = 135 + lvl * 60;
       let links = 0;
 
       ctx.lineWidth = 1;
@@ -153,7 +158,6 @@ export default function IntroPage() {
         const ax = a.x * window.innerWidth + px;
         const ay = a.y * window.innerHeight + py;
 
-        // check a few neighbors (cheap)
         for (let j = i + 1; j < stars.length && links < maxLinks; j += 6) {
           const b = stars[j];
           const bx = b.x * window.innerWidth + px;
@@ -162,7 +166,6 @@ export default function IntroPage() {
           const dy = ay - by;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < linkDist) {
-            // alpha falls off with distance
             const t = 1 - d / linkDist;
             const alpha = (0.02 + lvl * 0.06) * t;
             if (alpha < 0.01) continue;
@@ -190,7 +193,6 @@ export default function IntroPage() {
     };
   }, [pos.x, pos.y, audioEnabled, audioLevel]);
 
-  // AUDIO: off by default, user toggles
   async function enableAudio() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -202,9 +204,10 @@ export default function IntroPage() {
         video: false,
       });
 
-      const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext) as
-        | typeof AudioContext
-        | undefined;
+      const AudioCtx =
+        (window.AudioContext || (window as any).webkitAudioContext) as
+          | typeof AudioContext
+          | undefined;
 
       if (!AudioCtx) throw new Error("AudioContext not supported");
 
@@ -225,7 +228,6 @@ export default function IntroPage() {
 
       setAudioEnabled(true);
 
-      // Tick loop: low-frequency energy measure (bass / low mids)
       function tick() {
         const an = analyserRef.current;
         const arr = dataRef.current;
@@ -233,13 +235,11 @@ export default function IntroPage() {
 
         an.getByteFrequencyData(arr);
 
-        // Take first ~12% bins as low-frequency band (approx)
         const n = Math.max(8, Math.floor(arr.length * 0.12));
         let sum = 0;
         for (let i = 0; i < n; i++) sum += arr[i];
-        const avg = sum / n / 255; // 0..1
+        const avg = sum / n / 255;
 
-        // compress to subtle movement
         const lvl = Math.max(0, Math.min(1, Math.pow(avg, 0.8)));
         setAudioLevel(lvl);
 
@@ -248,7 +248,6 @@ export default function IntroPage() {
 
       audioTickRef.current = window.requestAnimationFrame(tick);
     } catch {
-      // If denied/unavailable, just keep it off
       setAudioEnabled(false);
       setAudioLevel(0);
     }
@@ -279,14 +278,8 @@ export default function IntroPage() {
       className="relative min-h-[100svh] w-full overflow-hidden text-white"
       style={{ backgroundColor: BG }}
     >
-      {/* Constellation field canvas */}
-      <canvas
-        ref={canvasRef}
-        className="pointer-events-none absolute inset-0 z-0"
-        aria-hidden="true"
-      />
+      <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-0" />
 
-      {/* Ambient vignette + subtle moving light */}
       <div
         className="pointer-events-none absolute inset-0 z-[1]"
         style={{
@@ -297,10 +290,8 @@ export default function IntroPage() {
         }}
       />
 
-      {/* Film grain overlay */}
       <div className="pointer-events-none absolute inset-0 z-[2] opacity-[0.10] mix-blend-overlay grain" />
 
-      {/* Top-right audio toggle (subtle, off by default) */}
       <div className="absolute right-4 top-4 z-[5]">
         <button
           onClick={() => (audioEnabled ? disableAudio() : enableAudio())}
@@ -314,7 +305,6 @@ export default function IntroPage() {
         </button>
       </div>
 
-      {/* Content */}
       <main className="relative z-[3] flex min-h-[100svh] items-center justify-center px-6">
         <div className="w-full max-w-4xl">
           <div className="flex flex-col items-center text-center">
@@ -326,7 +316,6 @@ export default function IntroPage() {
               an orientation engine for cycles, timing, and meaning
             </div>
 
-            {/* Buttons (boxed) */}
             <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
               <Link
                 href="/signup"
@@ -352,13 +341,11 @@ export default function IntroPage() {
               </Link>
             </div>
 
-            {/* Orbital symbol */}
             <div
               className="mt-12 sm:mt-14 opacity-85"
               style={{
                 transform: `translate(${drift.dx * 0.25}px, ${drift.dy * 0.25}px)`,
                 transition: "transform 140ms ease-out",
-                // audio subtly expands orbital glow and rotation feel
                 filter: `drop-shadow(0 0 ${14 + audioLevel * 22}px rgba(255,255,255,${
                   0.06 + audioLevel * 0.06
                 }))`,
@@ -367,24 +354,11 @@ export default function IntroPage() {
               <div
                 className="orbital"
                 style={{
-                  animationDuration: `${18 - audioLevel * 6}s`, // slightly faster with audio
+                  animationDuration: `${18 - audioLevel * 6}s`,
                 }}
               >
-                <svg
-                  width="260"
-                  height="260"
-                  viewBox="0 0 260 260"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <circle
-                    cx="130"
-                    cy="130"
-                    r="90"
-                    stroke="white"
-                    strokeWidth="1"
-                    opacity="0.9"
-                  />
+                <svg width="260" height="260" viewBox="0 0 260 260" fill="none">
+                  <circle cx="130" cy="130" r="90" stroke="white" strokeWidth="1" opacity="0.9" />
                   <ellipse
                     cx="130"
                     cy="130"
@@ -408,33 +382,48 @@ export default function IntroPage() {
 
       <style jsx>{`
         .grain {
-          background-image:
-            radial-gradient(circle at 20% 30%, rgba(255,255,255,0.20) 0.5px, transparent 0.6px),
-            radial-gradient(circle at 70% 80%, rgba(255,255,255,0.15) 0.5px, transparent 0.7px),
-            radial-gradient(circle at 40% 60%, rgba(255,255,255,0.12) 0.5px, transparent 0.7px);
+          background-image: radial-gradient(
+              circle at 20% 30%,
+              rgba(255, 255, 255, 0.2) 0.5px,
+              transparent 0.6px
+            ),
+            radial-gradient(
+              circle at 70% 80%,
+              rgba(255, 255, 255, 0.15) 0.5px,
+              transparent 0.7px
+            ),
+            radial-gradient(
+              circle at 40% 60%,
+              rgba(255, 255, 255, 0.12) 0.5px,
+              transparent 0.7px
+            );
           background-size: 140px 140px, 180px 180px, 220px 220px;
           animation: grainMove 10s linear infinite;
         }
         @keyframes grainMove {
-          0% { transform: translate3d(0,0,0); }
-          100% { transform: translate3d(-140px,-140px,0); }
+          0% {
+            transform: translate3d(0, 0, 0);
+          }
+          100% {
+            transform: translate3d(-140px, -140px, 0);
+          }
         }
 
         .btn-frame {
-          border: 1px solid rgba(255,255,255,0.75);
-          color: rgba(255,255,255,0.92);
-          background: rgba(255,255,255,0.02);
-          box-shadow: 0 0 0 rgba(255,255,255,0);
+          border: 1px solid rgba(255, 255, 255, 0.75);
+          color: rgba(255, 255, 255, 0.92);
+          background: rgba(255, 255, 255, 0.02);
+          box-shadow: 0 0 0 rgba(255, 255, 255, 0);
           transition: transform 120ms ease, box-shadow 160ms ease, background 160ms ease;
         }
         .btn-frame:hover {
-          background: rgba(255,255,255,0.05);
-          box-shadow: 0 0 28px rgba(255,255,255,0.10);
+          background: rgba(255, 255, 255, 0.05);
+          box-shadow: 0 0 28px rgba(255, 255, 255, 0.1);
           transform: translateY(-1px);
         }
         .btn-frame:active {
           transform: translateY(0px) scale(0.99);
-          box-shadow: 0 0 18px rgba(255,255,255,0.08);
+          box-shadow: 0 0 18px rgba(255, 255, 255, 0.08);
         }
 
         .orbital {
@@ -445,8 +434,12 @@ export default function IntroPage() {
           transform-origin: 50% 50%;
         }
         @keyframes precess {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
         }
 
         .audio-toggle {
@@ -454,8 +447,8 @@ export default function IntroPage() {
         }
         .audio-toggle:hover {
           transform: translateY(-1px);
-          background: rgba(255,255,255,0.08);
-          border-color: rgba(255,255,255,0.28);
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.28);
         }
         .audio-toggle:active {
           transform: translateY(0px) scale(0.99);
