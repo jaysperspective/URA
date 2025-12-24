@@ -1,78 +1,190 @@
 // src/app/page.tsx
+"use client";
 
 import Link from "next/link";
+import React, { useEffect, useMemo, useState } from "react";
+
+const BG = "#333131";
+
+function cx(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 
 export default function IntroPage() {
+  const [pos, setPos] = useState({ x: 0.5, y: 0.5 });
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const x = Math.min(1, Math.max(0, e.clientX / window.innerWidth));
+      const y = Math.min(1, Math.max(0, e.clientY / window.innerHeight));
+      setPos({ x, y });
+    }
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  // Map mouse to small translate values
+  const drift = useMemo(() => {
+    const dx = (pos.x - 0.5) * 18; // px
+    const dy = (pos.y - 0.5) * 18; // px
+    return { dx, dy };
+  }, [pos.x, pos.y]);
+
   return (
     <div
-      className="min-h-screen w-full flex items-center justify-center"
-      style={{ backgroundColor: "#333131" }}
+      className="relative min-h-[100svh] w-full overflow-hidden text-white"
+      style={{ backgroundColor: BG }}
     >
-      <main className="flex flex-col items-center justify-center gap-12 px-6 text-center text-white">
+      {/* Ambient vignette + subtle moving light */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(900px 520px at 50% 30%, rgba(255,255,255,0.10), rgba(0,0,0,0) 60%), radial-gradient(1200px 700px at 50% 110%, rgba(255,255,255,0.05), rgba(0,0,0,0) 60%)",
+          transform: `translate(${drift.dx * 0.25}px, ${drift.dy * 0.25}px)`,
+          transition: "transform 120ms ease-out",
+        }}
+      />
 
-        {/* Title */}
-        <h1
-          className="text-4xl sm:text-5xl tracking-[0.35em] font-light"
-        >
-          URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM
-        </h1>
+      {/* Film grain overlay (cheap + effective) */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay grain" />
 
-        {/* Action buttons */}
-        <div className="flex flex-col sm:flex-row gap-6 mt-4">
+      {/* Content */}
+      <main className="relative z-10 flex min-h-[100svh] items-center justify-center px-6">
+        <div className="w-full max-w-5xl">
+          <div className="flex flex-col items-center text-center">
+            {/* Title */}
+            <h1 className="select-none text-[40px] sm:text-[54px] font-light tracking-[0.35em]">
+              URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM
+            </h1>
 
-          <Link
-            href="/signup"
-            className="px-10 py-4 border border-white/80 tracking-[0.3em] text-sm hover:bg-white hover:text-[#333131] transition"
-          >
-            SIGN&nbsp;UP
-          </Link>
+            {/* Subline (optional, subtle) */}
+            <div className="mt-4 text-[12px] tracking-[0.28em] uppercase text-white/55">
+              an orientation engine for cycles, timing, and meaning
+            </div>
 
-          <Link
-            href="/login"
-            className="px-10 py-4 border border-white/80 tracking-[0.3em] text-sm hover:bg-white hover:text-[#333131] transition"
-          >
-            LOG&nbsp;IN
-          </Link>
+            {/* Buttons */}
+            <div className="mt-14 flex flex-col sm:flex-row items-center gap-6">
+              <Link
+                href="/signup"
+                className={cx(
+                  "btn-frame",
+                  "px-12 py-4 text-[12px] tracking-[0.35em] uppercase",
+                  "hover:text-white"
+                )}
+              >
+                Sign&nbsp;Up
+              </Link>
 
+              <Link
+                href="/login"
+                className={cx(
+                  "btn-frame",
+                  "px-12 py-4 text-[12px] tracking-[0.35em] uppercase",
+                  "hover:text-white"
+                )}
+              >
+                Log&nbsp;In
+              </Link>
+            </div>
+
+            <div className="mt-8">
+              <Link
+                href="/about"
+                className={cx(
+                  "btn-frame",
+                  "px-16 py-4 text-[12px] tracking-[0.35em] uppercase",
+                  "hover:text-white"
+                )}
+              >
+                About&nbsp;This&nbsp;System
+              </Link>
+            </div>
+
+            {/* Orbital symbol: slow rotation + mouse parallax */}
+            <div
+              className="mt-24 sm:mt-28 opacity-85"
+              style={{
+                transform: `translate(${drift.dx * 0.35}px, ${drift.dy * 0.35}px)`,
+                transition: "transform 140ms ease-out",
+              }}
+            >
+              <div className="orbital">
+                <svg
+                  width="320"
+                  height="320"
+                  viewBox="0 0 260 260"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle cx="130" cy="130" r="90" stroke="white" strokeWidth="1" opacity="0.9" />
+                  <ellipse
+                    cx="130"
+                    cy="130"
+                    rx="120"
+                    ry="45"
+                    transform="rotate(-25 130 130)"
+                    stroke="white"
+                    strokeWidth="1"
+                    opacity="0.9"
+                  />
+                </svg>
+              </div>
+            </div>
+
+            {/* Footer microcopy */}
+            <div className="mt-12 text-[11px] text-white/40 tracking-[0.20em] uppercase">
+              enter quietly · observe precisely
+            </div>
+          </div>
         </div>
-
-        {/* About */}
-        <Link
-          href="/about"
-          className="mt-2 px-12 py-4 border border-white/80 tracking-[0.3em] text-sm hover:bg-white hover:text-[#333131] transition"
-        >
-          ABOUT&nbsp;THIS&nbsp;SYSTEM
-        </Link>
-
-        {/* Orbital symbol */}
-        <div className="mt-20 opacity-80">
-          <svg
-            width="260"
-            height="260"
-            viewBox="0 0 260 260"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle
-              cx="130"
-              cy="130"
-              r="90"
-              stroke="white"
-              strokeWidth="1"
-            />
-            <ellipse
-              cx="130"
-              cy="130"
-              rx="120"
-              ry="45"
-              transform="rotate(-25 130 130)"
-              stroke="white"
-              strokeWidth="1"
-            />
-          </svg>
-        </div>
-
       </main>
+
+      <style jsx>{`
+        /* Grain using layered gradients (no images needed) */
+        .grain {
+          background-image:
+            radial-gradient(circle at 20% 30%, rgba(255,255,255,0.20) 0.5px, transparent 0.6px),
+            radial-gradient(circle at 70% 80%, rgba(255,255,255,0.15) 0.5px, transparent 0.7px),
+            radial-gradient(circle at 40% 60%, rgba(255,255,255,0.12) 0.5px, transparent 0.7px);
+          background-size: 140px 140px, 180px 180px, 220px 220px;
+          animation: grainMove 10s linear infinite;
+        }
+        @keyframes grainMove {
+          0% { transform: translate3d(0,0,0); }
+          100% { transform: translate3d(-140px,-140px,0); }
+        }
+
+        /* Button: thin frame + inner glow on hover */
+        .btn-frame {
+          border: 1px solid rgba(255,255,255,0.75);
+          color: rgba(255,255,255,0.92);
+          background: rgba(255,255,255,0.02);
+          box-shadow: 0 0 0 rgba(255,255,255,0);
+          transition: transform 120ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+        .btn-frame:hover {
+          background: rgba(255,255,255,0.05);
+          box-shadow: 0 0 28px rgba(255,255,255,0.10);
+          transform: translateY(-1px);
+        }
+        .btn-frame:active {
+          transform: translateY(0px) scale(0.99);
+          box-shadow: 0 0 18px rgba(255,255,255,0.08);
+        }
+
+        /* Orbital: very slow precession */
+        .orbital {
+          display: inline-block;
+          animation: precess 18s linear infinite;
+          transform-origin: 50% 50%;
+          filter: drop-shadow(0 0 20px rgba(255,255,255,0.08));
+        }
+        @keyframes precess {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
