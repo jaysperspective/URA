@@ -46,6 +46,7 @@ export default function IntroPage() {
   const [audioLevel, setAudioLevel] = useState(0); // 0..1
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const starsRef = useRef<Star[]>([]);
   const rafRef = useRef<number | null>(null);
 
@@ -80,9 +81,12 @@ export default function IntroPage() {
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
 
+    ctxRef.current = ctx;
+
     function resize() {
       const c = canvasRef.current;
-      if (!c) return;
+      const cctx = ctxRef.current;
+      if (!c || !cctx) return;
 
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       c.width = Math.floor(window.innerWidth * dpr);
@@ -90,8 +94,7 @@ export default function IntroPage() {
       c.style.width = `${window.innerWidth}px`;
       c.style.height = `${window.innerHeight}px`;
 
-      // ctx was created from canvas, but transform is global to the context
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function ensureStars() {
@@ -104,7 +107,8 @@ export default function IntroPage() {
 
     function step(now: number) {
       const c = canvasRef.current;
-      if (!c) return; // guard if unmounted mid-frame
+      const cctx = ctxRef.current;
+      if (!c || !cctx) return;
 
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
@@ -115,7 +119,7 @@ export default function IntroPage() {
       const lvl = audioEnabled ? audioLevel : 0;
       const twinkleBoost = 1 + lvl * 0.8;
 
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      cctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
       // Parallax offset for starfield
       const px = (pos.x - 0.5) * 16;
@@ -139,10 +143,10 @@ export default function IntroPage() {
         const tw = 0.85 + 0.15 * Math.sin(now / 1200 + s.tw) * twinkleBoost;
         const a = Math.max(0, Math.min(1, s.a * tw));
 
-        ctx.beginPath();
-        ctx.arc(x, y, s.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${a})`;
-        ctx.fill();
+        cctx.beginPath();
+        cctx.arc(x, y, s.r, 0, Math.PI * 2);
+        cctx.fillStyle = `rgba(255,255,255,${a})`;
+        cctx.fill();
       }
 
       // Constellation lines (subtle)
@@ -150,8 +154,8 @@ export default function IntroPage() {
       const linkDist = 135 + lvl * 60;
       let links = 0;
 
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = `rgba(255,255,255,${0.03 + lvl * 0.05})`;
+      cctx.lineWidth = 1;
+      cctx.strokeStyle = `rgba(255,255,255,${0.03 + lvl * 0.05})`;
 
       for (let i = 0; i < stars.length && links < maxLinks; i++) {
         const a = stars[i];
@@ -170,11 +174,11 @@ export default function IntroPage() {
             const alpha = (0.02 + lvl * 0.06) * t;
             if (alpha < 0.01) continue;
 
-            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-            ctx.beginPath();
-            ctx.moveTo(ax, ay);
-            ctx.lineTo(bx, by);
-            ctx.stroke();
+            cctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+            cctx.beginPath();
+            cctx.moveTo(ax, ay);
+            cctx.lineTo(bx, by);
+            cctx.stroke();
             links++;
           }
         }
@@ -190,6 +194,7 @@ export default function IntroPage() {
     return () => {
       window.removeEventListener("resize", resize);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      ctxRef.current = null;
     };
   }, [pos.x, pos.y, audioEnabled, audioLevel]);
 
@@ -219,241 +224,4 @@ export default function IntroPage() {
       const src = ctx.createMediaStreamSource(stream);
       src.connect(analyser);
 
-      const data = new Uint8Array(analyser.frequencyBinCount);
-
-      audioCtxRef.current = ctx;
-      analyserRef.current = analyser;
-      srcRef.current = src;
-      dataRef.current = data;
-
-      setAudioEnabled(true);
-
-      function tick() {
-        const an = analyserRef.current;
-        const arr = dataRef.current;
-        if (!an || !arr) return;
-
-        an.getByteFrequencyData(arr);
-
-        const n = Math.max(8, Math.floor(arr.length * 0.12));
-        let sum = 0;
-        for (let i = 0; i < n; i++) sum += arr[i];
-        const avg = sum / n / 255;
-
-        const lvl = Math.max(0, Math.min(1, Math.pow(avg, 0.8)));
-        setAudioLevel(lvl);
-
-        audioTickRef.current = window.requestAnimationFrame(tick);
-      }
-
-      audioTickRef.current = window.requestAnimationFrame(tick);
-    } catch {
-      setAudioEnabled(false);
-      setAudioLevel(0);
-    }
-  }
-
-  function disableAudio() {
-    setAudioEnabled(false);
-    setAudioLevel(0);
-
-    if (audioTickRef.current) cancelAnimationFrame(audioTickRef.current);
-    audioTickRef.current = null;
-
-    try {
-      const ctx = audioCtxRef.current;
-      if (ctx) ctx.close();
-    } catch {
-      // ignore
-    }
-
-    audioCtxRef.current = null;
-    analyserRef.current = null;
-    srcRef.current = null;
-    dataRef.current = null;
-  }
-
-  return (
-    <div
-      className="relative min-h-[100svh] w-full overflow-hidden text-white"
-      style={{ backgroundColor: BG }}
-    >
-      <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-0" />
-
-      <div
-        className="pointer-events-none absolute inset-0 z-[1]"
-        style={{
-          background:
-            "radial-gradient(900px 520px at 50% 30%, rgba(255,255,255,0.10), rgba(0,0,0,0) 60%), radial-gradient(1200px 700px at 50% 110%, rgba(255,255,255,0.05), rgba(0,0,0,0) 60%)",
-          transform: `translate(${drift.dx * 0.25}px, ${drift.dy * 0.25}px)`,
-          transition: "transform 120ms ease-out",
-        }}
-      />
-
-      <div className="pointer-events-none absolute inset-0 z-[2] opacity-[0.10] mix-blend-overlay grain" />
-
-      <div className="absolute right-4 top-4 z-[5]">
-        <button
-          onClick={() => (audioEnabled ? disableAudio() : enableAudio())}
-          className={cx(
-            "audio-toggle",
-            "rounded-xl border border-white/20 bg-white/5 px-3 py-2",
-            "text-[10px] tracking-[0.22em] uppercase text-white/70 hover:text-white"
-          )}
-        >
-          {audioEnabled ? "Audio · On" : "Audio · Off"}
-        </button>
-      </div>
-
-      <main className="relative z-[3] flex min-h-[100svh] items-center justify-center px-6">
-        <div className="w-full max-w-4xl">
-          <div className="flex flex-col items-center text-center">
-            <h1 className="select-none text-[40px] sm:text-[54px] font-light tracking-[0.35em]">
-              URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM
-            </h1>
-
-            <div className="mt-3 text-[12px] tracking-[0.28em] uppercase text-white/55">
-              an orientation engine for cycles, timing, and meaning
-            </div>
-
-            <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
-              <Link
-                href="/signup"
-                className={cx("btn-frame", "px-12 py-4 text-[12px] tracking-[0.35em] uppercase")}
-              >
-                SIGN&nbsp;UP
-              </Link>
-
-              <Link
-                href="/login"
-                className={cx("btn-frame", "px-12 py-4 text-[12px] tracking-[0.35em] uppercase")}
-              >
-                LOG&nbsp;IN
-              </Link>
-            </div>
-
-            <div className="mt-6">
-              <Link
-                href="/about"
-                className={cx("btn-frame", "px-16 py-4 text-[12px] tracking-[0.35em] uppercase")}
-              >
-                ABOUT&nbsp;THIS&nbsp;SYSTEM
-              </Link>
-            </div>
-
-            <div
-              className="mt-12 sm:mt-14 opacity-85"
-              style={{
-                transform: `translate(${drift.dx * 0.25}px, ${drift.dy * 0.25}px)`,
-                transition: "transform 140ms ease-out",
-                filter: `drop-shadow(0 0 ${14 + audioLevel * 22}px rgba(255,255,255,${
-                  0.06 + audioLevel * 0.06
-                }))`,
-              }}
-            >
-              <div
-                className="orbital"
-                style={{
-                  animationDuration: `${18 - audioLevel * 6}s`,
-                }}
-              >
-                <svg width="260" height="260" viewBox="0 0 260 260" fill="none">
-                  <circle cx="130" cy="130" r="90" stroke="white" strokeWidth="1" opacity="0.9" />
-                  <ellipse
-                    cx="130"
-                    cy="130"
-                    rx="120"
-                    ry="45"
-                    transform="rotate(-25 130 130)"
-                    stroke="white"
-                    strokeWidth="1"
-                    opacity="0.9"
-                  />
-                </svg>
-              </div>
-            </div>
-
-            <div className="mt-10 text-[11px] text-white/40 tracking-[0.20em] uppercase">
-              enter quietly · observe precisely
-            </div>
-          </div>
-        </div>
-      </main>
-
-      <style jsx>{`
-        .grain {
-          background-image: radial-gradient(
-              circle at 20% 30%,
-              rgba(255, 255, 255, 0.2) 0.5px,
-              transparent 0.6px
-            ),
-            radial-gradient(
-              circle at 70% 80%,
-              rgba(255, 255, 255, 0.15) 0.5px,
-              transparent 0.7px
-            ),
-            radial-gradient(
-              circle at 40% 60%,
-              rgba(255, 255, 255, 0.12) 0.5px,
-              transparent 0.7px
-            );
-          background-size: 140px 140px, 180px 180px, 220px 220px;
-          animation: grainMove 10s linear infinite;
-        }
-        @keyframes grainMove {
-          0% {
-            transform: translate3d(0, 0, 0);
-          }
-          100% {
-            transform: translate3d(-140px, -140px, 0);
-          }
-        }
-
-        .btn-frame {
-          border: 1px solid rgba(255, 255, 255, 0.75);
-          color: rgba(255, 255, 255, 0.92);
-          background: rgba(255, 255, 255, 0.02);
-          box-shadow: 0 0 0 rgba(255, 255, 255, 0);
-          transition: transform 120ms ease, box-shadow 160ms ease, background 160ms ease;
-        }
-        .btn-frame:hover {
-          background: rgba(255, 255, 255, 0.05);
-          box-shadow: 0 0 28px rgba(255, 255, 255, 0.1);
-          transform: translateY(-1px);
-        }
-        .btn-frame:active {
-          transform: translateY(0px) scale(0.99);
-          box-shadow: 0 0 18px rgba(255, 255, 255, 0.08);
-        }
-
-        .orbital {
-          display: inline-block;
-          animation-name: precess;
-          animation-timing-function: linear;
-          animation-iteration-count: infinite;
-          transform-origin: 50% 50%;
-        }
-        @keyframes precess {
-          0% {
-            transform: rotate(0deg);
-          }
-          100% {
-            transform: rotate(360deg);
-          }
-        }
-
-        .audio-toggle {
-          transition: transform 120ms ease, background 160ms ease, border-color 160ms ease;
-        }
-        .audio-toggle:hover {
-          transform: translateY(-1px);
-          background: rgba(255, 255, 255, 0.08);
-          border-color: rgba(255, 255, 255, 0.28);
-        }
-        .audio-toggle:active {
-          transform: translateY(0px) scale(0.99);
-        }
-      `}</style>
-    </div>
-  );
-}
+      const data = new Uint8Array(analyser.frequencyBinCount
