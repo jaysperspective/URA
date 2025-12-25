@@ -1,4 +1,3 @@
-
 // src/app/page.tsx
 "use client";
 
@@ -14,6 +13,8 @@ type Star = {
   a: number; // alpha
 };
 
+type FreqArr = Parameters<AnalyserNode["getByteFrequencyData"]>[0];
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -23,23 +24,19 @@ function lerp(a: number, b: number, t: number) {
 }
 
 export default function Page() {
-  // --- audio reactive (OFF by default) ---
   const [audioEnabled, setAudioEnabled] = useState(false);
 
-  // --- canvas constellation ---
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // animation state held in refs (no rerenders)
   const starsRef = useRef<Star[]>([]);
   const lastTRef = useRef<number>(0);
 
   // audio refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const freqDataRef = useRef<Uint8Array | null>(null);
+  const freqDataRef = useRef<FreqArr | null>(null);
 
-  // subtle “energy” used to modulate constellation brightness/connection
   const audioEnergyRef = useRef<number>(0);
 
   const starCount = useMemo(() => {
@@ -48,6 +45,7 @@ export default function Page() {
     return clamp(Math.floor(area / 14000), 70, 140);
   }, []);
 
+  // --- Constellation canvas ---
   useEffect(() => {
     const canvas0 = canvasRef.current;
     if (!canvas0) return;
@@ -56,7 +54,7 @@ export default function Page() {
     if (!ctx0) return;
 
     function resize() {
-      const canvas = canvasRef.current; // re-grab so TS can narrow per call
+      const canvas = canvasRef.current;
       if (!canvas) return;
 
       const ctx = canvas.getContext("2d");
@@ -139,20 +137,21 @@ export default function Page() {
       const maxD2 = maxD * maxD;
 
       for (let i = 0; i < stars.length; i++) {
-        const a = stars[i];
+        const A = stars[i];
         for (let j = i + 1; j < stars.length; j++) {
-          const b = stars[j];
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
+          const B = stars[j];
+          const dx = A.x - B.x;
+          const dy = A.y - B.y;
           const d2 = dx * dx + dy * dy;
+
           if (d2 < maxD2) {
             const d = Math.sqrt(d2);
             const alpha = (1 - d / maxD) * (0.07 + energy * 0.08);
             ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
+            ctx.moveTo(A.x, A.y);
+            ctx.lineTo(B.x, B.y);
             ctx.stroke();
           }
         }
@@ -163,7 +162,6 @@ export default function Page() {
 
     resize();
     window.addEventListener("resize", resize);
-
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
@@ -173,6 +171,7 @@ export default function Page() {
     };
   }, [starCount]);
 
+  // --- Audio analyser (off by default) ---
   useEffect(() => {
     let stop = false;
 
@@ -182,6 +181,7 @@ export default function Page() {
         const audioCtx: AudioContext = new AudioCtx();
         audioCtxRef.current = audioCtx;
 
+        // NOTE: mic required only when user enables it
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         if (stop) return;
 
@@ -193,7 +193,8 @@ export default function Page() {
         src.connect(analyser);
         analyserRef.current = analyser;
 
-        freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
+        // IMPORTANT: match the exact expected parameter type
+        freqDataRef.current = new Uint8Array(analyser.frequencyBinCount) as unknown as FreqArr;
 
         const loop = () => {
           const an = analyserRef.current;
@@ -205,11 +206,14 @@ export default function Page() {
             return;
           }
 
-          an.getByteFrequencyData(arr as unknown as Uint8Array);
+          // No cast needed now
+          an.getByteFrequencyData(arr);
 
-          const n = Math.max(8, Math.floor(arr.length * 0.12));
+          // low band energy
+          const raw = arr as unknown as Uint8Array;
+          const n = Math.max(8, Math.floor(raw.length * 0.12));
           let sum = 0;
-          for (let i = 0; i < n; i++) sum += arr[i];
+          for (let i = 0; i < n; i++) sum += raw[i];
 
           const avg = sum / (n * 255);
           const eased = Math.pow(avg, 1.4);
@@ -234,6 +238,7 @@ export default function Page() {
           audioCtx.close();
         } catch {}
       }
+
       audioCtxRef.current = null;
       analyserRef.current = null;
       freqDataRef.current = null;
