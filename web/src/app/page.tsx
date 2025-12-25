@@ -1,3 +1,4 @@
+
 // src/app/page.tsx
 "use client";
 
@@ -41,7 +42,6 @@ export default function Page() {
   // subtle “energy” used to modulate constellation brightness/connection
   const audioEnergyRef = useRef<number>(0);
 
-  // seed count scales with viewport (but capped)
   const starCount = useMemo(() => {
     if (typeof window === "undefined") return 90;
     const area = window.innerWidth * window.innerHeight;
@@ -49,37 +49,40 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas0 = canvasRef.current;
+    if (!canvas0) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const ctx0 = canvas0.getContext("2d");
+    if (!ctx0) return;
 
     function resize() {
+      const canvas = canvasRef.current; // re-grab so TS can narrow per call
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
       const dpr = Math.min(2, window.devicePixelRatio || 1);
 
-      // TS-safe: canvas exists here
       canvas.width = Math.floor(window.innerWidth * dpr);
       canvas.height = Math.floor(window.innerHeight * dpr);
 
       canvas.style.width = `${window.innerWidth}px`;
       canvas.style.height = `${window.innerHeight}px`;
 
-      // TS-safe: ctx exists here
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function ensureStars() {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const existing = starsRef.current;
 
-      if (existing.length > 0) return;
+      if (starsRef.current.length > 0) return;
 
       const next: Star[] = [];
       for (let i = 0; i < starCount; i++) {
-        const r = Math.random() * 1.35 + 0.35; // tiny points
-        const baseSpeed = 0.012; // ultra subtle
+        const r = Math.random() * 1.35 + 0.35;
+        const baseSpeed = 0.012;
         next.push({
           x: Math.random() * w,
           y: Math.random() * h,
@@ -93,6 +96,12 @@ export default function Page() {
     }
 
     function tick(t: number) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
       const w = window.innerWidth;
       const h = window.innerHeight;
 
@@ -102,15 +111,12 @@ export default function Page() {
 
       ensureStars();
 
-      // audio energy is 0..1 (very small effect)
       const energy = audioEnergyRef.current;
 
-      // background is already #333131 via CSS below; we just clear w/ transparent
       ctx.clearRect(0, 0, w, h);
 
       const stars = starsRef.current;
 
-      // drift
       for (const s of stars) {
         s.x += s.vx * dt;
         s.y += s.vy * dt;
@@ -121,19 +127,14 @@ export default function Page() {
         if (s.y > h + 20) s.y = -20;
       }
 
-      // draw points
       for (const s of stars) {
-        // subtle pulse: slightly increases alpha with energy
         const a = clamp(s.a + energy * 0.12, 0, 0.55);
-
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,255,255,${a})`;
         ctx.fill();
       }
 
-      // optional connections (ultra subtle)
-      // distance threshold increases slightly with energy
       const maxD = 92 + energy * 28;
       const maxD2 = maxD * maxD;
 
@@ -172,31 +173,26 @@ export default function Page() {
     };
   }, [starCount]);
 
-  // --- Audio analyser (off by default; user must toggle) ---
   useEffect(() => {
     let stop = false;
 
     async function startAudio() {
       try {
-        // Create AudioContext only when enabled
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         const audioCtx: AudioContext = new AudioCtx();
         audioCtxRef.current = audioCtx;
 
-        // Mic input
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         if (stop) return;
 
         const src = audioCtx.createMediaStreamSource(stream);
         const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 1024; // low-frequency vibe
+        analyser.fftSize = 1024;
         analyser.smoothingTimeConstant = 0.85;
 
         src.connect(analyser);
         analyserRef.current = analyser;
 
-        // IMPORTANT: keep this typed as a plain Uint8Array
-        // (fixes TS generic ArrayBufferLike issues on some TS/lib combos)
         freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
 
         const loop = () => {
@@ -209,18 +205,15 @@ export default function Page() {
             return;
           }
 
-          // TS-safe: some builds complain about generics; this keeps it stable
           an.getByteFrequencyData(arr as unknown as Uint8Array);
 
-          // low band energy: first ~12%
           const n = Math.max(8, Math.floor(arr.length * 0.12));
           let sum = 0;
           for (let i = 0; i < n; i++) sum += arr[i];
 
-          const avg = sum / (n * 255); // 0..1
-          const eased = Math.pow(avg, 1.4); // softer response
+          const avg = sum / (n * 255);
+          const eased = Math.pow(avg, 1.4);
 
-          // keep it subtle
           audioEnergyRef.current = lerp(audioEnergyRef.current, eased, 0.07);
 
           requestAnimationFrame(loop);
@@ -228,7 +221,6 @@ export default function Page() {
 
         loop();
       } catch {
-        // if mic denied, just keep it off
         setAudioEnabled(false);
       }
     }
@@ -240,9 +232,7 @@ export default function Page() {
       if (audioCtx) {
         try {
           audioCtx.close();
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
       audioCtxRef.current = null;
       analyserRef.current = null;
@@ -260,18 +250,11 @@ export default function Page() {
 
   return (
     <div className="relative min-h-[100svh] w-full overflow-hidden bg-[#333131] text-white">
-      {/* Constellation canvas (ultra subtle) */}
-      <canvas
-        ref={canvasRef}
-        className="pointer-events-none absolute inset-0 z-0"
-        aria-hidden="true"
-      />
+      <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-0" />
 
-      {/* Soft vignette */}
       <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_35%,rgba(0,0,0,0.0)_70%)]" />
       <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.05)_0%,rgba(0,0,0,0.25)_65%,rgba(0,0,0,0.35)_100%)]" />
 
-      {/* Audio toggle */}
       <button
         type="button"
         onClick={() => setAudioEnabled((v) => !v)}
@@ -280,11 +263,9 @@ export default function Page() {
         AUDIO · {audioEnabled ? "ON" : "OFF"}
       </button>
 
-      {/* Center content */}
       <main className="relative z-10 flex min-h-[100svh] items-center justify-center px-6">
         <div className="w-full max-w-5xl">
           <div className="mx-auto flex w-full max-w-4xl flex-col items-center text-center">
-            {/* Compressed toward center by tightening padding/margins */}
             <h1 className="mt-2 text-[46px] leading-none tracking-[0.32em] sm:text-[64px]">
               URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM
             </h1>
@@ -293,7 +274,6 @@ export default function Page() {
               AN ORIENTATION ENGINE FOR CYCLES, TIMING, AND MEANING
             </div>
 
-            {/* Box buttons (kept) */}
             <div className="mt-14 flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
               <Link
                 href="/signup"
@@ -319,7 +299,6 @@ export default function Page() {
               </Link>
             </div>
 
-            {/* Dynamic Saturn mark */}
             <div className="mt-14">
               <DynamicSaturn energyRef={audioEnergyRef} />
             </div>
@@ -335,7 +314,6 @@ export default function Page() {
 }
 
 function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
-  // tiny, slow “breathing” + optional audio influence
   const [t, setT] = useState(0);
 
   useEffect(() => {
@@ -350,8 +328,7 @@ function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
 
   const energy = energyRef.current ?? 0;
 
-  // gentle modulation
-  const breathe = (Math.sin(t / 2200) + 1) / 2; // 0..1
+  const breathe = (Math.sin(t / 2200) + 1) / 2;
   const scale = 1 + breathe * 0.02 + energy * 0.03;
   const rot = -10 + breathe * 4 + energy * 8;
 
@@ -387,7 +364,6 @@ function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
           </filter>
         </defs>
 
-        {/* planet */}
         <circle
           cx="130"
           cy="140"
@@ -398,7 +374,6 @@ function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
           filter="url(#softGlow)"
         />
 
-        {/* ring 1 (animated dash) */}
         <ellipse
           cx="130"
           cy="145"
@@ -412,7 +387,6 @@ function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
           filter="url(#softGlow)"
         />
 
-        {/* ring 2 (solid, offset) */}
         <ellipse
           cx="130"
           cy="145"
@@ -424,7 +398,6 @@ function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
           className="saturnRing saturnRingB"
         />
 
-        {/* occulting arc to fake depth (front ring segment brighter) */}
         <path
           d="M 34 145 C 70 112, 190 112, 226 145"
           fill="none"
