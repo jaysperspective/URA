@@ -8,144 +8,46 @@ type Star = {
   x: number;
   y: number;
   r: number;
-  a: number; // alpha
   vx: number;
   vy: number;
+  a: number; // alpha
 };
 
-function clamp(n: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, n));
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
 }
 
 export default function Page() {
-  // --- audio vibe (OFF by default) ---
+  // --- audio reactive (OFF by default) ---
   const [audioEnabled, setAudioEnabled] = useState(false);
-  const [audioLevel, setAudioLevel] = useState(0);
 
+  // --- canvas constellation ---
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  // animation state held in refs (no rerenders)
+  const starsRef = useRef<Star[]>([]);
+  const lastTRef = useRef<number>(0);
+
+  // audio refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const freqRef = useRef<Uint8Array | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const rafAudioRef = useRef<number | null>(null);
+  const freqDataRef = useRef<Uint8Array | null>(null);
 
-  // --- constellation canvas ---
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rafStarsRef = useRef<number | null>(null);
-  const starsRef = useRef<Star[]>([]);
-  const dprRef = useRef(1);
+  // subtle “energy” used to modulate constellation brightness/connection
+  const audioEnergyRef = useRef<number>(0);
 
-  const palette = useMemo(
-    () => ({
-      bg: "#333131",
-      ink: "rgba(255,255,255,0.92)",
-      inkSoft: "rgba(255,255,255,0.65)",
-      inkFaint: "rgba(255,255,255,0.18)",
-      inkGhost: "rgba(255,255,255,0.08)",
-    }),
-    []
-  );
+  // seed count scales with viewport (but capped)
+  const starCount = useMemo(() => {
+    if (typeof window === "undefined") return 90;
+    const area = window.innerWidth * window.innerHeight;
+    return clamp(Math.floor(area / 14000), 70, 140);
+  }, []);
 
-  // -------- Audio setup / teardown --------
-  async function enableAudio() {
-    try {
-      // Must be user-gesture initiated (button click)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx() as AudioContext;
-
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024; // low-frequency vibe
-      analyser.smoothingTimeConstant = 0.85;
-
-      const src = ctx.createMediaStreamSource(stream);
-      src.connect(analyser);
-
-      // TypedArray generics in newer TS can be annoyingly strict in DOM signatures.
-      // Force it to the expected Uint8Array shape.
-      const data = new Uint8Array(analyser.frequencyBinCount) as unknown as Uint8Array;
-
-      audioCtxRef.current = ctx;
-      analyserRef.current = analyser;
-      freqRef.current = data;
-      mediaStreamRef.current = stream;
-
-      // loop
-      const tick = () => {
-        const an = analyserRef.current;
-        const arr = freqRef.current;
-        if (!an || !arr) {
-          setAudioLevel(0);
-          rafAudioRef.current = requestAnimationFrame(tick);
-          return;
-        }
-
-        an.getByteFrequencyData(arr);
-
-        // Low band energy (first ~12%)
-        const n = Math.max(8, Math.floor(arr.length * 0.12));
-        let sum = 0;
-        for (let i = 0; i < n; i++) sum += arr[i];
-        const avg = sum / n; // 0..255
-
-        // Map to 0..1 with a very gentle response
-        const level = clamp((avg - 8) / 110, 0, 1);
-        setAudioLevel(level);
-
-        rafAudioRef.current = requestAnimationFrame(tick);
-      };
-
-      if (rafAudioRef.current) cancelAnimationFrame(rafAudioRef.current);
-      rafAudioRef.current = requestAnimationFrame(tick);
-    } catch {
-      // if mic denied, keep OFF
-      setAudioEnabled(false);
-      setAudioLevel(0);
-    }
-  }
-
-  function disableAudio() {
-    setAudioLevel(0);
-
-    if (rafAudioRef.current) {
-      cancelAnimationFrame(rafAudioRef.current);
-      rafAudioRef.current = null;
-    }
-
-    if (analyserRef.current) analyserRef.current.disconnect();
-    analyserRef.current = null;
-
-    if (audioCtxRef.current) {
-      // best-effort close
-      audioCtxRef.current.close().catch(() => {});
-      audioCtxRef.current = null;
-    }
-
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
-    }
-
-    freqRef.current = null;
-  }
-
-  useEffect(() => {
-    if (audioEnabled) enableAudio();
-    else disableAudio();
-
-    return () => {
-      disableAudio();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioEnabled]);
-
-  // -------- Constellation Canvas --------
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -155,474 +57,422 @@ export default function Page() {
 
     function resize() {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      dprRef.current = dpr;
 
+      // TS-safe: canvas exists here
       canvas.width = Math.floor(window.innerWidth * dpr);
       canvas.height = Math.floor(window.innerHeight * dpr);
+
       canvas.style.width = `${window.innerWidth}px`;
       canvas.style.height = `${window.innerHeight}px`;
 
-      // transform is global to context
+      // TS-safe: ctx exists here
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function ensureStars() {
       const w = window.innerWidth;
       const h = window.innerHeight;
+      const existing = starsRef.current;
 
-      // subtle density
-      const target = Math.floor((w * h) / 26000); // ~60ish on 1440p
-      const current = starsRef.current.length;
+      if (existing.length > 0) return;
 
-      if (current < target) {
-        const add = target - current;
-        for (let i = 0; i < add; i++) {
-          starsRef.current.push(makeStar(w, h));
-        }
-      } else if (current > target) {
-        starsRef.current = starsRef.current.slice(0, target);
+      const next: Star[] = [];
+      for (let i = 0; i < starCount; i++) {
+        const r = Math.random() * 1.35 + 0.35; // tiny points
+        const baseSpeed = 0.012; // ultra subtle
+        next.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          r,
+          vx: (Math.random() - 0.5) * baseSpeed,
+          vy: (Math.random() - 0.5) * baseSpeed,
+          a: Math.random() * 0.35 + 0.12,
+        });
       }
+      starsRef.current = next;
     }
 
-    function makeStar(w: number, h: number): Star {
-      const r = Math.random() < 0.15 ? 1.3 : 1.0;
-      const a = 0.08 + Math.random() * 0.18; // ultra subtle
-      const speed = 0.012 + Math.random() * 0.02;
-      const angle = Math.random() * Math.PI * 2;
-
-      return {
-        x: Math.random() * w,
-        y: Math.random() * h,
-        r,
-        a,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-      };
-    }
-
-    function step() {
+    function tick(t: number) {
       const w = window.innerWidth;
       const h = window.innerHeight;
 
+      const last = lastTRef.current || t;
+      const dt = Math.min(32, t - last);
+      lastTRef.current = t;
+
       ensureStars();
 
-      // clear
+      // audio energy is 0..1 (very small effect)
+      const energy = audioEnergyRef.current;
+
+      // background is already #333131 via CSS below; we just clear w/ transparent
       ctx.clearRect(0, 0, w, h);
 
-      // draw points
       const stars = starsRef.current;
 
-      // Slight audio influence (still subtle): brighten + a tiny drift increase
-      const vibe = audioEnabled ? audioLevel : 0;
-      const brightBoost = vibe * 0.08;
-
+      // drift
       for (const s of stars) {
-        // move
-        const drift = 1 + vibe * 0.35;
-        s.x += s.vx * drift;
-        s.y += s.vy * drift;
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
 
-        // wrap
-        if (s.x < -5) s.x = w + 5;
-        if (s.x > w + 5) s.x = -5;
-        if (s.y < -5) s.y = h + 5;
-        if (s.y > h + 5) s.y = -5;
+        if (s.x < -20) s.x = w + 20;
+        if (s.x > w + 20) s.x = -20;
+        if (s.y < -20) s.y = h + 20;
+        if (s.y > h + 20) s.y = -20;
+      }
+
+      // draw points
+      for (const s of stars) {
+        // subtle pulse: slightly increases alpha with energy
+        const a = clamp(s.a + energy * 0.12, 0, 0.55);
 
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${clamp(s.a + brightBoost, 0.05, 0.30)})`;
+        ctx.fillStyle = `rgba(255,255,255,${a})`;
         ctx.fill();
       }
 
-      // a few faint “constellation” links (random neighbors)
-      // only a handful, and very low opacity
-      const linkCount = Math.min(18, Math.floor(stars.length * 0.18));
-      for (let i = 0; i < linkCount; i++) {
-        const aIdx = Math.floor(Math.random() * stars.length);
-        const bIdx = Math.floor(Math.random() * stars.length);
-        if (aIdx === bIdx) continue;
+      // optional connections (ultra subtle)
+      // distance threshold increases slightly with energy
+      const maxD = 92 + energy * 28;
+      const maxD2 = maxD * maxD;
 
-        const A = stars[aIdx];
-        const B = stars[bIdx];
-
-        const dx = A.x - B.x;
-        const dy = A.y - B.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > 180) continue;
-
-        const alpha = clamp(0.02 + (1 - dist / 180) * 0.04 + vibe * 0.02, 0.02, 0.07);
-
-        ctx.beginPath();
-        ctx.moveTo(A.x, A.y);
-        ctx.lineTo(B.x, B.y);
-        ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+      for (let i = 0; i < stars.length; i++) {
+        const a = stars[i];
+        for (let j = i + 1; j < stars.length; j++) {
+          const b = stars[j];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < maxD2) {
+            const d = Math.sqrt(d2);
+            const alpha = (1 - d / maxD) * (0.07 + energy * 0.08);
+            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
       }
 
-      rafStarsRef.current = requestAnimationFrame(step);
+      rafRef.current = requestAnimationFrame(tick);
     }
 
     resize();
-    ensureStars();
-
     window.addEventListener("resize", resize);
-    rafStarsRef.current = requestAnimationFrame(step);
+
+    rafRef.current = requestAnimationFrame(tick);
 
     return () => {
       window.removeEventListener("resize", resize);
-      if (rafStarsRef.current) cancelAnimationFrame(rafStarsRef.current);
-      rafStarsRef.current = null;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     };
-  }, [audioEnabled, audioLevel]);
+  }, [starCount]);
+
+  // --- Audio analyser (off by default; user must toggle) ---
+  useEffect(() => {
+    let stop = false;
+
+    async function startAudio() {
+      try {
+        // Create AudioContext only when enabled
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx: AudioContext = new AudioCtx();
+        audioCtxRef.current = audioCtx;
+
+        // Mic input
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (stop) return;
+
+        const src = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 1024; // low-frequency vibe
+        analyser.smoothingTimeConstant = 0.85;
+
+        src.connect(analyser);
+        analyserRef.current = analyser;
+
+        // IMPORTANT: keep this typed as a plain Uint8Array
+        // (fixes TS generic ArrayBufferLike issues on some TS/lib combos)
+        freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
+
+        const loop = () => {
+          const an = analyserRef.current;
+          const arr = freqDataRef.current;
+
+          if (!audioEnabled || stop || !an || !arr) {
+            audioEnergyRef.current = lerp(audioEnergyRef.current, 0, 0.08);
+            requestAnimationFrame(loop);
+            return;
+          }
+
+          // TS-safe: some builds complain about generics; this keeps it stable
+          an.getByteFrequencyData(arr as unknown as Uint8Array);
+
+          // low band energy: first ~12%
+          const n = Math.max(8, Math.floor(arr.length * 0.12));
+          let sum = 0;
+          for (let i = 0; i < n; i++) sum += arr[i];
+
+          const avg = sum / (n * 255); // 0..1
+          const eased = Math.pow(avg, 1.4); // softer response
+
+          // keep it subtle
+          audioEnergyRef.current = lerp(audioEnergyRef.current, eased, 0.07);
+
+          requestAnimationFrame(loop);
+        };
+
+        loop();
+      } catch {
+        // if mic denied, just keep it off
+        setAudioEnabled(false);
+      }
+    }
+
+    function stopAudio() {
+      audioEnergyRef.current = 0;
+
+      const audioCtx = audioCtxRef.current;
+      if (audioCtx) {
+        try {
+          audioCtx.close();
+        } catch {
+          // ignore
+        }
+      }
+      audioCtxRef.current = null;
+      analyserRef.current = null;
+      freqDataRef.current = null;
+    }
+
+    if (audioEnabled) startAudio();
+    else stopAudio();
+
+    return () => {
+      stop = true;
+      stopAudio();
+    };
+  }, [audioEnabled]);
 
   return (
-    <div className="page">
-      {/* constellation layer */}
-      <canvas ref={canvasRef} className="stars" aria-hidden="true" />
+    <div className="relative min-h-[100svh] w-full overflow-hidden bg-[#333131] text-white">
+      {/* Constellation canvas (ultra subtle) */}
+      <canvas
+        ref={canvasRef}
+        className="pointer-events-none absolute inset-0 z-0"
+        aria-hidden="true"
+      />
 
-      {/* audio toggle */}
+      {/* Soft vignette */}
+      <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_35%,rgba(0,0,0,0.0)_70%)]" />
+      <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.05)_0%,rgba(0,0,0,0.25)_65%,rgba(0,0,0,0.35)_100%)]" />
+
+      {/* Audio toggle */}
       <button
         type="button"
-        className="audioToggle"
         onClick={() => setAudioEnabled((v) => !v)}
-        aria-pressed={audioEnabled}
-        title={audioEnabled ? "Audio vibe is ON" : "Audio vibe is OFF"}
+        className="absolute right-6 top-6 z-10 rounded-xl border border-white/25 bg-white/5 px-4 py-2 text-[11px] tracking-[0.25em] uppercase text-white/80 hover:bg-white/10"
       >
         AUDIO · {audioEnabled ? "ON" : "OFF"}
       </button>
 
-      <main className="shell">
-        <div className="stack">
-          <header className="hero">
-            <div className="kicker">URA</div>
-            <h1 className="title">URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM</h1>
-            <p className="subtitle">AN ORIENTATION ENGINE FOR CYCLES, TIMING, AND MEANING</p>
-          </header>
+      {/* Center content */}
+      <main className="relative z-10 flex min-h-[100svh] items-center justify-center px-6">
+        <div className="w-full max-w-5xl">
+          <div className="mx-auto flex w-full max-w-4xl flex-col items-center text-center">
+            {/* Compressed toward center by tightening padding/margins */}
+            <h1 className="mt-2 text-[46px] leading-none tracking-[0.32em] sm:text-[64px]">
+              URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM
+            </h1>
 
-          <div className="actions">
-            <Link className="btn" href="/signup">
-              SIGN&nbsp;&nbsp;UP
-            </Link>
+            <div className="mt-6 text-[11px] tracking-[0.42em] text-white/55">
+              AN ORIENTATION ENGINE FOR CYCLES, TIMING, AND MEANING
+            </div>
 
-            <Link className="btn" href="/login">
-              LOG&nbsp;&nbsp;IN
-            </Link>
-          </div>
+            {/* Box buttons (kept) */}
+            <div className="mt-14 flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
+              <Link
+                href="/signup"
+                className="rounded-none border border-white/55 bg-transparent px-14 py-4 text-[12px] tracking-[0.38em] text-white/90 hover:bg-white/10"
+              >
+                SIGN&nbsp;&nbsp;UP
+              </Link>
 
-          <div className="aboutRow">
-            <Link className="btn wide" href="/about">
-              ABOUT&nbsp;&nbsp;THIS&nbsp;&nbsp;SYSTEM
-            </Link>
-          </div>
+              <Link
+                href="/login"
+                className="rounded-none border border-white/55 bg-transparent px-14 py-4 text-[12px] tracking-[0.38em] text-white/90 hover:bg-white/10"
+              >
+                LOG&nbsp;&nbsp;IN
+              </Link>
+            </div>
 
-          {/* Saturn mark */}
-          <div
-            className="saturnWrap"
-            style={{
-              filter: `drop-shadow(0 0 ${10 + audioLevel * 22}px rgba(255,255,255,${
-                0.07 + audioLevel * 0.07
-              }))`,
-            }}
-            aria-hidden="true"
-          >
-            <div className="saturnMark">
-              <svg width="260" height="260" viewBox="0 0 260 260" fill="none">
-                <defs>
-                  <linearGradient id="ringGrad" x1="0" y1="0" x2="260" y2="260" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stopColor="rgba(255,255,255,0.95)" />
-                    <stop offset="0.5" stopColor="rgba(255,255,255,0.55)" />
-                    <stop offset="1" stopColor="rgba(255,255,255,0.90)" />
-                  </linearGradient>
+            <div className="mt-6">
+              <Link
+                href="/about"
+                className="inline-block rounded-none border border-white/55 bg-transparent px-16 py-4 text-[12px] tracking-[0.38em] text-white/90 hover:bg-white/10"
+              >
+                ABOUT&nbsp;&nbsp;THIS&nbsp;&nbsp;SYSTEM
+              </Link>
+            </div>
 
-                  <linearGradient id="planetGrad" x1="60" y1="60" x2="200" y2="200" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stopColor="rgba(255,255,255,0.85)" />
-                    <stop offset="1" stopColor="rgba(255,255,255,0.60)" />
-                  </linearGradient>
-                </defs>
+            {/* Dynamic Saturn mark */}
+            <div className="mt-14">
+              <DynamicSaturn energyRef={audioEnergyRef} />
+            </div>
 
-                <g className="saturnPlanet">
-                  <circle cx="130" cy="136" r="78" stroke="url(#planetGrad)" strokeWidth="1.15" opacity="0.92" />
-                  <path
-                    d="M62 136c18-16 44-25 68-25s50 9 68 25"
-                    stroke="rgba(255,255,255,0.12)"
-                    strokeWidth="1"
-                  />
-                  <path
-                    d="M62 136c18 16 44 25 68 25s50-9 68-25"
-                    stroke="rgba(255,255,255,0.10)"
-                    strokeWidth="1"
-                  />
-                </g>
-
-                <g className="saturnRings" transform="rotate(-24 130 130)">
-                  <ellipse cx="130" cy="130" rx="126" ry="44" stroke="url(#ringGrad)" strokeWidth="1.1" opacity="0.86" />
-                  <ellipse
-                    cx="130"
-                    cy="130"
-                    rx="102"
-                    ry="34"
-                    stroke="rgba(255,255,255,0.45)"
-                    strokeWidth="1"
-                    opacity="0.55"
-                  />
-                  <ellipse
-                    cx="130"
-                    cy="130"
-                    rx="112"
-                    ry="38"
-                    stroke="rgba(255,255,255,0.12)"
-                    strokeWidth="6"
-                    opacity="0.18"
-                  />
-
-                  <g className="saturnGlints" opacity="0.6">
-                    <circle cx="245" cy="122" r="1.4" fill="rgba(255,255,255,0.85)" />
-                    <circle cx="38" cy="148" r="1.1" fill="rgba(255,255,255,0.65)" />
-                    <circle cx="210" cy="92" r="0.9" fill="rgba(255,255,255,0.55)" />
-                  </g>
-                </g>
-              </svg>
+            <div className="mt-10 text-[10px] tracking-[0.35em] text-white/35">
+              ENTER QUIETLY · OBSERVE PRECISELY
             </div>
           </div>
-
-          <footer className="footer">ENTER QUIETLY · OBSERVE PRECISELY</footer>
         </div>
       </main>
+    </div>
+  );
+}
 
-      <style jsx>{`
-        .page {
-          position: relative;
-          min-height: 100svh;
-          background: ${palette.bg};
-          overflow: hidden;
-        }
+function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
+  // tiny, slow “breathing” + optional audio influence
+  const [t, setT] = useState(0);
 
-        /* soft vignette + center lift */
-        .page::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background:
-            radial-gradient(1100px 520px at 50% 22%, rgba(255, 255, 255, 0.07), transparent 60%),
-            radial-gradient(900px 700px at 50% 70%, rgba(255, 255, 255, 0.035), transparent 62%),
-            radial-gradient(1200px 900px at 50% 50%, rgba(0, 0, 0, 0.0), rgba(0, 0, 0, 0.25));
-          pointer-events: none;
-          z-index: 0;
-        }
+  useEffect(() => {
+    let raf: number;
+    const loop = (now: number) => {
+      setT(now);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
-        .stars {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          z-index: 0;
-          pointer-events: none;
-        }
+  const energy = energyRef.current ?? 0;
 
-        .audioToggle {
-          position: absolute;
-          top: 18px;
-          right: 18px;
-          z-index: 3;
-          border: 1px solid rgba(255, 255, 255, 0.28);
-          background: rgba(0, 0, 0, 0.18);
-          color: rgba(255, 255, 255, 0.82);
-          padding: 10px 14px;
-          border-radius: 999px;
-          font-size: 12px;
-          letter-spacing: 0.24em;
-          text-transform: uppercase;
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
-        }
+  // gentle modulation
+  const breathe = (Math.sin(t / 2200) + 1) / 2; // 0..1
+  const scale = 1 + breathe * 0.02 + energy * 0.03;
+  const rot = -10 + breathe * 4 + energy * 8;
 
-        .audioToggle:hover {
-          background: rgba(0, 0, 0, 0.28);
-          border-color: rgba(255, 255, 255, 0.42);
-          transform: translateY(-1px);
-        }
+  return (
+    <div
+      className="mx-auto"
+      style={{
+        width: 260,
+        height: 260,
+        transform: `scale(${scale}) rotate(${rot}deg)`,
+        transition: "transform 120ms linear",
+      }}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 260 260" className="h-full w-full">
+        <defs>
+          <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="1.4" result="blur" />
+            <feColorMatrix
+              in="blur"
+              type="matrix"
+              values="
+                1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 0.55 0"
+              result="glow"
+            />
+            <feMerge>
+              <feMergeNode in="glow" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
 
-        .shell {
-          position: relative;
-          z-index: 2;
-          min-height: 100svh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 72px 20px;
-        }
+        {/* planet */}
+        <circle
+          cx="130"
+          cy="140"
+          r="72"
+          fill="none"
+          stroke="rgba(255,255,255,0.65)"
+          strokeWidth="1.6"
+          filter="url(#softGlow)"
+        />
 
-        /* compressed toward center */
-        .stack {
-          width: 100%;
-          max-width: 980px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 26px;
-          transform: translateY(-18px);
-        }
+        {/* ring 1 (animated dash) */}
+        <ellipse
+          cx="130"
+          cy="145"
+          rx="112"
+          ry="46"
+          fill="none"
+          stroke="rgba(255,255,255,0.70)"
+          strokeWidth="1.6"
+          strokeDasharray="6 10"
+          className="saturnRing saturnRingA"
+          filter="url(#softGlow)"
+        />
 
-        .hero {
-          text-align: center;
-        }
+        {/* ring 2 (solid, offset) */}
+        <ellipse
+          cx="130"
+          cy="145"
+          rx="100"
+          ry="40"
+          fill="none"
+          stroke="rgba(255,255,255,0.35)"
+          strokeWidth="1.1"
+          className="saturnRing saturnRingB"
+        />
 
-        .kicker {
-          font-size: 12px;
-          letter-spacing: 0.38em;
-          text-transform: uppercase;
-          color: rgba(255, 255, 255, 0.5);
-          margin-bottom: 10px;
-        }
+        {/* occulting arc to fake depth (front ring segment brighter) */}
+        <path
+          d="M 34 145 C 70 112, 190 112, 226 145"
+          fill="none"
+          stroke="rgba(255,255,255,0.85)"
+          strokeWidth="1.8"
+          filter="url(#softGlow)"
+        />
 
-        .title {
-          margin: 0;
-          font-size: clamp(44px, 6vw, 72px);
-          letter-spacing: 0.22em;
-          font-weight: 500;
-          color: ${palette.ink};
-        }
-
-        .subtitle {
-          margin: 16px 0 0;
-          font-size: 12px;
-          letter-spacing: 0.34em;
-          text-transform: uppercase;
-          color: rgba(255, 255, 255, 0.46);
-        }
-
-        .actions {
-          display: flex;
-          gap: 24px;
-          margin-top: 10px;
-        }
-
-        .aboutRow {
-          margin-top: 4px;
-        }
-
-        .btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          height: 54px;
-          min-width: 220px;
-          padding: 0 26px;
-          border: 1px solid rgba(255, 255, 255, 0.45);
-          color: rgba(255, 255, 255, 0.88);
-          text-decoration: none;
-          border-radius: 0; /* crisp */
-          font-size: 12px;
-          letter-spacing: 0.34em;
-          text-transform: uppercase;
-          background: rgba(0, 0, 0, 0.12);
-          transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, opacity 140ms ease;
-        }
-
-        .btn:hover {
-          background: rgba(0, 0, 0, 0.20);
-          border-color: rgba(255, 255, 255, 0.65);
-          transform: translateY(-1px);
-        }
-
-        .btn:active {
-          transform: translateY(0px);
-          opacity: 0.92;
-        }
-
-        .btn.wide {
-          min-width: 520px;
-        }
-
-        .saturnWrap {
-          margin-top: 14px;
-        }
-
-        .saturnMark {
-          opacity: 0.88;
-          transform: translateY(2px);
-        }
-
-        .footer {
-          margin-top: 4px;
-          font-size: 11px;
-          letter-spacing: 0.34em;
-          text-transform: uppercase;
-          color: rgba(255, 255, 255, 0.28);
-        }
-
-        /* Saturn motion */
-        .saturnPlanet {
-          transform-origin: 50% 50%;
-          animation: planetBreath 6.5s ease-in-out infinite;
-        }
-
-        .saturnRings {
-          transform-origin: 50% 50%;
-          animation: ringPrecess 16s linear infinite;
-        }
-
-        .saturnGlints {
-          transform-origin: 50% 50%;
-          animation: glintDrift 7.5s ease-in-out infinite;
-        }
-
-        @keyframes planetBreath {
-          0% {
-            opacity: 0.86;
-            transform: translateY(0px) scale(1);
+        <style jsx>{`
+          .saturnRing {
+            transform-origin: 130px 145px;
+            animation-timing-function: linear;
+            animation-iteration-count: infinite;
           }
-          50% {
-            opacity: 0.98;
-            transform: translateY(-1px) scale(1.006);
+          .saturnRingA {
+            animation-name: ringDriftA;
+            animation-duration: 18s;
           }
-          100% {
-            opacity: 0.86;
-            transform: translateY(0px) scale(1);
+          .saturnRingB {
+            animation-name: ringDriftB;
+            animation-duration: 26s;
           }
-        }
-
-        @keyframes ringPrecess {
-          0% {
-            transform: rotate(-24deg);
+          @keyframes ringDriftA {
+            0% {
+              transform: rotate(-28deg);
+              stroke-dashoffset: 0;
+            }
+            100% {
+              transform: rotate(-28deg);
+              stroke-dashoffset: -220;
+            }
           }
-          100% {
-            transform: rotate(336deg);
+          @keyframes ringDriftB {
+            0% {
+              transform: rotate(-28deg);
+              opacity: 0.35;
+            }
+            50% {
+              transform: rotate(-28deg);
+              opacity: 0.55;
+            }
+            100% {
+              transform: rotate(-28deg);
+              opacity: 0.35;
+            }
           }
-        }
-
-        @keyframes glintDrift {
-          0% {
-            transform: translateX(0px) translateY(0px);
-            opacity: 0.35;
-          }
-          50% {
-            transform: translateX(2px) translateY(-1px);
-            opacity: 0.75;
-          }
-          100% {
-            transform: translateX(0px) translateY(0px);
-            opacity: 0.35;
-          }
-        }
-
-        @media (max-width: 640px) {
-          .actions {
-            flex-direction: column;
-            gap: 14px;
-          }
-          .btn,
-          .btn.wide {
-            min-width: min(520px, 88vw);
-          }
-          .stack {
-            transform: translateY(-8px);
-            gap: 22px;
-          }
-        }
-      `}</style>
+        `}</style>
+      </svg>
     </div>
   );
 }
