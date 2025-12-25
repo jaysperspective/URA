@@ -58,7 +58,10 @@ export default function IntroPage() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const dataRef = useRef<Uint8Array | null>(null);
+
+  // ✅ key fix: match WebAudio typing exactly
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
   const audioRafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -224,8 +227,8 @@ export default function IntroPage() {
       const src = ctx.createMediaStreamSource(stream);
       src.connect(analyser);
 
-      // ✅ force ArrayBuffer-backed Uint8Array to satisfy TS DOM typings
-      const data = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+      // ✅ ArrayBuffer-backed, and ref typed as Uint8Array<ArrayBuffer>
+      const data = new Uint8Array<ArrayBuffer>(new ArrayBuffer(analyser.frequencyBinCount));
 
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
