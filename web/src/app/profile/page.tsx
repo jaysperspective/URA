@@ -63,13 +63,12 @@ function getDerivedSummary(obj: any) {
 }
 
 /**
- * Moonstone palette (warm gray stone on green background)
- * We keep the page bg as #2D5128 and treat panels as stone.
+ * Moonstone palette (warm stone panels on green world)
  */
 const moon = {
-  panel: "bg-[#D7D3C8]/92", // main moonstone
-  panel2: "bg-[#CEC9BD]/92", // slightly deeper stone
-  ink: "text-[#151514]", // near-black ink
+  panel: "bg-[#D7D3C8]/92",
+  panel2: "bg-[#CEC9BD]/92",
+  ink: "text-[#151514]",
   inkSoft: "text-[#2B2A27]",
   inkMute: "text-[#4A4843]",
   border: "border-[#FFFFFF]/35",
@@ -80,18 +79,126 @@ const moon = {
   inner: "bg-[#F1EEE6]/75 border-[#000000]/10",
   btn: "bg-[#ECE8DF] border-[#000000]/15 text-[#1C1B18] hover:bg-[#F3F1EA]",
   btnGhost: "bg-transparent border-[#000000]/20 text-[#1C1B18] hover:bg-[#ECE8DF]/60",
+  accent: "#2D5128",
 };
 
-function Badge({ children, tone = "base" }: { children: React.ReactNode; tone?: "base" | "muted" }) {
+/**
+ * Subtle noise as inline SVG data URI.
+ * (No external assets, no global CSS required.)
+ */
+const NOISE_SVG = encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140">
+  <filter id="n">
+    <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+  <rect width="140" height="140" filter="url(#n)" opacity=".22"/>
+</svg>
+`);
+const NOISE_URL = `url("data:image/svg+xml,${NOISE_SVG}")`;
+
+function PanelChrome({
+  children,
+  accent = true,
+  className = "",
+}: {
+  children: React.ReactNode;
+  accent?: boolean;
+  className?: string;
+}) {
   return (
-    <span
-      className={[
-        "inline-flex items-center rounded-full border px-3 py-1 text-xs",
-        tone === "muted" ? moon.chip2 : moon.chip,
-      ].join(" ")}
-    >
-      {children}
+    <div className={["relative rounded-3xl border overflow-hidden", moon.border, moon.shadow, className].join(" ")}>
+      {/* Accent line */}
+      {accent ? (
+        <div
+          className="absolute left-0 top-0 h-[3px] w-full opacity-70"
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(45,81,40,.0) 0%, rgba(45,81,40,.9) 20%, rgba(45,81,40,.7) 80%, rgba(45,81,40,.0) 100%)",
+          }}
+        />
+      ) : null}
+
+      {/* Moonstone base */}
+      <div className={["relative", moon.panel].join(" ")}>
+        {/* Stone grain */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.18] mix-blend-multiply"
+          style={{
+            backgroundImage: NOISE_URL,
+          }}
+        />
+        {/* Soft mineral sheen */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.35]"
+          style={{
+            background:
+              "radial-gradient(1200px 500px at 20% 0%, rgba(255,255,255,.45), rgba(255,255,255,0) 60%)",
+          }}
+        />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function InnerStone({ children }: { children: React.ReactNode }) {
+  return (
+    <div className={["relative rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+      {/* Tiny grain */}
+      <div
+        className="pointer-events-none absolute inset-0 rounded-2xl opacity-[0.14] mix-blend-multiply"
+        style={{ backgroundImage: NOISE_URL }}
+      />
+      {/* Small highlight */}
+      <div
+        className="pointer-events-none absolute inset-0 rounded-2xl opacity-[0.22]"
+        style={{
+          background:
+            "radial-gradient(600px 220px at 25% 0%, rgba(255,255,255,.55), rgba(255,255,255,0) 60%)",
+        }}
+      />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
+
+function GlintWrap({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="relative inline-flex overflow-hidden rounded-full">
+      {/* glint sweep */}
+      <span
+        className="pointer-events-none absolute inset-0 opacity-[0.55]"
+        style={{
+          background:
+            "linear-gradient(120deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.55) 28%, rgba(255,255,255,0) 52%)",
+          transform: "translateX(-45%)",
+        }}
+      />
+      <span className="relative">{children}</span>
     </span>
+  );
+}
+
+function Badge({
+  children,
+  tone = "base",
+}: {
+  children: React.ReactNode;
+  tone?: "base" | "muted";
+}) {
+  return (
+    <GlintWrap>
+      <span
+        className={[
+          "inline-flex items-center rounded-full border px-3 py-1 text-xs",
+          "shadow-[inset_0_1px_0_rgba(255,255,255,.55)]",
+          tone === "muted" ? moon.chip2 : moon.chip,
+        ].join(" ")}
+      >
+        {children}
+      </span>
+    </GlintWrap>
   );
 }
 
@@ -109,32 +216,25 @@ function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={[
-        "rounded-3xl border",
-        moon.border,
-        moon.panel,
-        moon.shadow,
-        "overflow-hidden",
-        className,
-      ].join(" ")}
-    >
-      <div className="flex items-start justify-between gap-3 px-6 pt-6">
-        <div>
-          {kicker ? (
-            <div className={["text-[11px] tracking-[0.18em] uppercase", moon.inkMute].join(" ")}>
-              {kicker}
+    <PanelChrome className={className}>
+      <div className="px-6 pt-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            {kicker ? (
+              <div className={["text-[11px] tracking-[0.18em] uppercase", moon.inkMute].join(" ")}>
+                {kicker}
+              </div>
+            ) : null}
+            <div className={["mt-2 text-lg font-semibold tracking-tight", moon.ink].join(" ")}>
+              {title}
             </div>
-          ) : null}
-          <div className={["mt-2 text-lg font-semibold tracking-tight", moon.ink].join(" ")}>
-            {title}
           </div>
+          {right ? <div className="shrink-0">{right}</div> : null}
         </div>
-        {right ? <div className="shrink-0">{right}</div> : null}
       </div>
 
       <div className="px-6 pb-6 pt-4">{children}</div>
-    </div>
+    </PanelChrome>
   );
 }
 
@@ -143,11 +243,20 @@ function ActionLink({ href, children }: { href: string; children: React.ReactNod
     <Link
       href={href}
       className={[
-        "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm transition-colors",
+        "relative inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm transition-colors overflow-hidden",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,.65)]",
         moon.btn,
       ].join(" ")}
     >
-      {children}
+      <span
+        className="pointer-events-none absolute inset-0 opacity-[0.45]"
+        style={{
+          background:
+            "linear-gradient(120deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.55) 30%, rgba(255,255,255,0) 55%)",
+          transform: "translateX(-35%)",
+        }}
+      />
+      <span className="relative">{children}</span>
     </Link>
   );
 }
@@ -168,20 +277,22 @@ export default async function ProfilePage() {
     return (
       <div className="min-h-screen bg-[#2D5128] text-white flex items-center justify-center px-6">
         <div className="w-full max-w-lg">
-          <div className={["rounded-3xl border p-6", moon.border, moon.panel, moon.shadow].join(" ")}>
-            <div className={["text-[11px] tracking-[0.18em] uppercase", moon.inkMute].join(" ")}>
-              Setup
+          <PanelChrome>
+            <div className="p-6">
+              <div className={["text-[11px] tracking-[0.18em] uppercase", moon.inkMute].join(" ")}>
+                Setup
+              </div>
+              <div className={["mt-2 text-2xl font-semibold tracking-tight", moon.ink].join(" ")}>
+                Finish your profile
+              </div>
+              <div className={["mt-3 text-sm", moon.inkSoft].join(" ")}>
+                Add birth details and location so URA can generate your live cycle.
+              </div>
+              <div className="mt-6">
+                <ActionLink href="/profile/setup">Continue</ActionLink>
+              </div>
             </div>
-            <div className={["mt-2 text-2xl font-semibold tracking-tight", moon.ink].join(" ")}>
-              Finish your profile
-            </div>
-            <div className={["mt-3 text-sm", moon.inkSoft].join(" ")}>
-              Add birth details and location so URA can generate your live cycle.
-            </div>
-            <div className="mt-6">
-              <ActionLink href="/profile/setup">Continue</ActionLink>
-            </div>
-          </div>
+          </PanelChrome>
         </div>
       </div>
     );
@@ -195,7 +306,6 @@ export default async function ProfilePage() {
   const lunation = profile.lunationJson as any;
 
   const { planets, asc } = getNatalSources(natal);
-
   const sunLon = safeNum(planets?.sun?.lon);
   const moonLon = safeNum(planets?.moon?.lon);
   const ascLon = safeNum(asc);
@@ -255,7 +365,7 @@ export default async function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-[#2D5128]">
-      {/* Keep the green world; add subtle atmosphere */}
+      {/* Atmosphere on green world */}
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.10),rgba(0,0,0,0)_60%)]" />
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_bottom,rgba(0,0,0,0.35),rgba(0,0,0,0)_55%)]" />
 
@@ -270,6 +380,7 @@ export default async function ProfilePage() {
               className={[
                 "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm transition-colors",
                 "border-white/25 bg-white/10 text-white hover:bg-white/15",
+                "shadow-[inset_0_1px_0_rgba(255,255,255,.35)]",
               ].join(" ")}
             >
               Edit
@@ -281,6 +392,7 @@ export default async function ProfilePage() {
                 className={[
                   "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm transition-colors",
                   "border-white/25 bg-white/10 text-white hover:bg-white/15",
+                  "shadow-[inset_0_1px_0_rgba(255,255,255,.35)]",
                 ].join(" ")}
               >
                 Log out
@@ -293,7 +405,7 @@ export default async function ProfilePage() {
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* LEFT: identity / natal */}
           <div className="lg:col-span-5">
-            <div className={["rounded-3xl border", moon.border, moon.panel, moon.shadow, "overflow-hidden"].join(" ")}>
+            <PanelChrome>
               {/* Identity hero */}
               <div className="p-7">
                 <div className={["text-4xl font-semibold tracking-tight", moon.ink].join(" ")}>
@@ -353,35 +465,35 @@ export default async function ProfilePage() {
 
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {ascRow ? (
-                    <div className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                    <InnerStone>
                       <div className={["text-sm font-medium", moon.ink].join(" ")}>
                         {ascRow.label}
                       </div>
                       <div className={["mt-1 text-sm", moon.inkMute].join(" ")}>
                         {ascRow.sign} <span className="opacity-50">•</span> {ascRow.deg}
                       </div>
-                    </div>
+                    </InnerStone>
                   ) : null}
 
                   {planetRows.map((r) => (
-                    <div key={r.key} className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                    <InnerStone key={r.key}>
                       <div className={["text-sm font-medium", moon.ink].join(" ")}>
                         {r.label}
                       </div>
                       <div className={["mt-1 text-sm", moon.inkMute].join(" ")}>
                         {r.sign} <span className="opacity-50">•</span> {r.deg}
                       </div>
-                    </div>
+                    </InnerStone>
                   ))}
 
                   {!ascRow && planetRows.length === 0 ? (
-                    <div className={["rounded-2xl border p-4 text-sm", moon.borderSoft, moon.inner, moon.inkMute].join(" ")}>
-                      Natal data not available yet.
-                    </div>
+                    <InnerStone>
+                      <div className={["text-sm", moon.inkMute].join(" ")}>Natal data not available yet.</div>
+                    </InnerStone>
                   ) : null}
                 </div>
               </div>
-            </div>
+            </PanelChrome>
           </div>
 
           {/* RIGHT: live panels */}
@@ -400,23 +512,23 @@ export default async function ProfilePage() {
               }
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                <InnerStone>
                   <div className={["text-xs tracking-wide uppercase", moon.inkMute].join(" ")}>
                     Focus
                   </div>
                   <div className={["mt-2 text-sm", moon.inkSoft].join(" ")}>
                     Seasonal placement and modality.
                   </div>
-                </div>
+                </InnerStone>
 
-                <div className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                <InnerStone>
                   <div className={["text-xs tracking-wide uppercase", moon.inkMute].join(" ")}>
                     Next
                   </div>
                   <div className={["mt-2 text-sm", moon.inkSoft].join(" ")}>
                     Boundary timing will live here.
                   </div>
-                </div>
+                </InnerStone>
               </div>
 
               <div className="mt-5">
@@ -426,23 +538,23 @@ export default async function ProfilePage() {
 
             <Card kicker="Today" title="Lunation" right={<Badge tone="muted">{String(lunLabel)}</Badge>}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                <InnerStone>
                   <div className={["text-xs tracking-wide uppercase", moon.inkMute].join(" ")}>
                     Signal
                   </div>
                   <div className={["mt-2 text-sm", moon.inkSoft].join(" ")}>
                     Daily rhythm marker.
                   </div>
-                </div>
+                </InnerStone>
 
-                <div className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                <InnerStone>
                   <div className={["text-xs tracking-wide uppercase", moon.inkMute].join(" ")}>
                     Next
                   </div>
                   <div className={["mt-2 text-sm", moon.inkSoft].join(" ")}>
                     Phase transitions and guidance.
                   </div>
-                </div>
+                </InnerStone>
               </div>
 
               <div className="mt-5">
@@ -453,7 +565,7 @@ export default async function ProfilePage() {
             {/* Workspace row */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Card kicker="URA" title="Readings">
-                <div className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                <InnerStone>
                   <div className={["text-sm", moon.inkSoft].join(" ")}>
                     Ontology-driven interpretations will render here as cards.
                   </div>
@@ -463,7 +575,7 @@ export default async function ProfilePage() {
                     <li>Timing windows</li>
                     <li>Action prompts</li>
                   </ul>
-                </div>
+                </InnerStone>
 
                 <div className="mt-4">
                   <button
@@ -471,6 +583,7 @@ export default async function ProfilePage() {
                     className={[
                       "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm cursor-not-allowed opacity-60",
                       moon.btnGhost,
+                      "shadow-[inset_0_1px_0_rgba(255,255,255,.55)]",
                     ].join(" ")}
                   >
                     Coming soon
@@ -479,14 +592,14 @@ export default async function ProfilePage() {
               </Card>
 
               <Card kicker="Daily" title="Journal">
-                <div className={["rounded-2xl border p-4", moon.borderSoft, moon.inner].join(" ")}>
+                <InnerStone>
                   <div className={["text-sm", moon.inkSoft].join(" ")}>
                     Journal entries will live here—tagged by cycle and date.
                   </div>
                   <div className={["mt-3 text-sm", moon.inkMute].join(" ")}>
                     The composer + history view will replace this placeholder.
                   </div>
-                </div>
+                </InnerStone>
 
                 <div className="mt-4">
                   <button
@@ -494,6 +607,7 @@ export default async function ProfilePage() {
                     className={[
                       "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm cursor-not-allowed opacity-60",
                       moon.btnGhost,
+                      "shadow-[inset_0_1px_0_rgba(255,255,255,.55)]",
                     ].join(" ")}
                   >
                     Coming soon
@@ -503,13 +617,20 @@ export default async function ProfilePage() {
             </div>
 
             {/* Debug */}
-            <div className={["rounded-3xl border p-5", moon.border, moon.panel2, moon.shadow].join(" ")}>
-              <details>
-                <summary className={["cursor-pointer select-none text-[11px] tracking-[0.18em] uppercase", moon.inkMute].join(" ")}>
-                  Debug
-                </summary>
-                <div className={["mt-4 rounded-2xl border p-4 overflow-auto", moon.borderSoft, moon.inner].join(" ")}>
-                  <pre className={["text-xs whitespace-pre", moon.inkMute].join(" ")}>
+            <PanelChrome accent={false} className={[moon.panel2].join(" ")}>
+              <div className="p-5">
+                <details>
+                  <summary
+                    className={[
+                      "cursor-pointer select-none text-[11px] tracking-[0.18em] uppercase",
+                      moon.inkMute,
+                    ].join(" ")}
+                  >
+                    Debug
+                  </summary>
+                  <div className="mt-4">
+                    <InnerStone>
+                      <pre className={["text-xs whitespace-pre overflow-auto", moon.inkMute].join(" ")}>
 {JSON.stringify(
   {
     asOfDate: profile.asOfDate,
@@ -519,10 +640,12 @@ export default async function ProfilePage() {
   null,
   2
 )}
-                  </pre>
-                </div>
-              </details>
-            </div>
+                      </pre>
+                    </InnerStone>
+                  </div>
+                </details>
+              </div>
+            </PanelChrome>
           </div>
         </div>
       </div>
