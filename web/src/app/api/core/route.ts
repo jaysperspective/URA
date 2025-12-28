@@ -42,6 +42,15 @@ const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 // Parsing (copied from asc-year/lunation; keep identical behavior)
 // ------------------------------
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function toNum(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function parseTextKV(body: string): ParsedInput {
   const lines = body
     .split("\n")
@@ -67,6 +76,135 @@ function parseTextKV(body: string): ParsedInput {
   return out as ParsedInput;
 }
 
+/**
+ * Compute a ±HH:MM offset string for an IANA timezone at a given local datetime.
+ * Uses Intl timeZoneName "shortOffset" available in Node 20.
+ */
+function tzOffsetForZoneAtLocal(
+  timeZone: string,
+  year: number,
+  month: number, // 1-12
+  day: number,
+  hour: number,
+  minute: number
+): string {
+  // We use a UTC date purely as a formatting anchor; Intl will render the offset for the requested zone.
+  const anchorUTC = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "shortOffset",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(anchorUTC);
+
+  const tzPart = parts.find((p) => p.type === "timeZoneName")?.value || "";
+  // Examples: "GMT-5", "GMT-05:00", "UTC-05:00", etc.
+  const m = tzPart.match(/([+-])(\d{1,2})(?::(\d{2}))?/);
+  if (!m) {
+    // Fallback: if Intl doesn't give a parseable offset, default to 00:00
+    return "+00:00";
+    // (We avoid throwing here so the endpoint stays resilient.)
+  }
+
+  const sign = m[1];
+  const hh = Number(m[2]);
+  const mm = m[3] ? Number(m[3]) : 0;
+
+  return `${sign}${pad2(hh)}:${pad2(mm)}`;
+}
+
+function normalizeJsonToParsedInput(obj: any): ParsedInput {
+  // 1) If it already looks like ParsedInput, keep it (legacy JSON)
+  if (
+    obj &&
+    typeof obj === "object" &&
+    typeof obj.birth_datetime === "string" &&
+    typeof obj.tz_offset === "string" &&
+    typeof obj.as_of_date === "string"
+  ) {
+    const lat = toNum(obj.lat ?? obj.latitude);
+    const lon = toNum(obj.lon ?? obj.longitude);
+    return {
+      birth_datetime: obj.birth_datetime,
+      tz_offset: obj.tz_offset,
+      as_of_date: obj.as_of_date,
+      lat: lat ?? undefined,
+      lon: lon ?? undefined,
+    };
+  }
+
+  // 2) URA structured contract
+  const year = toNum(obj?.year);
+  const month = toNum(obj?.month);
+  const day = toNum(obj?.day);
+  const hour = toNum(obj?.hour);
+  const minute = toNum(obj?.minute);
+
+  const lat = toNum(obj?.lat ?? obj?.latitude);
+  const lon = toNum(obj?.lon ?? obj?.longitude);
+
+  // Accept either asOfDate (URA) or as_of_date (legacy)
+  const asOf =
+    (typeof obj?.asOfDate === "string" && obj.asOfDate) ||
+    (typeof obj?.as_of_date === "string" && obj.as_of_date) ||
+    null;
+
+  // Accept tz_offset (legacy) OR timezone (URA)
+  const tzOffset =
+    (typeof obj?.tz_offset === "string" && obj.tz_offset) ||
+    (typeof obj?.tzOffset === "string" && obj.tzOffset) ||
+    null;
+
+  const timezone = typeof obj?.timezone === "string" ? obj.timezone : null;
+
+  // If we don't have the structured datetime, we can't build birth_datetime
+  if (
+    typeof year !== "number" ||
+    typeof month !== "number" ||
+    typeof day !== "number" ||
+    typeof hour !== "number" ||
+    typeof minute !== "number"
+  ) {
+    throw new Error(
+      "missing birth inputs (expected birth_datetime/tz_offset/as_of_date OR year/month/day/hour/minute + (tz_offset or timezone))"
+    );
+  }
+
+  const birth_datetime = `${year}-${pad2(month)}-${pad2(day)} ${pad2(hour)}:${pad2(minute)}`;
+
+  // as_of_date is required by your core logic; default to today's UTC date if not provided
+  const as_of_date =
+    asOf ??
+    (() => {
+      const now = new Date();
+      const y = now.getUTCFullYear();
+      const m = pad2(now.getUTCMonth() + 1);
+      const d = pad2(now.getUTCDate());
+      return `${y}-${m}-${d}`;
+    })();
+
+  const finalTzOffset =
+    tzOffset ??
+    (timezone ? tzOffsetForZoneAtLocal(timezone, year, month, day, hour, minute) : null);
+
+  if (!finalTzOffset) {
+    throw new Error("missing tz_offset (provide tz_offset or timezone)");
+  }
+
+  return {
+    birth_datetime,
+    tz_offset: finalTzOffset,
+    as_of_date,
+    lat: lat ?? undefined,
+    lon: lon ?? undefined,
+  };
+}
+
 async function readInput(req: Request): Promise<ParsedInput> {
   const raw = await req.text();
   const contentType = req.headers.get("content-type") || "";
@@ -76,10 +214,14 @@ async function readInput(req: Request): Promise<ParsedInput> {
   if (contentType.includes("application/json") || looksJson) {
     try {
       const obj = JSON.parse(raw) as any;
+
+      // If you sent { text: "birth_datetime: ...\n..." } keep that legacy behavior
       if (obj && typeof obj === "object" && typeof obj.text === "string") {
         return parseTextKV(obj.text);
       }
-      return obj as ParsedInput;
+
+      // Normalize JSON (legacy OR URA structured) to ParsedInput
+      return normalizeJsonToParsedInput(obj);
     } catch {
       // fall through to text KV
     }

@@ -1,9 +1,10 @@
+// src/app/api/me/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET() {
-  const jar = cookies();
+  const jar = await cookies();
   const raw = jar.get("ura_session")?.value ?? null;
 
   const user = await getCurrentUser();

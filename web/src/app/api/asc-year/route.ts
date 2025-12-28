@@ -1,5 +1,7 @@
 // web/src/app/api/asc-year/route.ts
 
+// web/src/app/api/asc-year/route.ts
+
 import { NextResponse } from "next/server";
 
 function buildOrigin(req: Request) {
@@ -105,21 +107,71 @@ function buildAscYearText(core: any) {
   return lines.join("\n");
 }
 
+/**
+ * Normalize common payload shapes into a single JSON object.
+ * This prevents /api/core contract mismatches from crashing /profile.
+ */
+function normalizePayload(obj: any) {
+  if (!obj || typeof obj !== "object") return obj;
+
+  const year = obj.year ?? obj.birthYear;
+  const month = obj.month ?? obj.birthMonth;
+  const day = obj.day ?? obj.birthDay;
+  const hour = obj.hour ?? obj.birthHour ?? 0;
+  const minute = obj.minute ?? obj.birthMinute ?? 0;
+
+  const latitude =
+    obj.latitude ?? obj.lat ?? obj.birthLat ?? (obj.location ? obj.location.latitude : undefined);
+  const longitude =
+    obj.longitude ?? obj.lon ?? obj.birthLon ?? (obj.location ? obj.location.longitude : undefined);
+
+  const timezone = obj.timezone ?? obj.tz ?? obj.tzName;
+  const asOfDate = obj.asOfDate ?? obj.asOf ?? obj.as_of_date;
+
+  // Merge back into original object so we don't break anything /api/core already supports.
+  return {
+    ...obj,
+    ...(year != null ? { year } : {}),
+    ...(month != null ? { month } : {}),
+    ...(day != null ? { day } : {}),
+    ...(hour != null ? { hour } : {}),
+    ...(minute != null ? { minute } : {}),
+    ...(latitude != null ? { latitude } : {}),
+    ...(longitude != null ? { longitude } : {}),
+    ...(timezone != null ? { timezone } : {}),
+    ...(asOfDate != null ? { asOfDate } : {}),
+  };
+}
+
 export async function POST(req: Request) {
   try {
-    const body = await req.text();
     const origin = buildOrigin(req);
+
+    // Read body robustly (JSON if possible, otherwise passthrough text)
+    const raw = await req.text();
+    let forwardBody = raw;
+    let forwardContentType = req.headers.get("content-type") || "text/plain";
+
+    // If it looks like JSON, normalize keys so /api/core gets something consistent
+    try {
+      const parsed = JSON.parse(raw);
+      const normalized = normalizePayload(parsed);
+      forwardBody = JSON.stringify(normalized);
+      forwardContentType = "application/json";
+    } catch {
+      // not JSON — leave as-is
+    }
 
     const r = await fetch(`${origin}/api/core`, {
       method: "POST",
-      headers: { "content-type": req.headers.get("content-type") || "text/plain" },
-      body,
+      headers: { "content-type": forwardContentType },
+      body: forwardBody,
       cache: "no-store",
     });
 
     const core = await r.json().catch(async () => {
-      const raw = await r.text().catch(() => "");
-      return { ok: false, error: "Non-JSON response from /api/core", raw };
+      const raw2 = await r.text().catch(() => "");
+      return { ok: false, error: "Non-JSON response from /api/core", raw: raw2 };
     });
 
     if (!r.ok || core?.ok === false) {

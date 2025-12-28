@@ -1,12 +1,8 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -30,6 +26,7 @@ model Profile {
   userId    Int      @unique
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // --- Existing profile fields ---
   username  String?  @unique
   bio       String?
   city      String?
@@ -37,7 +34,34 @@ model Profile {
   avatarUrl String?
 
   setupDone Boolean  @default(false)
+
+  // --- URA birth data (source of truth) ---
+  birthYear   Int?
+  birthMonth  Int?
+  birthDay    Int?
+  birthHour   Int?
+  birthMinute Int?
+
+  birthLat    Float?
+  birthLon    Float?
+  birthPlace  String? // e.g. "Raleigh, NC" (optional display label)
+  timezone    String  @default("America/New_York")
+
+  // --- Cached computed data (JSON blobs, flexible) ---
+  natalChartJson Json?
+  natalUpdatedAt DateTime?
+
+  // --- Daily “as-of” caches (Asc Year + Lunation) ---
+  // Anchor date used to determine whether today’s caches are up-to-date.
+  // We’ll treat this as the last refresh date; compare day keys in the user’s timezone in code.
+  asOfDate       DateTime?
+  ascYearJson    Json?
+  lunationJson   Json?
+  dailyUpdatedAt DateTime?
+
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model Session {
@@ -48,4 +72,6 @@ model Session {
   token     String   @unique
   createdAt DateTime @default(now())
   expiresAt DateTime
+
+  @@index([userId])
 }
