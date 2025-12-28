@@ -1,232 +1,281 @@
 // src/app/profile/page.tsx
-import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
+import Link from "next/link";
 import { requireUser } from "@/lib/auth/requireUser";
+import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
+import { logoutAction } from "./actions";
 
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
+function fmtDateMDY(y: number, m: number, d: number) {
+  return `${m}/${d}/${y}`;
+}
+
+function fmtTimeHM(h: number, min: number) {
+  const hh = String(h).padStart(2, "0");
+  const mm = String(min).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function safeNum(v: any) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function getSummaryLabel(obj: any) {
+  // Prefer new core-derived summary fields if present
+  const summary = obj?.derived?.summary;
+  if (!summary) return null;
+
+  return {
+    ascYearLabel: typeof summary.ascYearLabel === "string" ? summary.ascYearLabel : null,
+    lunationLabel: typeof summary.lunationLabel === "string" ? summary.lunationLabel : null,
+    ascYearCyclePos: safeNum(summary.ascYearCyclePos),
+    ascYearDegreesInto: safeNum(summary.ascYearDegreesInto),
+    lunationSeparation: safeNum(summary.lunationSeparation),
+  };
 }
 
 export default async function ProfilePage() {
-  // ✅ must be authed
   const user = await requireUser();
-  if (!user) redirect("/login");
 
-  // ✅ hard gate BEFORE ensureProfileCaches so we never trigger asc-year while incomplete
-  const baseProfile = await prisma.profile.findUnique({
-    where: { userId: user.id },
-    select: {
-      setupDone: true,
-      birthLat: true,
-      birthLon: true,
-      birthYear: true,
-      birthMonth: true,
-      birthDay: true,
-      birthHour: true,
-      birthMinute: true,
-      timezone: true,
-      city: true,
-      state: true,
-      birthPlace: true,
-    },
-  });
-
-  const hasBirth =
-    !!baseProfile?.setupDone &&
-    typeof baseProfile.birthYear === "number" &&
-    typeof baseProfile.birthMonth === "number" &&
-    typeof baseProfile.birthDay === "number" &&
-    typeof baseProfile.birthHour === "number" &&
-    typeof baseProfile.birthMinute === "number" &&
-    typeof baseProfile.birthLat === "number" &&
-    typeof baseProfile.birthLon === "number";
-
-  if (!hasBirth) {
-    redirect("/profile/setup");
-  }
-
-  // ✅ safe: caches won't run unless we have full birth + coordinates
   const profile = await ensureProfileCaches(user.id);
-  if (!profile) redirect("/profile/setup");
-
-  // defensive: if something cleared coords after cache call
-  if (profile.birthLat == null || profile.birthLon == null) {
-    redirect("/profile/setup");
+  if (!profile) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-white/70 text-sm">No profile found.</div>
+      </div>
+    );
   }
 
-  const tz = profile.timezone || "America/New_York";
+  // If setup isn’t done, send them to setup
+  if (!profile.setupDone) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="w-full max-w-lg px-6">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <div className="text-xl font-semibold">Finish profile setup</div>
+            <div className="text-white/70 text-sm mt-2">
+              Add your birth details + location so we can generate your living chart.
+            </div>
+            <div className="mt-5">
+              <Link
+                href="/profile/setup"
+                className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm hover:bg-white/15"
+              >
+                Go to setup
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const birthLabel =
-    profile.birthYear != null &&
-    profile.birthMonth != null &&
-    profile.birthDay != null &&
-    profile.birthHour != null &&
-    profile.birthMinute != null
-      ? `${profile.birthMonth}/${profile.birthDay}/${profile.birthYear} • ${pad2(
-          profile.birthHour
-        )}:${pad2(profile.birthMinute)} • ${tz}`
-      : "Birth data missing";
+  const birthYear = profile.birthYear ?? null;
+  const birthMonth = profile.birthMonth ?? null;
+  const birthDay = profile.birthDay ?? null;
+  const birthHour = profile.birthHour ?? null;
+  const birthMinute = profile.birthMinute ?? null;
 
-  const placeLabel =
-    profile.birthPlace ||
-    (profile.city || profile.state
-      ? `${profile.city ?? ""}${profile.city && profile.state ? ", " : ""}${profile.state ?? ""}`
-      : "") ||
-    (profile.birthLat != null && profile.birthLon != null
-      ? `${profile.birthLat.toFixed(3)}, ${profile.birthLon.toFixed(3)}`
-      : "");
+  const city = profile.city ?? null;
+  const state = profile.state ?? null;
+  const tz = profile.timezone ?? "America/New_York";
 
-  const asc = profile.ascYearJson as any;
-  const luna = profile.lunationJson as any;
   const natal = profile.natalChartJson as any;
+  const ascYear = profile.ascYearJson as any;
+  const lunation = profile.lunationJson as any;
 
-  const sunLon = natal?.data?.planets?.sun?.lon;
-  const moonLon = natal?.data?.planets?.moon?.lon;
-  const ascLon = natal?.data?.ascendant;
+  const natalSun = safeNum(natal?.data?.planets?.sun?.lon ?? natal?.natal?.bodies?.sun?.lon);
+  const natalMoon = safeNum(natal?.data?.planets?.moon?.lon ?? natal?.natal?.bodies?.moon?.lon);
+  const natalAsc = safeNum(natal?.data?.ascendant ?? natal?.natal?.ascendant);
+
+  const ascSummary = getSummaryLabel(ascYear);
+  const lunaSummary = getSummaryLabel(lunation);
+
+  const ascLabel =
+    ascSummary?.ascYearLabel ||
+    (typeof ascYear?.ascYear?.season === "string" && typeof ascYear?.ascYear?.modality === "string"
+      ? `${ascYear.ascYear.season} · ${ascYear.ascYear.modality}`
+      : null);
+
+  const lunLabel =
+    lunaSummary?.lunationLabel ||
+    (typeof lunation?.phase === "string" ? lunation.phase : typeof lunation?.lunation?.phase === "string" ? lunation.lunation.phase : null);
+
+  const birthLine =
+    birthYear && birthMonth && birthDay && birthHour != null && birthMinute != null
+      ? `${fmtDateMDY(birthYear, birthMonth, birthDay)} • ${fmtTimeHM(birthHour, birthMinute)} • ${tz}`
+      : `Birth data incomplete • ${tz}`;
+
+  const placeLine = [city, state].filter(Boolean).join(", ") || "Location not set";
 
   return (
-    <div className="min-h-screen bg-black text-neutral-100">
-      <div className="mx-auto max-w-5xl px-6 py-10">
-        <header className="mb-8">
-          <div className="text-sm text-neutral-400">Profile</div>
-          <h1 className="text-3xl font-semibold tracking-tight">Your living chart</h1>
-          <div className="mt-2 text-sm text-neutral-400">
-            Stored once. Updates as the date moves.
-          </div>
-        </header>
-
-        <div className="grid gap-6">
-          {/* Identity */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-xs uppercase tracking-wide text-neutral-400">
-                  Birth data
-                </div>
-                <div className="mt-2 text-lg">{birthLabel}</div>
-                {placeLabel ? (
-                  <div className="mt-1 text-sm text-neutral-400">{placeLabel}</div>
-                ) : null}
-              </div>
-
-              <a
-                href="/profile/setup"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-neutral-200 hover:bg-black/40"
-              >
-                Edit
-              </a>
-            </div>
-          </section>
-
-          {/* Asc Year + Lunation */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <div className="text-xs uppercase tracking-wide text-neutral-400">
-                Asc Year
-              </div>
-
-              <div className="mt-3 text-xl font-semibold">
-                {asc?.label || asc?.phaseName || "Asc Year"}
-              </div>
-
-              <div className="mt-2 text-sm text-neutral-300 space-y-1">
-                {asc?.season ? <div>Season: {asc.season}</div> : null}
-                {asc?.modality ? <div>Modality: {asc.modality}</div> : null}
-                {asc?.phaseIndex != null ? <div>Phase: {asc.phaseIndex}</div> : null}
-                {asc?.degIntoPhase != null ? (
-                  <div>
-                    Degrees in: {Number(asc.degIntoPhase).toFixed?.(2)}°
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mt-4 text-xs text-neutral-500">
-                Auto-refreshes once per day ({tz}).
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <div className="text-xs uppercase tracking-wide text-neutral-400">
-                Lunation
-              </div>
-
-              <div className="mt-3 text-xl font-semibold">
-                {luna?.label || luna?.phase || "Current lunation"}
-              </div>
-
-              <div className="mt-2 text-sm text-neutral-300 space-y-1">
-                {luna?.phase ? <div>Phase: {luna.phase}</div> : null}
-                {luna?.separationDeg != null ? (
-                  <div>
-                    Separation: {Number(luna.separationDeg).toFixed?.(2)}°
-                  </div>
-                ) : null}
-                {luna?.cycle ? <div>Cycle: {luna.cycle}</div> : null}
-                {luna?.season ? <div>Seasonal tone: {luna.season}</div> : null}
-              </div>
-
-              <div className="mt-4 text-xs text-neutral-500">
-                Refreshed daily based on your profile date anchor.
-              </div>
-            </section>
+    <div className="min-h-screen bg-black text-white">
+      {/* Page shell */}
+      <div className="mx-auto w-full max-w-5xl px-6 py-10">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-white/60 text-xs tracking-wide uppercase">Profile</div>
+            <h1 className="text-3xl font-semibold tracking-tight mt-1">Your living chart</h1>
+            <p className="text-white/60 text-sm mt-2">
+              Stored once. Updates as the date moves.
+            </p>
           </div>
 
-          {/* Natal summary + link out */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-xs uppercase tracking-wide text-neutral-400">
-                  Natal chart
-                </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/profile/setup"
+              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
+            >
+              Edit
+            </Link>
 
-                <div className="mt-3 grid gap-2 text-sm text-neutral-300">
-                  <div>
-                    Sun: {typeof sunLon === "number" ? `${sunLon.toFixed(2)}°` : "—"}
-                  </div>
-                  <div>
-                    Moon:{" "}
-                    {typeof moonLon === "number" ? `${moonLon.toFixed(2)}°` : "—"}
-                  </div>
-                  <div>
-                    Asc: {typeof ascLon === "number" ? `${ascLon.toFixed(2)}°` : "—"}
-                  </div>
-                </div>
-
-                <div className="mt-3 text-xs text-neutral-500">
-                  Natal is cached after first compute. It only resets if you edit birth
-                  data.
-                </div>
-              </div>
-
-              <a
-                href="/chart"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-neutral-200 hover:bg-black/40"
+            <form action={logoutAction}>
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
               >
-                Open chart
-              </a>
-            </div>
-          </section>
+                Log out
+              </button>
+            </form>
+          </div>
+        </div>
 
-          {/* Debug block (optional) */}
-          <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-            <div className="text-xs uppercase tracking-wide text-neutral-400">
-              Stored outputs (debug)
-            </div>
-            <pre className="mt-3 text-xs text-neutral-200 overflow-auto">
-              {JSON.stringify(
-                {
-                  dailyUpdatedAt: profile.dailyUpdatedAt,
-                  natalUpdatedAt: profile.natalUpdatedAt,
-                  asOfDate: profile.asOfDate,
-                  ascYearJson: profile.ascYearJson,
-                  lunationJson: profile.lunationJson,
-                },
-                null,
-                2
+        {/* Birth card */}
+        <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <div className="text-white/50 text-xs tracking-wide uppercase">Birth data</div>
+          <div className="mt-2 text-base">{birthLine}</div>
+          <div className="mt-1 text-white/60 text-sm">{placeLine}</div>
+        </div>
+
+        {/* Two-up cards */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <div className="text-white/50 text-xs tracking-wide uppercase">Asc year</div>
+            <div className="mt-2 text-xl font-semibold">Asc Year</div>
+            <div className="mt-2 text-white/70 text-sm">
+              {ascLabel ? (
+                <>
+                  <div>{ascLabel}</div>
+                  {typeof ascSummary?.ascYearCyclePos === "number" ? (
+                    <div className="mt-1 text-white/50">
+                      Cycle position: {ascSummary.ascYearCyclePos.toFixed(2)}°
+                      {typeof ascSummary.ascYearDegreesInto === "number" ? (
+                        <> • Into modality: {ascSummary.ascYearDegreesInto.toFixed(2)}°</>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-white/50">Auto-refreshes once per day ({tz}).</div>
+                  )}
+                </>
+              ) : (
+                <div className="text-white/50 text-sm">Not generated yet.</div>
               )}
-            </pre>
-          </section>
+            </div>
+
+            <div className="mt-4">
+              <Link
+                href="/seasons"
+                className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
+              >
+                Open seasons
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <div className="text-white/50 text-xs tracking-wide uppercase">Lunation</div>
+            <div className="mt-2 text-xl font-semibold">Current lunation</div>
+            <div className="mt-2 text-white/70 text-sm">
+              {lunLabel ? (
+                <>
+                  <div>{lunLabel}</div>
+                  {typeof lunaSummary?.lunationSeparation === "number" ? (
+                    <div className="mt-1 text-white/50">
+                      Separation: {lunaSummary.lunationSeparation.toFixed(2)}°
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-white/50">Refreshed daily based on your profile anchor.</div>
+                  )}
+                </>
+              ) : (
+                <div className="text-white/50 text-sm">Not generated yet.</div>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <Link
+                href="/lunation"
+                className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
+              >
+                Open lunation
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Natal */}
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-white/50 text-xs tracking-wide uppercase">Natal chart</div>
+              <div className="mt-2 text-white/80 text-sm">
+                {typeof natalSun === "number" ? <>Sun: {natalSun.toFixed(2)}°</> : <>Sun: —</>}
+                <span className="mx-3 text-white/20">•</span>
+                {typeof natalMoon === "number" ? <>Moon: {natalMoon.toFixed(2)}°</> : <>Moon: —</>}
+                <span className="mx-3 text-white/20">•</span>
+                {typeof natalAsc === "number" ? <>Asc: {natalAsc.toFixed(2)}°</> : <>Asc: —</>}
+              </div>
+              <div className="mt-1 text-white/50 text-sm">
+                Natal is cached after first compute. It only resets if you edit birth data.
+              </div>
+            </div>
+
+            <Link
+              href="/chart"
+              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
+            >
+              Open chart
+            </Link>
+          </div>
+        </div>
+
+        {/* Debug (collapsed, so it doesn’t wreck layout) */}
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <details>
+            <summary className="cursor-pointer select-none text-white/60 text-xs tracking-wide uppercase">
+              Stored outputs (debug)
+            </summary>
+
+            <div className="mt-4 grid grid-cols-1 gap-4">
+              <div className="rounded-xl border border-white/10 bg-black/30 p-4 overflow-auto">
+                <div className="text-white/50 text-xs mb-2">Profile meta</div>
+                <pre className="text-xs text-white/70 whitespace-pre">
+{JSON.stringify(
+  {
+    dailyUpdatedAt: profile.dailyUpdatedAt,
+    natalUpdatedAt: profile.natalUpdatedAt,
+    asOfDate: profile.asOfDate,
+  },
+  null,
+  2
+)}
+                </pre>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/30 p-4 overflow-auto">
+                <div className="text-white/50 text-xs mb-2">Asc year JSON</div>
+                <pre className="text-xs text-white/70 whitespace-pre">
+{JSON.stringify(ascYear, null, 2)}
+                </pre>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/30 p-4 overflow-auto">
+                <div className="text-white/50 text-xs mb-2">Lunation JSON</div>
+                <pre className="text-xs text-white/70 whitespace-pre">
+{JSON.stringify(lunation, null, 2)}
+                </pre>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
     </div>
