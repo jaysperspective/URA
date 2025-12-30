@@ -6,8 +6,9 @@ export default function CalendarPage() {
     <div
       className="min-h-screen px-4 py-8"
       style={{
+        // New palette wash: wheat → linen → olive
         background:
-          "radial-gradient(1200px 700px at 50% -10%, #E9F5DB 0%, #CFE1B9 55%, #B5C99A 120%)",
+          "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)",
       }}
     >
       <div className="mx-auto w-full max-w-5xl">
