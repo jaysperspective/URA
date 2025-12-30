@@ -1,29 +1,31 @@
 // web/src/lib/calendar/lunar.ts
 import { fetchSunMoonLongitudesUTC, norm360 } from "./astro";
+import { getFirstNewMoonAfterLaunchUTC } from "./newmoon";
 
 export const SYNODIC_MONTH = 29.530588853; // mean synodic month (days)
-
-// Choose an epoch new moon JD-ish reference by using a fixed UTC date.
-// (This is a stable anchor to produce LC numbers. It does not need to be “perfect”; it needs to be consistent.)
-const EPOCH_UTC = new Date(Date.UTC(2000, 0, 6, 18, 14, 0)); // near a known new moon epoch often used in algorithms
 
 function msToDays(ms: number) {
   return ms / 86400_000;
 }
 
-export async function computeLunarOverlay(dtUTC: Date) {
+export async function computeLunarOverlay(dtUTC: Date, launchUTC: Date) {
   const { sunLon, moonLon } = await fetchSunMoonLongitudesUTC(dtUTC);
 
   const phaseAngleDeg = norm360(moonLon - sunLon); // 0=new, 180=full
   const lunarAgeDays = (SYNODIC_MONTH * phaseAngleDeg) / 360;
-
-  const lunarDay = Math.floor(lunarAgeDays + 1e-9); // integer day index
+  const lunarDay = Math.floor(lunarAgeDays + 1e-9);
 
   const phaseName = lunarPhaseNameFromAngle(phaseAngleDeg);
 
-  // Lunar cycle count: based on epoch + mean synodic month
-  const cycles = Math.floor(msToDays(dtUTC.getTime() - EPOCH_UTC.getTime()) / SYNODIC_MONTH);
-  const cycleNumber = 1 + cycles; // LC-1 at epoch window
+  // ✅ LC numbering anchored to launch:
+  const firstNewMoon = await getFirstNewMoonAfterLaunchUTC(launchUTC);
+
+  let cycleNumber: number;
+  if (dtUTC < firstNewMoon) {
+    cycleNumber = 0; // until first new moon after launch
+  } else {
+    cycleNumber = 1 + Math.floor(msToDays(dtUTC.getTime() - firstNewMoon.getTime()) / SYNODIC_MONTH);
+  }
 
   return {
     synodicMonthDays: SYNODIC_MONTH,
@@ -37,8 +39,6 @@ export async function computeLunarOverlay(dtUTC: Date) {
 }
 
 function lunarPhaseNameFromAngle(angle: number): string {
-  // angle: 0..360; New=0, First Quarter=90, Full=180, Last Quarter=270
-  // Use broad, stable bins (matches your “New / Crescent / Quarter / Gibbous / Full” structure)
   const a = angle;
 
   if (a < 1 || a >= 359) return "New";
