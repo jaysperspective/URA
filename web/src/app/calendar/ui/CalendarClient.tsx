@@ -33,11 +33,17 @@ type CalendarAPI = {
     lunarDay: number;
     lunarAgeDays?: number;
     synodicMonthDays?: number;
-    phaseAngleDeg?: number; // ✅ needed for shaded MoonDisc
+    phaseAngleDeg?: number; // ✅ for shading
   };
 
   astro: {
     sunPos: string;
+    sunLon: number; // ✅ raw 0–360°
+    nextSolar: {
+      nextBoundaryDeg: number;
+      nextPhaseAtLocal: string;
+      nextPhaseAtUTC: string;
+    };
     moonPos: string;
     moonSign: string;
     moonEntersSign: string;
@@ -219,19 +225,13 @@ export default function CalendarClient() {
   }
 
   const header = useMemo(() => {
-    if (!data?.ok)
-      return { top: "CURRENT", mid: "—", sub: "The Moon is in —" };
-
-    return {
-      top: "CURRENT",
-      mid: data.lunar.phaseName,
-      sub: `The Moon is in ${data.astro.moonSign}`,
-    };
+    if (!data?.ok) return { top: "CURRENT", mid: "—" };
+    return { top: "CURRENT", mid: data.lunar.phaseName };
   }, [data]);
 
   return (
     <div className="space-y-4">
-      {/* HERO like reference + URA context */}
+      {/* HERO */}
       <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur px-6 py-7 text-center">
         <div className="text-white/80 text-sm tracking-widest">{header.top}</div>
 
@@ -243,40 +243,28 @@ export default function CalendarClient() {
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           {/* Solar */}
           <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
-            <div className="text-white/60 text-xs tracking-widest">
-              SOLAR CONTEXT
-            </div>
+            <div className="text-white/60 text-xs tracking-widest">SOLAR CONTEXT</div>
 
             {data?.solar?.kind === "INTERPHASE" ? (
               <div className="mt-2 text-white/85 text-sm">
                 Interphase • Day{" "}
-                <span className="font-semibold">
-                  {data?.solar?.interphaseDay ?? "—"}
-                </span>{" "}
+                <span className="font-semibold">{data?.solar?.interphaseDay ?? "—"}</span>{" "}
                 of{" "}
-                <span className="font-semibold">
-                  {data?.solar?.interphaseTotal ?? "—"}
-                </span>
+                <span className="font-semibold">{data?.solar?.interphaseTotal ?? "—"}</span>
               </div>
             ) : (
               <div className="mt-2 text-white/85 text-sm">
                 Phase{" "}
-                <span className="font-semibold">
-                  {data?.solar?.phase ?? "—"}
-                </span>{" "}
-                of 8 • Day{" "}
-                <span className="font-semibold">
-                  {data?.solar?.dayInPhase ?? "—"}
-                </span>{" "}
-                of 45
+                <span className="font-semibold">{data?.solar?.phase ?? "—"}</span>
+                {" "}of 8 • Day{" "}
+                <span className="font-semibold">{data?.solar?.dayInPhase ?? "—"}</span>
+                {" "}of 45
               </div>
             )}
 
             <div className="mt-2 text-white/45 text-xs">
               Day index: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
-              {typeof data?.solar?.yearLength === "number"
-                ? data.solar.yearLength - 1
-                : "—"}
+              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength - 1 : "—"}
             </div>
 
             <div className="mt-3 w-full h-2 rounded-full bg-white/10 overflow-hidden">
@@ -286,11 +274,7 @@ export default function CalendarClient() {
                   width:
                     typeof data?.solar?.dayIndexInYear === "number" &&
                     typeof data?.solar?.yearLength === "number"
-                      ? `${Math.round(
-                          ((data.solar.dayIndexInYear + 1) /
-                            data.solar.yearLength) *
-                            100
-                        )}%`
+                      ? `${Math.round(((data.solar.dayIndexInYear + 1) / data.solar.yearLength) * 100)}%`
                       : "0%",
                 }}
               />
@@ -304,13 +288,9 @@ export default function CalendarClient() {
 
           {/* Lunar */}
           <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
-            <div className="text-white/60 text-xs tracking-widest">
-              LUNAR CONTEXT
-            </div>
+            <div className="text-white/60 text-xs tracking-widest">LUNAR CONTEXT</div>
 
-            <div className="mt-2 text-white/85 text-sm">
-              {data?.lunar?.label ?? "—"}
-            </div>
+            <div className="mt-2 text-white/85 text-sm">{data?.lunar?.label ?? "—"}</div>
 
             <div className="mt-2 text-white/45 text-xs">
               Age:{" "}
@@ -327,19 +307,13 @@ export default function CalendarClient() {
                   width:
                     typeof data?.lunar?.lunarAgeDays === "number" &&
                     typeof data?.lunar?.synodicMonthDays === "number"
-                      ? `${Math.round(
-                          (data.lunar.lunarAgeDays /
-                            data.lunar.synodicMonthDays) *
-                            100
-                        )}%`
+                      ? `${Math.round((data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) * 100)}%`
                       : "0%",
                 }}
               />
             </div>
 
-            <div className="mt-2 text-white/35 text-xs">
-              Moon: {data?.astro?.moonPos ?? "—"}
-            </div>
+            <div className="mt-2 text-white/35 text-xs">Moon: {data?.astro?.moonPos ?? "—"}</div>
           </div>
         </div>
 
@@ -353,43 +327,26 @@ export default function CalendarClient() {
 
         <div className="mt-6 text-white/85 text-xl">
           The Moon is in{" "}
-          <span className="text-white font-semibold">
-            {data?.astro.moonSign ?? "—"}
-          </span>
+          <span className="text-white font-semibold">{data?.astro.moonSign ?? "—"}</span>
         </div>
 
         <div className="mt-2 text-white/55 text-sm">
-          As of{" "}
-          <span className="text-white/70">{data?.gregorian.asOfLocal ?? "—"}</span>
+          As of <span className="text-white/70">{data?.gregorian.asOfLocal ?? "—"}</span>
         </div>
 
         <div className="mt-1 text-white/55 text-sm">
-          Enters{" "}
-          <span className="text-white/70">
-            {data?.astro.moonEntersSign ?? "—"}
-          </span>{" "}
-          <span className="text-white/70">
-            {data?.astro.moonEntersLocal ?? "—"}
-          </span>
+          Enters <span className="text-white/70">{data?.astro.moonEntersSign ?? "—"}</span>{" "}
+          <span className="text-white/70">{data?.astro.moonEntersLocal ?? "—"}</span>
         </div>
 
         <div className="mt-6 flex items-center justify-between">
-          <button
-            onClick={() => nav(-1)}
-            className="text-white/75 hover:text-white text-sm"
-          >
+          <button onClick={() => nav(-1)} className="text-white/75 hover:text-white text-sm">
             ◀
           </button>
-          <button
-            onClick={() => load()}
-            className="text-white/75 hover:text-white text-sm"
-          >
+          <button onClick={() => load()} className="text-white/75 hover:text-white text-sm">
             ● Today
           </button>
-          <button
-            onClick={() => nav(1)}
-            className="text-white/75 hover:text-white text-sm"
-          >
+          <button onClick={() => nav(1)} className="text-white/75 hover:text-white text-sm">
             ▶
           </button>
         </div>
@@ -403,9 +360,7 @@ export default function CalendarClient() {
 
       {/* MOON PHASE CYCLE */}
       <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-5 py-4">
-        <div className="text-white/60 text-xs tracking-widest text-center">
-          MOON PHASE CYCLE
-        </div>
+        <div className="text-white/60 text-xs tracking-widest text-center">MOON PHASE CYCLE</div>
 
         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
           {(data?.lunation.markers ?? []).map((m) => (
@@ -419,12 +374,39 @@ export default function CalendarClient() {
         </div>
       </div>
 
-      {/* LIST ROWS */}
+      {/* LIST ROWS (solar-forward, remove redundancy) */}
       <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur divide-y divide-white/10">
         <Row left="Current Calendar" right={data?.solar.label ?? "—"} icon="⟐" />
+
         <Row left="Sun" right={data?.astro.sunPos ?? "—"} icon="☉" />
-        <Row left="Moon" right={data?.astro.moonPos ?? "—"} icon="☾" />
-        <Row left="Lunar Overlay" right={data?.lunar.label ?? "—"} icon="◑" />
+
+        <Row
+          left="Sun Longitude (0–360°)"
+          right={
+            typeof data?.astro?.sunLon === "number" ? `${data.astro.sunLon.toFixed(2)}°` : "—"
+          }
+          icon="⦿"
+        />
+
+        <Row
+          left="Solar Progress"
+          right={
+            data?.solar?.kind === "INTERPHASE"
+              ? `Interphase Day ${data?.solar?.interphaseDay ?? "—"}`
+              : `Phase ${data?.solar?.phase ?? "—"} • Day ${data?.solar?.dayInPhase ?? "—"}`
+          }
+          icon="⌁"
+        />
+
+        <Row
+          left="Next Sun Phase Boundary"
+          right={
+            data?.astro?.nextSolar?.nextPhaseAtLocal
+              ? `${data.astro.nextSolar.nextBoundaryDeg}° • ${data.astro.nextSolar.nextPhaseAtLocal}`
+              : "—"
+          }
+          icon="➜"
+        />
       </div>
     </div>
   );
