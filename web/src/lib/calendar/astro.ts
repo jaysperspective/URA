@@ -4,7 +4,7 @@ const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 export type SunMoon = { sunLon: number; moonLon: number; julianDay?: number };
 
 export async function fetchSunMoonLongitudesUTC(dt: Date): Promise<SunMoon> {
-  // dt is UTC instant; pass UTC components to astro-service
+  // dt is a UTC instant; we pass UTC components to astro-service
   const year = dt.getUTCFullYear();
   const month = dt.getUTCMonth() + 1;
   const day = dt.getUTCDate();
@@ -29,15 +29,22 @@ export async function fetchSunMoonLongitudesUTC(dt: Date): Promise<SunMoon> {
   });
 
   if (!res.ok) {
-    throw new Error(`astro-service /chart failed: ${res.status}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`astro-service /chart failed: ${res.status} ${text}`.trim());
   }
 
   const json: any = await res.json();
-  const sunLon = json?.data?.planets?.sun?.lon ?? json?.data?.planets?.Sun?.lon;
-  const moonLon = json?.data?.planets?.moon?.lon ?? json?.data?.planets?.Moon?.lon;
+
+  // ✅ Matches your live response shape:
+  // json.data.planets.sun.lon
+  // json.data.planets.moon.lon
+  const sunLon = json?.data?.planets?.sun?.lon;
+  const moonLon = json?.data?.planets?.moon?.lon;
 
   if (typeof sunLon !== "number" || typeof moonLon !== "number") {
-    throw new Error("astro-service response missing data.planets.sun.lon / moon.lon");
+    throw new Error(
+      "astro-service response missing json.data.planets.sun.lon / json.data.planets.moon.lon"
+    );
   }
 
   return { sunLon, moonLon, julianDay: json?.data?.julianDay };
