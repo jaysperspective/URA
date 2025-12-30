@@ -53,13 +53,12 @@ type CalendarAPI = {
   lunation: { markers: Marker[] };
 };
 
-// --- Palette (from screenshot) ---
+// --- New palette from reference (+ optional brown) ---
 const C = {
-  tea: "#CFE1B9",
-  mint: "#E9F5DB",
-  muted: "#B5C99A",
-  palm: "#87986A",
-  dusty: "#718355",
+  wheat: "#B9B07B", // warm wheat
+  olive: "#71744F", // deep olive
+  linen: "#D5C0A5", // soft linen
+  brown: "#6B4F3A", // optional warm brown for contrast
 };
 
 function iconFor(kind: Marker["kind"]) {
@@ -76,7 +75,6 @@ function MoonDisc({
   phaseName: string;
   phaseAngleDeg?: number;
 }) {
-  // Fallback to Full if data not loaded yet
   const a = typeof phaseAngleDeg === "number" ? phaseAngleDeg : 180;
 
   // 0 = New, 180 = Full
@@ -86,8 +84,6 @@ function MoonDisc({
   const r = 92;
   const dxMag = r * (1 - k);
 
-  // Waxing (0..180): light on RIGHT, shadow covers LEFT (shift shadow LEFT)
-  // Waning (180..360): light on LEFT, shadow covers RIGHT (shift shadow RIGHT)
   const waxing = a >= 0 && a <= 180;
   const dx = waxing ? -dxMag : dxMag;
 
@@ -95,17 +91,17 @@ function MoonDisc({
     <div className="relative mx-auto w-[220px] h-[220px]">
       <svg viewBox="0 0 220 220" className="w-full h-full">
         <defs>
-          {/* Surface: minty pearl */}
-          <radialGradient id="moonSurfaceMint" cx="35%" cy="30%" r="70%">
-            <stop offset="0%" stopColor="#F6FBF0" />
-            <stop offset="55%" stopColor="#E9F5DB" />
-            <stop offset="100%" stopColor="#CFE1B9" />
+          {/* Surface: linen → wheat */}
+          <radialGradient id="moonSurface" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stopColor="#F4EBDD" />
+            <stop offset="55%" stopColor={C.linen} />
+            <stop offset="100%" stopColor={C.wheat} />
           </radialGradient>
 
-          {/* Shadow: dusty olive depth */}
-          <radialGradient id="moonShadowOlive" cx="50%" cy="50%" r="70%">
-            <stop offset="0%" stopColor="rgba(113,131,85,0.65)" />
-            <stop offset="100%" stopColor="rgba(113,131,85,0.90)" />
+          {/* Shadow: olive depth */}
+          <radialGradient id="moonShadow" cx="50%" cy="50%" r="70%">
+            <stop offset="0%" stopColor="rgba(113,116,79,0.62)" />
+            <stop offset="100%" stopColor="rgba(113,116,79,0.92)" />
           </radialGradient>
 
           <clipPath id="moonClip">
@@ -121,48 +117,47 @@ function MoonDisc({
           </filter>
         </defs>
 
-        {/* Outer bezel */}
+        {/* outer bezel */}
         <circle
           cx="110"
           cy="110"
           r="108"
-          fill="rgba(233,245,219,0.55)"
-          stroke="rgba(113,131,85,0.25)"
+          fill="rgba(213,192,165,0.55)"
+          stroke="rgba(113,116,79,0.30)"
           strokeWidth="2"
         />
 
-        {/* Disc */}
         <g clipPath="url(#moonClip)" filter="url(#softGlow)">
-          <circle cx="110" cy="110" r={r} fill="url(#moonSurfaceMint)" />
+          <circle cx="110" cy="110" r={r} fill="url(#moonSurface)" />
 
-          {/* subtle crater speckle (olive tone) */}
-          <g opacity="0.18">
-            <circle cx="78" cy="88" r="10" fill="rgba(113,131,85,0.20)" />
-            <circle cx="145" cy="78" r="7" fill="rgba(113,131,85,0.18)" />
-            <circle cx="125" cy="135" r="12" fill="rgba(113,131,85,0.16)" />
-            <circle cx="92" cy="140" r="6" fill="rgba(113,131,85,0.18)" />
-            <circle cx="160" cy="120" r="5" fill="rgba(113,131,85,0.18)" />
+          {/* subtle “crater” speckle in warm brown */}
+          <g opacity="0.16">
+            <circle cx="78" cy="88" r="10" fill="rgba(107,79,58,0.28)" />
+            <circle cx="145" cy="78" r="7" fill="rgba(107,79,58,0.22)" />
+            <circle cx="125" cy="135" r="12" fill="rgba(107,79,58,0.20)" />
+            <circle cx="92" cy="140" r="6" fill="rgba(107,79,58,0.22)" />
+            <circle cx="160" cy="120" r="5" fill="rgba(107,79,58,0.22)" />
           </g>
 
-          {/* Shadow disc creates phase */}
-          <circle cx={110 + dx} cy="110" r={r} fill="url(#moonShadowOlive)" />
+          {/* shadow disc creates phase */}
+          <circle cx={110 + dx} cy="110" r={r} fill="url(#moonShadow)" />
 
-          {/* soft terminator overlay */}
+          {/* soft terminator */}
           <circle
             cx={110 + dx * 0.92}
             cy="110"
             r={r}
-            fill="rgba(113,131,85,0.10)"
+            fill="rgba(107,79,58,0.08)"
           />
         </g>
 
-        {/* Inner rim */}
+        {/* inner rim */}
         <circle
           cx="110"
           cy="110"
           r="100"
           fill="none"
-          stroke="rgba(113,131,85,0.25)"
+          stroke="rgba(113,116,79,0.30)"
           strokeWidth="1.5"
         />
       </svg>
@@ -184,18 +179,18 @@ function Row({
   return (
     <div className="px-5 py-4 flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <div style={{ color: C.dusty }} className="opacity-80">
+        <div style={{ color: C.olive }} className="opacity-80">
           {icon}
         </div>
-        <div style={{ color: C.dusty }} className="text-sm font-medium">
+        <div style={{ color: C.olive }} className="text-sm font-medium">
           {left}
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <div style={{ color: C.palm }} className="text-sm">
+        <div style={{ color: C.brown }} className="text-sm opacity-90">
           {right}
         </div>
-        <div style={{ color: C.dusty }} className="opacity-40">
+        <div style={{ color: C.olive }} className="opacity-35">
           ›
         </div>
       </div>
@@ -248,15 +243,16 @@ export default function CalendarClient() {
   }, [data]);
 
   const cardStyle: React.CSSProperties = {
-    background: `linear-gradient(180deg, rgba(233,245,219,0.82) 0%, rgba(233,245,219,0.62) 55%, rgba(207,225,185,0.70) 100%)`,
-    borderColor: "rgba(113,131,85,0.22)",
+    background:
+      "linear-gradient(180deg, rgba(213,192,165,0.86) 0%, rgba(185,176,123,0.52) 60%, rgba(113,116,79,0.28) 120%)",
+    borderColor: "rgba(113,116,79,0.28)",
     boxShadow:
-      "0 24px 80px rgba(113,131,85,0.18), 0 2px 0 rgba(255,255,255,0.25) inset",
+      "0 26px 90px rgba(113,116,79,0.18), 0 2px 0 rgba(255,255,255,0.28) inset",
   };
 
   const panelStyle: React.CSSProperties = {
-    background: "rgba(233,245,219,0.72)",
-    borderColor: "rgba(113,131,85,0.22)",
+    background: "rgba(213,192,165,0.70)",
+    borderColor: "rgba(113,116,79,0.26)",
   };
 
   return (
@@ -265,31 +261,31 @@ export default function CalendarClient() {
       <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
         <div
           className="text-sm tracking-widest"
-          style={{ color: C.dusty, opacity: 0.85 }}
+          style={{ color: C.olive, opacity: 0.85 }}
         >
           {header.top}
         </div>
 
         <div
           className="text-4xl font-semibold tracking-tight mt-2"
-          style={{ color: C.dusty }}
+          style={{ color: C.olive }}
         >
           {header.mid}
         </div>
 
-        {/* --- Solar + Lunar mini modules (side-by-side) --- */}
+        {/* SOLAR + LUNAR PANELS */}
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           {/* Solar */}
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
               className="text-xs tracking-widest"
-              style={{ color: C.palm, fontWeight: 700, letterSpacing: "0.16em" }}
+              style={{ color: C.olive, fontWeight: 800, letterSpacing: "0.16em" }}
             >
               SOLAR CONTEXT
             </div>
 
             {data?.solar?.kind === "INTERPHASE" ? (
-              <div className="mt-2 text-sm" style={{ color: C.dusty }}>
+              <div className="mt-2 text-sm" style={{ color: C.olive }}>
                 Interphase • Day{" "}
                 <span className="font-semibold">
                   {data?.solar?.interphaseDay ?? "—"}
@@ -300,7 +296,7 @@ export default function CalendarClient() {
                 </span>
               </div>
             ) : (
-              <div className="mt-2 text-sm" style={{ color: C.dusty }}>
+              <div className="mt-2 text-sm" style={{ color: C.olive }}>
                 Phase{" "}
                 <span className="font-semibold">{data?.solar?.phase ?? "—"}</span>{" "}
                 of 8 • Day{" "}
@@ -311,19 +307,22 @@ export default function CalendarClient() {
               </div>
             )}
 
-            <div className="mt-2 text-xs" style={{ color: C.palm }}>
+            <div className="mt-2 text-xs" style={{ color: C.brown, opacity: 0.9 }}>
               Day index: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
               {typeof data?.solar?.yearLength === "number"
                 ? data.solar.yearLength - 1
                 : "—"}
             </div>
 
-            <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: "rgba(113,131,85,0.18)" }}>
+            <div
+              className="mt-3 w-full h-2 rounded-full overflow-hidden"
+              style={{ background: "rgba(113,116,79,0.20)" }}
+            >
               <div
                 className="h-full"
                 style={{
-                  background: C.dusty,
-                  opacity: 0.6,
+                  background: C.olive,
+                  opacity: 0.65,
                   width:
                     typeof data?.solar?.dayIndexInYear === "number" &&
                     typeof data?.solar?.yearLength === "number"
@@ -335,7 +334,7 @@ export default function CalendarClient() {
               />
             </div>
 
-            <div className="mt-2 text-xs" style={{ color: C.palm, opacity: 0.9 }}>
+            <div className="mt-2 text-xs" style={{ color: C.brown, opacity: 0.85 }}>
               Anchor: {data?.solar?.anchors?.equinoxLocalDay ?? "—"} → Next:{" "}
               {data?.solar?.anchors?.nextEquinoxLocalDay ?? "—"}
             </div>
@@ -345,16 +344,16 @@ export default function CalendarClient() {
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
               className="text-xs tracking-widest"
-              style={{ color: C.palm, fontWeight: 700, letterSpacing: "0.16em" }}
+              style={{ color: C.olive, fontWeight: 800, letterSpacing: "0.16em" }}
             >
               LUNAR CONTEXT
             </div>
 
-            <div className="mt-2 text-sm" style={{ color: C.dusty }}>
+            <div className="mt-2 text-sm" style={{ color: C.olive }}>
               {data?.lunar?.label ?? "—"}
             </div>
 
-            <div className="mt-2 text-xs" style={{ color: C.palm }}>
+            <div className="mt-2 text-xs" style={{ color: C.brown, opacity: 0.9 }}>
               Age:{" "}
               {typeof data?.lunar?.lunarAgeDays === "number"
                 ? `${data.lunar.lunarAgeDays.toFixed(2)} days`
@@ -362,12 +361,15 @@ export default function CalendarClient() {
               • LD-{data?.lunar?.lunarDay ?? "—"}
             </div>
 
-            <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: "rgba(113,131,85,0.18)" }}>
+            <div
+              className="mt-3 w-full h-2 rounded-full overflow-hidden"
+              style={{ background: "rgba(113,116,79,0.20)" }}
+            >
               <div
                 className="h-full"
                 style={{
-                  background: C.dusty,
-                  opacity: 0.6,
+                  background: C.olive,
+                  opacity: 0.65,
                   width:
                     typeof data?.lunar?.lunarAgeDays === "number" &&
                     typeof data?.lunar?.synodicMonthDays === "number"
@@ -379,13 +381,13 @@ export default function CalendarClient() {
               />
             </div>
 
-            <div className="mt-2 text-xs" style={{ color: C.palm }}>
+            <div className="mt-2 text-xs" style={{ color: C.brown, opacity: 0.85 }}>
               Moon: {data?.astro?.moonPos ?? "—"}
             </div>
           </div>
         </div>
 
-        {/* --- Shaded Moon Disc --- */}
+        {/* Moon Disc */}
         <div className="mt-7 flex justify-center">
           <MoonDisc
             phaseName={header.mid}
@@ -393,38 +395,39 @@ export default function CalendarClient() {
           />
         </div>
 
-        <div className="mt-6 text-xl" style={{ color: C.dusty }}>
+        <div className="mt-6 text-xl" style={{ color: C.olive }}>
           The Moon is in{" "}
-          <span style={{ color: C.dusty }} className="font-semibold">
+          <span style={{ color: C.olive }} className="font-semibold">
             {data?.astro.moonSign ?? "—"}
           </span>
         </div>
 
-        <div className="mt-2 text-sm" style={{ color: C.palm }}>
+        <div className="mt-2 text-sm" style={{ color: C.brown, opacity: 0.9 }}>
           As of{" "}
-          <span style={{ color: C.dusty, opacity: 0.85 }}>
+          <span style={{ color: C.olive, opacity: 0.9 }}>
             {data?.gregorian.asOfLocal ?? "—"}
           </span>
         </div>
 
-        <div className="mt-1 text-sm" style={{ color: C.palm }}>
+        <div className="mt-1 text-sm" style={{ color: C.brown, opacity: 0.9 }}>
           Enters{" "}
-          <span style={{ color: C.dusty, opacity: 0.85 }}>
+          <span style={{ color: C.olive, opacity: 0.9 }}>
             {data?.astro.moonEntersSign ?? "—"}
           </span>{" "}
-          <span style={{ color: C.dusty, opacity: 0.85 }}>
+          <span style={{ color: C.olive, opacity: 0.9 }}>
             {data?.astro.moonEntersLocal ?? "—"}
           </span>
         </div>
 
+        {/* Nav */}
         <div className="mt-6 flex items-center justify-between">
           <button
             onClick={() => nav(-1)}
             className="text-sm px-3 py-2 rounded-full border"
             style={{
-              color: C.dusty,
-              borderColor: "rgba(113,131,85,0.25)",
-              background: "rgba(233,245,219,0.55)",
+              color: C.olive,
+              borderColor: "rgba(113,116,79,0.28)",
+              background: "rgba(213,192,165,0.60)",
             }}
           >
             ◀
@@ -434,9 +437,9 @@ export default function CalendarClient() {
             onClick={() => load()}
             className="text-sm px-4 py-2 rounded-full border"
             style={{
-              color: C.dusty,
-              borderColor: "rgba(113,131,85,0.25)",
-              background: "rgba(233,245,219,0.55)",
+              color: C.olive,
+              borderColor: "rgba(113,116,79,0.28)",
+              background: "rgba(213,192,165,0.60)",
             }}
           >
             ● Today
@@ -446,27 +449,27 @@ export default function CalendarClient() {
             onClick={() => nav(1)}
             className="text-sm px-3 py-2 rounded-full border"
             style={{
-              color: C.dusty,
-              borderColor: "rgba(113,131,85,0.25)",
-              background: "rgba(233,245,219,0.55)",
+              color: C.olive,
+              borderColor: "rgba(113,116,79,0.28)",
+              background: "rgba(213,192,165,0.60)",
             }}
           >
             ▶
           </button>
         </div>
 
-        <div className="mt-5 text-xs" style={{ color: C.palm }}>
+        <div className="mt-5 text-xs" style={{ color: C.brown, opacity: 0.85 }}>
           {loading ? "…" : data?.solar.label ?? ""}
-          <span style={{ color: C.dusty, opacity: 0.35 }}> • </span>
+          <span style={{ color: C.olive, opacity: 0.35 }}> • </span>
           {data?.lunar.label ?? ""}
         </div>
       </div>
 
-      {/* MOON PHASE CYCLE */}
+      {/* Moon phase cycle */}
       <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
         <div
           className="text-xs tracking-widest text-center"
-          style={{ color: C.palm, fontWeight: 700, letterSpacing: "0.16em" }}
+          style={{ color: C.olive, fontWeight: 800, letterSpacing: "0.16em" }}
         >
           MOON PHASE CYCLE
         </div>
@@ -474,16 +477,16 @@ export default function CalendarClient() {
         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
           {(data?.lunation.markers ?? []).map((m) => (
             <div key={m.kind} className="space-y-2">
-              <div style={{ color: C.dusty }} className="text-2xl opacity-80">
+              <div style={{ color: C.olive }} className="text-2xl opacity-80">
                 {iconFor(m.kind)}
               </div>
-              <div style={{ color: C.palm }} className="text-xs">
+              <div style={{ color: C.brown, opacity: 0.9 }} className="text-xs">
                 {m.kind}
               </div>
-              <div style={{ color: C.dusty }} className="text-sm font-semibold">
+              <div style={{ color: C.olive }} className="text-sm font-semibold">
                 {m.degreeText}
               </div>
-              <div style={{ color: C.palm }} className="text-xs">
+              <div style={{ color: C.brown, opacity: 0.85 }} className="text-xs">
                 {m.whenLocal}
               </div>
             </div>
@@ -491,23 +494,23 @@ export default function CalendarClient() {
         </div>
       </div>
 
-      {/* LIST ROWS (solar-forward) */}
+      {/* Bottom rows (solar-forward) */}
       <div
         className="rounded-2xl border overflow-hidden"
         style={{
           ...panelStyle,
-          boxShadow: "0 10px 40px rgba(113,131,85,0.10)",
+          boxShadow: "0 10px 40px rgba(113,116,79,0.10)",
         }}
       >
-        <div style={{ borderBottom: "1px solid rgba(113,131,85,0.14)" }}>
+        <div style={{ borderBottom: "1px solid rgba(113,116,79,0.16)" }}>
           <Row left="Current Calendar" right={data?.solar.label ?? "—"} icon="⟐" />
         </div>
 
-        <div style={{ borderBottom: "1px solid rgba(113,131,85,0.14)" }}>
+        <div style={{ borderBottom: "1px solid rgba(113,116,79,0.16)" }}>
           <Row left="Sun" right={data?.astro.sunPos ?? "—"} icon="☉" />
         </div>
 
-        <div style={{ borderBottom: "1px solid rgba(113,131,85,0.14)" }}>
+        <div style={{ borderBottom: "1px solid rgba(113,116,79,0.16)" }}>
           <Row
             left="Sun Longitude (0–360°)"
             right={
@@ -532,4 +535,3 @@ export default function CalendarClient() {
     </div>
   );
 }
-
