@@ -1,6 +1,6 @@
 // web/src/lib/calendar/solar.ts
 import { getSpringEquinoxUTCAndLocalDay } from "./equinox";
-import { addDaysLocal, diffDaysLocal, formatYMDInTZ, TZ } from "./timezone";
+import { diffDaysLocal, TZ } from "./timezone";
 
 export type SolarOut = {
   year: number;
@@ -24,24 +24,37 @@ export function isLeapInterphaseYear(y: number) {
 }
 
 export async function computeSolarForLocalDay(targetLocalYMD: string): Promise<SolarOut> {
-  // Determine which URA solar year this date falls in:
-  // Find the equinox day for the local Gregorian year and the adjacent ones.
-  const [gy] = targetLocalYMD.split("-").map(Number);
+  const launchEquinoxYear = Number(process.env.URA_LAUNCH_EQUINOX_YEAR);
+  if (!launchEquinoxYear || Number.isNaN(launchEquinoxYear)) {
+    throw new Error("Missing URA_LAUNCH_EQUINOX_YEAR (e.g. 2026)");
+  }
 
-  // We need E for gy-1, gy, gy+1 to bracket.
+  // E(launchEquinoxYear) is the first Aries-ingress day AFTER launch (this starts Year 1)
+  const E1 = await getSpringEquinoxUTCAndLocalDay(launchEquinoxYear);
+
+  // If target is before E1 day, we are in Year 0 — but we still compute phase/day
+  // using the previous equinox anchor (E0 = equinox day of the prior year).
+  if (targetLocalYMD < E1.equinoxLocalDay) {
+    const E0 = await getSpringEquinoxUTCAndLocalDay(launchEquinoxYear - 1);
+    const anchors = {
+      equinoxLocalDay: E0.equinoxLocalDay,
+      nextEquinoxLocalDay: E1.equinoxLocalDay,
+    };
+
+    const interTotal = 5; // keep Year 0 simple + consistent
+    const yearLength = 360 + interTotal;
+
+    const d = diffDaysLocal(anchors.equinoxLocalDay, targetLocalYMD, TZ);
+    return mapDayIndexToSolar(0, d, yearLength, anchors);
+  }
+
+  // For Year 1+, determine which equinox anchor this date belongs to by bracketing.
+  const [gy] = targetLocalYMD.split("-").map(Number);
   const Eprev = await getSpringEquinoxUTCAndLocalDay(gy - 1);
   const Ethis = await getSpringEquinoxUTCAndLocalDay(gy);
   const Enext = await getSpringEquinoxUTCAndLocalDay(gy + 1);
 
-  // Year numbering:
-  // - Year 1 begins at the first equinox AFTER launch (you will define “launch year” in UI or env later)
-  // For now we map: URA year number = (equinoxGregorianYear - launchEquinoxYear + 1)
-  // We'll implement launch as env var LAUNCH_EQUINOX_YEAR.
-  const launchEquinoxYear = Number(process.env.URA_LAUNCH_EQUINOX_YEAR || gy); // fallback
-  const mapYearNum = (equinoxGregorianYear: number) => equinoxGregorianYear - launchEquinoxYear + 1;
-
-  // Determine which equinox day is the current year's anchor:
-  // If target is before Ethis, use Eprev; else use Ethis. Next is the subsequent one.
+  // Anchor selection for civil day logic
   let anchor = Ethis;
   let next = Enext;
   let anchorGregYear = gy;
@@ -52,39 +65,20 @@ export async function computeSolarForLocalDay(targetLocalYMD: string): Promise<S
     anchorGregYear = gy - 1;
   }
 
-  const yearNum = mapYearNum(anchorGregYear);
-
-  // Handle Year 0: dates before E(launchEquinoxYear)
-  const launchAnchor = await getSpringEquinoxUTCAndLocalDay(launchEquinoxYear);
-  if (targetLocalYMD < launchAnchor.equinoxLocalDay) {
-    // Year 0 uses the same structure but year label is 0, anchored to launch day via env URA_LAUNCH_YMD
-    const launchYMD = process.env.URA_LAUNCH_YMD || targetLocalYMD;
-    const d0 = diffDaysLocal(launchYMD, targetLocalYMD, TZ);
-
-    // We don’t force P1 start in Y0. We just compute a rolling coordinate from launch.
-    const yearLength = 365 + (isLeapInterphaseYear(0) ? 1 : 0);
-    const dayIndexInYear = Math.max(0, d0);
-
-    // Map to Phase/Interphase within a 360+5(6) frame
-    return mapDayIndexToSolar(0, dayIndexInYear, yearLength, {
-      equinoxLocalDay: launchYMD,
-      nextEquinoxLocalDay: launchAnchor.equinoxLocalDay,
-    });
-  }
+  // Map equinox-year to URA year number:
+  // Year 1 starts at E(launchEquinoxYear)
+  const yearNum = anchorGregYear - launchEquinoxYear + 1;
 
   const interTotal = isLeapInterphaseYear(yearNum) ? 6 : 5;
-  const yearLength = 360 + interTotal; // 365/366
+  const yearLength = 360 + interTotal;
 
-  const equinoxLocalDay = anchor.equinoxLocalDay;
-  const nextEquinoxLocalDay = next.equinoxLocalDay;
+  const anchors = {
+    equinoxLocalDay: anchor.equinoxLocalDay,
+    nextEquinoxLocalDay: next.equinoxLocalDay,
+  };
 
-  const d = diffDaysLocal(equinoxLocalDay, targetLocalYMD, TZ); // 0-based
-  const dayIndexInYear = d;
-
-  return mapDayIndexToSolar(yearNum, dayIndexInYear, yearLength, {
-    equinoxLocalDay,
-    nextEquinoxLocalDay,
-  });
+  const d = diffDaysLocal(anchors.equinoxLocalDay, targetLocalYMD, TZ);
+  return mapDayIndexToSolar(yearNum, d, yearLength, anchors);
 }
 
 function mapDayIndexToSolar(
@@ -95,10 +89,9 @@ function mapDayIndexToSolar(
 ): SolarOut {
   const interTotal = yearLength - 360;
 
-  if (dayIndexInYear < 0) {
-    // Clamp for safety
-    dayIndexInYear = 0;
-  }
+  // Normalize to safe bounds
+  if (dayIndexInYear < 0) dayIndexInYear = 0;
+  if (dayIndexInYear >= yearLength) dayIndexInYear = yearLength - 1;
 
   if (dayIndexInYear < 360) {
     const phase = Math.floor(dayIndexInYear / 45) + 1; // 1..8
@@ -115,7 +108,7 @@ function mapDayIndexToSolar(
     };
   }
 
-  const interphaseDay = dayIndexInYear - 360 + 1; // 1..(5/6)
+  const interphaseDay = dayIndexInYear - 360 + 1;
   return {
     year: yearNum,
     kind: "INTERPHASE",
