@@ -5,6 +5,7 @@ import { computeLunarOverlay } from "./lunar";
 import { computeMoonSignAndIngress, computeLunationMarkers, fmtLocalShort } from "./events";
 import { fetchSunMoonLongitudesUTC } from "./astro";
 import { fmtSignPos } from "./zodiac";
+import { computeNextSolarPhaseIngress } from "./solar-events";
 
 export { TZ };
 
@@ -33,9 +34,10 @@ export async function getCalendarForYMD(ymd: string | null) {
   // Moon sign + ingress computed at "as of" instant (feels live)
   const moonSign = await computeMoonSignAndIngress(asOfUTC, tz);
 
-  // Sun position (for list row)
+  // Sun position + raw longitude + next 45° boundary time
   const { sunLon } = await fetchSunMoonLongitudesUTC(asOfUTC);
   const sunPos = fmtSignPos(sunLon);
+  const nextSolar = await computeNextSolarPhaseIngress(asOfUTC, tz);
 
   // Lunation markers for current cycle (New/Q1/Full/Q3)
   const markers = await computeLunationMarkers(asOfUTC, tz);
@@ -51,6 +53,8 @@ export async function getCalendarForYMD(ymd: string | null) {
     lunar,
     astro: {
       sunPos,
+      sunLon, // ✅ raw 0–360°
+      nextSolar, // ✅ { nextBoundaryDeg, nextPhaseAtLocal, nextPhaseAtUTC }
       moonPos: moonSign.moonPos,
       moonSign: moonSign.moonSign,
       moonEntersSign: moonSign.entersSign,
