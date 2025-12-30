@@ -33,6 +33,7 @@ type CalendarAPI = {
     lunarDay: number;
     lunarAgeDays?: number;
     synodicMonthDays?: number;
+    phaseAngleDeg?: number; // ✅ needed for shaded MoonDisc
   };
 
   astro: {
@@ -53,10 +54,103 @@ function iconFor(kind: Marker["kind"]) {
   return "◑";
 }
 
-function MoonDisc({ phaseName }: { phaseName: string }) {
+function MoonDisc({
+  phaseName,
+  phaseAngleDeg,
+}: {
+  phaseName: string;
+  phaseAngleDeg?: number;
+}) {
+  // Fallback to Full if data not loaded yet
+  const a = typeof phaseAngleDeg === "number" ? phaseAngleDeg : 180;
+
+  // 0 = New, 180 = Full
+  const rad = (a * Math.PI) / 180;
+  const k = Math.cos(rad); // 1 at New, -1 at Full
+
+  const r = 92; // radius in viewBox units
+  const dxMag = r * (1 - k);
+
+  // Waxing (0..180): light on RIGHT, shadow covers LEFT (shift shadow LEFT)
+  // Waning (180..360): light on LEFT, shadow covers RIGHT (shift shadow RIGHT)
+  const waxing = a >= 0 && a <= 180;
+  const dx = waxing ? -dxMag : dxMag;
+
   return (
-    <div className="relative mx-auto w-[220px] h-[220px] rounded-full bg-white/10 border border-white/10 shadow-inner flex items-center justify-center">
-      <div className="w-[206px] h-[206px] rounded-full bg-gradient-to-b from-white/70 to-white/35 opacity-80" />
+    <div className="relative mx-auto w-[220px] h-[220px]">
+      <svg viewBox="0 0 220 220" className="w-full h-full">
+        <defs>
+          <radialGradient id="moonSurface" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.95)" />
+            <stop offset="55%" stopColor="rgba(230,230,230,0.78)" />
+            <stop offset="100%" stopColor="rgba(170,170,170,0.55)" />
+          </radialGradient>
+
+          <radialGradient id="moonShadow" cx="50%" cy="50%" r="70%">
+            <stop offset="0%" stopColor="rgba(0,0,0,0.70)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.88)" />
+          </radialGradient>
+
+          <clipPath id="moonClip">
+            <circle cx="110" cy="110" r="100" />
+          </clipPath>
+
+          <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="2.2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* outer bezel */}
+        <circle
+          cx="110"
+          cy="110"
+          r="108"
+          fill="rgba(255,255,255,0.06)"
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth="2"
+        />
+
+        {/* Moon group clipped to disc */}
+        <g clipPath="url(#moonClip)" filter="url(#softGlow)">
+          {/* illuminated base */}
+          <circle cx="110" cy="110" r={r} fill="url(#moonSurface)" />
+
+          {/* subtle crater speckle */}
+          <g opacity="0.18">
+            <circle cx="78" cy="88" r="10" fill="rgba(0,0,0,0.10)" />
+            <circle cx="145" cy="78" r="7" fill="rgba(0,0,0,0.10)" />
+            <circle cx="125" cy="135" r="12" fill="rgba(0,0,0,0.10)" />
+            <circle cx="92" cy="140" r="6" fill="rgba(0,0,0,0.10)" />
+            <circle cx="160" cy="120" r="5" fill="rgba(0,0,0,0.10)" />
+          </g>
+
+          {/* Shadow disc creates phase */}
+          <circle cx={110 + dx} cy="110" r={r} fill="url(#moonShadow)" />
+
+          {/* soft terminator overlay */}
+          <circle
+            cx={110 + dx * 0.92}
+            cy="110"
+            r={r}
+            fill="rgba(0,0,0,0.10)"
+          />
+        </g>
+
+        {/* inner rim */}
+        <circle
+          cx="110"
+          cy="110"
+          r="100"
+          fill="none"
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth="1.5"
+        />
+      </svg>
+
       <div className="sr-only">{phaseName}</div>
     </div>
   );
@@ -249,9 +343,12 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        {/* --- Moon Disc --- */}
+        {/* --- Shaded Moon Disc --- */}
         <div className="mt-6 flex justify-center">
-          <MoonDisc phaseName={header.mid} />
+          <MoonDisc
+            phaseName={header.mid}
+            phaseAngleDeg={data?.lunar?.phaseAngleDeg}
+          />
         </div>
 
         <div className="mt-6 text-white/85 text-xl">
@@ -332,4 +429,3 @@ export default function CalendarClient() {
     </div>
   );
 }
-
