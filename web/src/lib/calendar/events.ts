@@ -149,4 +149,86 @@ async function findNextPhaseAngle(startUTC: Date, targetDeg: number): Promise<Da
     lastVal = curVal;
   }
 
-  // Fallback
+  // Fallback estimate if not found
+  const estDays = ((targetDeg - norm360(await rawPhase(startUTC)) + 360) % 360) / 360 * SYNODIC_MONTH;
+  return new Date(startUTC.getTime() + estDays * 86400_000);
+
+  async function rawPhase(d: Date) {
+    const { sunLon, moonLon } = await fetchSunMoonLongitudesUTC(d);
+    return norm360(moonLon - sunLon);
+  }
+
+  async function phaseLifted(d: Date) {
+    const { sunLon, moonLon } = await fetchSunMoonLongitudesUTC(d);
+    return lift(moonLon - sunLon);
+  }
+}
+
+// Find most recent new moon (phase angle 0) before asOfUTC by scanning backwards
+async function findMostRecentPhaseAngle(asOfUTC: Date, targetDeg: number): Promise<Date> {
+  const stepMinutes = 120;
+  const maxDaysBack = 35;
+
+  const tgt = targetDeg === 0 ? 360 : targetDeg;
+
+  const lift = (ang: number) => {
+    const a = norm360(ang);
+    if (targetDeg === 0) return a < 30 ? a + 360 : a;
+    return a;
+  };
+
+  let t0 = asOfUTC.getTime();
+  let last = asOfUTC;
+  let lastVal = (await phaseLifted(last)) - tgt;
+
+  const steps = Math.ceil((maxDaysBack * 24 * 60) / stepMinutes);
+  for (let i = 1; i <= steps; i++) {
+    const cur = new Date(t0 - i * stepMinutes * 60_000);
+    const curVal = (await phaseLifted(cur)) - tgt;
+
+    // We want the crossing in forward time, but we're scanning backward:
+    // so we detect when (cur <= 0) and (last >= 0) in the lifted frame.
+    if (curVal <= 0 && lastVal >= 0) {
+      return bisectUTC(cur, last, async (d) => (await phaseLifted(d)) - tgt);
+    }
+
+    last = cur;
+    lastVal = curVal;
+  }
+
+  // Fallback: approximate one synodic month back
+  return new Date(asOfUTC.getTime() - SYNODIC_MONTH * 86400_000);
+
+  async function phaseLifted(d: Date) {
+    const { sunLon, moonLon } = await fetchSunMoonLongitudesUTC(d);
+    return lift(moonLon - sunLon);
+  }
+}
+
+// Generic bisection to ~30 seconds
+async function bisectUTC(
+  left: Date,
+  right: Date,
+  f: (d: Date) => Promise<number>
+): Promise<Date> {
+  let a = left.getTime();
+  let b = right.getTime();
+  let fa = await f(new Date(a));
+  let fb = await f(new Date(b));
+
+  for (let i = 0; i < 40; i++) {
+    const mid = (a + b) / 2;
+    const fm = await f(new Date(mid));
+
+    if (Math.abs(b - a) < 30_000) return new Date(mid);
+
+    if (fa <= 0 && fm >= 0) {
+      b = mid;
+      fb = fm;
+    } else {
+      a = mid;
+      fa = fm;
+    }
+  }
+  return new Date((a + b) / 2);
+}
