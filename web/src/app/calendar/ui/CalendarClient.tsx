@@ -1,3 +1,4 @@
+// src/app/calendar/ui/CalendarClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -13,8 +14,27 @@ type CalendarAPI = {
   ok: boolean;
   tz: string;
   gregorian: { ymd: string; asOfLocal: string };
-  solar: { label: string };
-  lunar: { phaseName: string; label: string; lunarDay: number };
+
+  solar: {
+    label: string;
+    kind?: "PHASE" | "INTERPHASE";
+    phase?: number;
+    dayInPhase?: number;
+    interphaseDay?: number;
+    interphaseTotal?: number;
+    dayIndexInYear?: number;
+    yearLength?: number;
+    anchors?: { equinoxLocalDay: string; nextEquinoxLocalDay: string };
+  };
+
+  lunar: {
+    phaseName: string;
+    label: string;
+    lunarDay: number;
+    lunarAgeDays?: number;
+    synodicMonthDays?: number;
+  };
+
   astro: {
     sunPos: string;
     moonPos: string;
@@ -22,6 +42,7 @@ type CalendarAPI = {
     moonEntersSign: string;
     moonEntersLocal: string;
   };
+
   lunation: { markers: Marker[] };
 };
 
@@ -37,6 +58,29 @@ function MoonDisc({ phaseName }: { phaseName: string }) {
     <div className="relative mx-auto w-[220px] h-[220px] rounded-full bg-white/10 border border-white/10 shadow-inner flex items-center justify-center">
       <div className="w-[206px] h-[206px] rounded-full bg-gradient-to-b from-white/70 to-white/35 opacity-80" />
       <div className="sr-only">{phaseName}</div>
+    </div>
+  );
+}
+
+function Row({
+  left,
+  right,
+  icon,
+}: {
+  left: string;
+  right: string;
+  icon: string;
+}) {
+  return (
+    <div className="px-5 py-4 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="text-white/80">{icon}</div>
+        <div className="text-white/85 text-sm">{left}</div>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="text-white/55 text-sm">{right}</div>
+        <div className="text-white/25">›</div>
+      </div>
     </div>
   );
 }
@@ -67,6 +111,7 @@ export default function CalendarClient() {
 
   function nav(deltaDays: number) {
     if (!ymd) return;
+
     const [yy, mm, dd] = ymd.split("-").map(Number);
     const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
     d.setUTCDate(d.getUTCDate() + deltaDays);
@@ -92,7 +137,7 @@ export default function CalendarClient() {
 
   return (
     <div className="space-y-4">
-      {/* HERO like reference */}
+      {/* HERO like reference + URA context */}
       <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur px-6 py-7 text-center">
         <div className="text-white/80 text-sm tracking-widest">{header.top}</div>
 
@@ -100,6 +145,111 @@ export default function CalendarClient() {
           {header.mid}
         </div>
 
+        {/* --- Solar + Lunar mini modules (side-by-side) --- */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+          {/* Solar */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+            <div className="text-white/60 text-xs tracking-widest">
+              SOLAR CONTEXT
+            </div>
+
+            {data?.solar?.kind === "INTERPHASE" ? (
+              <div className="mt-2 text-white/85 text-sm">
+                Interphase • Day{" "}
+                <span className="font-semibold">
+                  {data?.solar?.interphaseDay ?? "—"}
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold">
+                  {data?.solar?.interphaseTotal ?? "—"}
+                </span>
+              </div>
+            ) : (
+              <div className="mt-2 text-white/85 text-sm">
+                Phase{" "}
+                <span className="font-semibold">
+                  {data?.solar?.phase ?? "—"}
+                </span>{" "}
+                of 8 • Day{" "}
+                <span className="font-semibold">
+                  {data?.solar?.dayInPhase ?? "—"}
+                </span>{" "}
+                of 45
+              </div>
+            )}
+
+            <div className="mt-2 text-white/45 text-xs">
+              Day index: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
+              {typeof data?.solar?.yearLength === "number"
+                ? data.solar.yearLength - 1
+                : "—"}
+            </div>
+
+            <div className="mt-3 w-full h-2 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-white/35"
+                style={{
+                  width:
+                    typeof data?.solar?.dayIndexInYear === "number" &&
+                    typeof data?.solar?.yearLength === "number"
+                      ? `${Math.round(
+                          ((data.solar.dayIndexInYear + 1) /
+                            data.solar.yearLength) *
+                            100
+                        )}%`
+                      : "0%",
+                }}
+              />
+            </div>
+
+            <div className="mt-2 text-white/35 text-xs">
+              Anchor: {data?.solar?.anchors?.equinoxLocalDay ?? "—"} → Next:{" "}
+              {data?.solar?.anchors?.nextEquinoxLocalDay ?? "—"}
+            </div>
+          </div>
+
+          {/* Lunar */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+            <div className="text-white/60 text-xs tracking-widest">
+              LUNAR CONTEXT
+            </div>
+
+            <div className="mt-2 text-white/85 text-sm">
+              {data?.lunar?.label ?? "—"}
+            </div>
+
+            <div className="mt-2 text-white/45 text-xs">
+              Age:{" "}
+              {typeof data?.lunar?.lunarAgeDays === "number"
+                ? `${data.lunar.lunarAgeDays.toFixed(2)} days`
+                : "—"}{" "}
+              • LD-{data?.lunar?.lunarDay ?? "—"}
+            </div>
+
+            <div className="mt-3 w-full h-2 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-white/35"
+                style={{
+                  width:
+                    typeof data?.lunar?.lunarAgeDays === "number" &&
+                    typeof data?.lunar?.synodicMonthDays === "number"
+                      ? `${Math.round(
+                          (data.lunar.lunarAgeDays /
+                            data.lunar.synodicMonthDays) *
+                            100
+                        )}%`
+                      : "0%",
+                }}
+              />
+            </div>
+
+            <div className="mt-2 text-white/35 text-xs">
+              Moon: {data?.astro?.moonPos ?? "—"}
+            </div>
+          </div>
+        </div>
+
+        {/* --- Moon Disc --- */}
         <div className="mt-6 flex justify-center">
           <MoonDisc phaseName={header.mid} />
         </div>
@@ -118,8 +268,12 @@ export default function CalendarClient() {
 
         <div className="mt-1 text-white/55 text-sm">
           Enters{" "}
-          <span className="text-white/70">{data?.astro.moonEntersSign ?? "—"}</span>{" "}
-          <span className="text-white/70">{data?.astro.moonEntersLocal ?? "—"}</span>
+          <span className="text-white/70">
+            {data?.astro.moonEntersSign ?? "—"}
+          </span>{" "}
+          <span className="text-white/70">
+            {data?.astro.moonEntersLocal ?? "—"}
+          </span>
         </div>
 
         <div className="mt-6 flex items-center justify-between">
@@ -143,7 +297,6 @@ export default function CalendarClient() {
           </button>
         </div>
 
-        {/* show your coordinate under the hero, subtle */}
         <div className="mt-5 text-white/40 text-xs">
           {loading ? "…" : data?.solar.label ?? ""}
           <span className="text-white/25"> • </span>
@@ -180,25 +333,3 @@ export default function CalendarClient() {
   );
 }
 
-function Row({
-  left,
-  right,
-  icon,
-}: {
-  left: string;
-  right: string;
-  icon: string;
-}) {
-  return (
-    <div className="px-5 py-4 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="text-white/80">{icon}</div>
-        <div className="text-white/85 text-sm">{left}</div>
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="text-white/55 text-sm">{right}</div>
-        <div className="text-white/25">›</div>
-      </div>
-    </div>
-  );
-}
