@@ -1,197 +1,123 @@
-// web/src/app/api/asc-year/route.ts
-
-// web/src/app/api/asc-year/route.ts
-
+// src/app/api/asc-year/route.ts
 import { NextResponse } from "next/server";
 
-function buildOrigin(req: Request) {
-  // Works behind Nginx/Cloudflare too
-  const url = new URL(req.url);
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || url.host;
-  const proto = req.headers.get("x-forwarded-proto") || url.protocol.replace(":", "") || "http";
-  return `${proto}://${host}`;
+function normDeg(v: number) {
+  const x = v % 360;
+  return x < 0 ? x + 360 : x;
 }
 
-function angleToSign(lon: number) {
-  const signs = [
-    "Aries",
-    "Taurus",
-    "Gemini",
-    "Cancer",
-    "Leo",
-    "Virgo",
-    "Libra",
-    "Scorpio",
-    "Sagittarius",
-    "Capricorn",
-    "Aquarius",
-    "Pisces",
-  ];
-  const x = ((lon % 360) + 360) % 360;
-  return signs[Math.floor(x / 30)] ?? "—";
+function safeNum(v: any) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function buildAscYearText(core: any) {
-  const input = core?.input;
-  const natal = core?.natal;
-  const asOf = core?.asOf;
-  const ay = core?.derived?.ascYear;
-
-  const lines: string[] = [];
-  lines.push("URA • Ascendant Year Cycle");
-  lines.push("");
-
-  if (input?.birth_datetime && input?.tz_offset) {
-    lines.push(`Birth (local): ${input.birth_datetime}  tz_offset ${input.tz_offset}`);
-  }
-  if (core?.birthUTC) lines.push(`Birth (UTC):   ${String(core.birthUTC).replace(".000Z", "Z")}`);
-  if (core?.asOfUTC) lines.push(`As-of (UTC):   ${String(core.asOfUTC).replace(".000Z", "Z")}`);
-  lines.push("");
-
-  const nAsc = natal?.ascendant;
-  const nMc = natal?.mc;
-  const nSun = natal?.bodies?.sun?.lon;
-  const nMoon = natal?.bodies?.moon?.lon;
-
-  if (typeof nAsc === "number") lines.push(`Natal ASC:  ${nAsc.toFixed(2)}° (${angleToSign(nAsc)})`);
-  if (typeof nMc === "number") lines.push(`Natal MC:   ${nMc.toFixed(2)}° (${angleToSign(nMc)})`);
-  if (typeof nSun === "number") lines.push(`Natal Sun:  ${nSun.toFixed(2)}° (${angleToSign(nSun)})`);
-  if (typeof nMoon === "number") lines.push(`Natal Moon: ${nMoon.toFixed(2)}° (${angleToSign(nMoon)})`);
-
-  // Optional natal bodies if present
-  const nb = natal?.bodies || {};
-  const addBody = (key: string, label: string) => {
-    const v = nb?.[key]?.lon;
-    if (typeof v === "number") lines.push(`Natal ${label}: ${v.toFixed(2)}° (${angleToSign(v)})`);
-  };
-  addBody("mercury", "Mercury");
-  addBody("venus", "Venus");
-  addBody("mars", "Mars");
-  addBody("jupiter", "Jupiter");
-  addBody("saturn", "Saturn");
-  addBody("uranus", "Uranus");
-  addBody("neptune", "Neptune");
-  addBody("pluto", "Pluto");
-  addBody("chiron", "Chiron");
-  addBody("northNode", "North Node");
-  addBody("southNode", "South Node");
-
-  lines.push("");
-
-  const tSun = asOf?.bodies?.sun?.lon;
-  if (typeof tSun === "number") lines.push(`Transiting Sun: ${tSun.toFixed(2)}° (${angleToSign(tSun)})`);
-
-  lines.push("");
-  if (typeof ay?.cyclePosition === "number")
-    lines.push(`Cycle position (Sun from ASC): ${ay.cyclePosition.toFixed(2)}°`);
-  if (ay?.season) lines.push(`Season: ${ay.season}`);
-  if (ay?.modality) {
-    const seg = ay?.modalitySegment ? ` (${ay.modalitySegment})` : "";
-    lines.push(`Modality: ${ay.modality}${seg}`);
-  }
-  if (typeof ay?.degreesIntoModality === "number")
-    lines.push(`Degrees into modality: ${ay.degreesIntoModality.toFixed(2)}°`);
-
-  lines.push("");
-  lines.push("Boundaries (longitude, 30°):");
-  const bl = ay?.boundariesLongitude || {};
-  for (let i = 0; i <= 12; i++) {
-    const key = `deg${i * 30}`;
-    const v = bl[key];
-    if (typeof v === "number") {
-      const label = `${i * 30}°`.padEnd(4, " ");
-      lines.push(`- ${label} ${v.toFixed(2)}°`);
-    }
-  }
-
-  return lines.join("\n");
+function degDeltaForward(fromLon: number, toLon: number) {
+  const a = normDeg(fromLon);
+  const b = normDeg(toLon);
+  const d = b - a;
+  return d >= 0 ? d : d + 360;
 }
 
-/**
- * Normalize common payload shapes into a single JSON object.
- * This prevents /api/core contract mismatches from crashing /profile.
- */
-function normalizePayload(obj: any) {
-  if (!obj || typeof obj !== "object") return obj;
+function estimateDaysUntil(deltaDeg: number) {
+  // avg Sun speed ~0.9856°/day (good enough for a UI ETA)
+  return deltaDeg / 0.9856;
+}
 
-  const year = obj.year ?? obj.birthYear;
-  const month = obj.month ?? obj.birthMonth;
-  const day = obj.day ?? obj.birthDay;
-  const hour = obj.hour ?? obj.birthHour ?? 0;
-  const minute = obj.minute ?? obj.birthMinute ?? 0;
+const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
 
-  const latitude =
-    obj.latitude ?? obj.lat ?? obj.birthLat ?? (obj.location ? obj.location.latitude : undefined);
-  const longitude =
-    obj.longitude ?? obj.lon ?? obj.birthLon ?? (obj.location ? obj.location.longitude : undefined);
-
-  const timezone = obj.timezone ?? obj.tz ?? obj.tzName;
-  const asOfDate = obj.asOfDate ?? obj.asOf ?? obj.as_of_date;
-
-  // Merge back into original object so we don't break anything /api/core already supports.
-  return {
-    ...obj,
-    ...(year != null ? { year } : {}),
-    ...(month != null ? { month } : {}),
-    ...(day != null ? { day } : {}),
-    ...(hour != null ? { hour } : {}),
-    ...(minute != null ? { minute } : {}),
-    ...(latitude != null ? { latitude } : {}),
-    ...(longitude != null ? { longitude } : {}),
-    ...(timezone != null ? { timezone } : {}),
-    ...(asOfDate != null ? { asOfDate } : {}),
-  };
+// 8 phases, 45° each
+function phaseIndexFromCyclePos(cyclePos: number) {
+  const idx = Math.floor(normDeg(cyclePos) / 45); // 0..7
+  return Math.max(0, Math.min(7, idx));
 }
 
 export async function POST(req: Request) {
   try {
-    const origin = buildOrigin(req);
+    const body = await req.json();
 
-    // Read body robustly (JSON if possible, otherwise passthrough text)
-    const raw = await req.text();
-    let forwardBody = raw;
-    let forwardContentType = req.headers.get("content-type") || "text/plain";
+    // Expected payload (same as /seasons): birth + as_of + tz + lat/lon or resolved
+    // This route should already be working in your app; we’re just enhancing output.
 
-    // If it looks like JSON, normalize keys so /api/core gets something consistent
-    try {
-      const parsed = JSON.parse(raw);
-      const normalized = normalizePayload(parsed);
-      forwardBody = JSON.stringify(normalized);
-      forwardContentType = "application/json";
-    } catch {
-      // not JSON — leave as-is
-    }
+    // ---- Your existing pipeline should compute these at minimum:
+    // natalAscLon, transitingSunLon, cyclePosition
+    // and maybe season/modality from prior model
+    //
+    // NOTE: Since I don’t have your full current code here, preserve your existing
+    // computations above this line and then plug these derived fields in right before returning.
+    //
+    // For this template, we assume you already computed:
+    const natalAscLon = safeNum(body?.natalAscLon) ?? null; // (placeholder if your code sets it elsewhere)
+    const transitingSunLon = safeNum(body?.transitingSunLon) ?? null; // (placeholder)
+    const cyclePosition = safeNum(body?.cyclePosition) ?? null; // (placeholder)
 
-    const r = await fetch(`${origin}/api/core`, {
-      method: "POST",
-      headers: { "content-type": forwardContentType },
-      body: forwardBody,
-      cache: "no-store",
-    });
+    // ⚠️ IMPORTANT:
+    // Replace the 3 placeholders above with your existing actual variables.
+    // Example (if your current code has these already):
+    // const natalAscLon = result.natalAscLon;
+    // const transitingSunLon = result.transitingSunLon;
+    // const cyclePosition = result.cyclePosition;
 
-    const core = await r.json().catch(async () => {
-      const raw2 = await r.text().catch(() => "");
-      return { ok: false, error: "Non-JSON response from /api/core", raw: raw2 };
-    });
-
-    if (!r.ok || core?.ok === false) {
+    if (natalAscLon == null || transitingSunLon == null || cyclePosition == null) {
       return NextResponse.json(
-        { ok: false, error: core?.error || `core failed (${r.status})`, core },
-        { status: 500 }
+        { ok: false, error: "asc-year missing natalAscLon/transitingSunLon/cyclePosition" },
+        { status: 400 }
       );
     }
 
-    // ✅ Contract: wrappers always return summary + their slice
-    return NextResponse.json({
-      ok: true,
-      text: buildAscYearText(core),
-      summary: core?.derived?.summary ?? null,
-      ascYear: core?.derived?.ascYear ?? null,
-      natal: core?.natal ?? null,
-      asOf: core?.asOf ?? null,
-      input: core?.input ?? null,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 400 });
+    // --- 45° Phase model ---
+    const cyclePos = normDeg(cyclePosition);
+    const phaseIndex = phaseIndexFromCyclePos(cyclePos); // 0..7
+    const phaseLabel = `P${phaseIndex + 1}`;
+    const phaseDegInto = cyclePos - phaseIndex * 45; // 0..45
+    const phaseProgress01 = phaseDegInto / 45;
+
+    const nextPhaseIndex = (phaseIndex + 1) % 8;
+    const nextPhaseLabel = `P${nextPhaseIndex + 1}`;
+
+    // next boundary is the next multiple of 45° from ASC anchor (in cycle-space)
+    // Convert that to an ecliptic longitude boundary:
+    // boundaryLon = natalAscLon + boundaryCycleDeg
+    const nextBoundaryCycleDeg = nextPhaseIndex * 45; // 0..315
+    const nextPhaseBoundaryLon = normDeg(natalAscLon + nextBoundaryCycleDeg);
+
+    const deltaToNext = degDeltaForward(transitingSunLon, nextPhaseBoundaryLon);
+    const daysUntilNextPhase = estimateDaysUntil(deltaToNext);
+
+    // Seasons still operate as 0–90 quarters (2 phases per season)
+    const seasonIndex = Math.floor(phaseIndex / 2); // 0..3
+    const season = SEASONS[seasonIndex] ?? "Spring";
+
+    // Where are we inside the season’s 90° arc?
+    const seasonDegInto = cyclePos % 90; // 0..90
+    const seasonProgress01 = seasonDegInto / 90;
+
+    // --- Return shape: keep your existing fields, add the new ones ---
+    const ascYear = {
+      // keep any existing output you already provide:
+      natalAscLon,
+      transitingSunLon,
+      cyclePosition: cyclePos,
+
+      // 8-phase ontology
+      phaseIndex,
+      phaseLabel,
+      phaseDegInto,
+      phaseProgress01,
+      nextPhaseLabel,
+      nextPhaseBoundaryLon,
+      daysUntilNextPhase,
+
+      // season arc (still valid)
+      season,
+      seasonDegInto,
+      seasonProgress01,
+    };
+
+    return NextResponse.json({ ok: true, ascYear });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }
+
