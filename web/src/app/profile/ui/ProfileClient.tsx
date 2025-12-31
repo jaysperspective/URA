@@ -7,11 +7,11 @@ import { logoutAction } from "../actions";
 type AscYearCore = {
   ok?: boolean;
   ascYear?: {
-    cyclePosition?: number; // degrees (0-360): Sun-from-ASC position
-    season?: string; // Spring/Summer/Fall/Winter
-    modality?: string; // Cardinal/Fixed/Mutable
-    modalitySegment?: string; // optional label
-    degreesIntoModality?: number; // 0-30
+    cyclePosition?: number;
+    season?: string;
+    modality?: string;
+    modalitySegment?: string;
+    degreesIntoModality?: number;
     boundariesLongitude?: Record<string, number>;
   };
   natal?: {
@@ -30,7 +30,7 @@ type AscYearCore = {
 type LunationCore = {
   ok?: boolean;
   lunar?: {
-    label?: string; // "LC-0 • LD-10 (Waxing Gibbous)" style in calendar route; lunation route may differ
+    label?: string;
     phaseName?: string;
     lunarDay?: number;
     lunarAgeDays?: number;
@@ -60,8 +60,7 @@ function clamp01(x: number) {
 }
 
 function norm360(x: number) {
-  const v = ((x % 360) + 360) % 360;
-  return v;
+  return ((x % 360) + 360) % 360;
 }
 
 function angleToSign(lon: number) {
@@ -97,20 +96,20 @@ function ProgressBar({ value01 }: { value01: number }) {
       className="mt-3 w-full h-2 rounded-full overflow-hidden"
       style={{ background: "rgba(31,36,26,0.18)" }}
     >
-      <div className="h-full" style={{ background: "rgba(31,36,26,0.55)", width: w }} />
+      <div
+        className="h-full"
+        style={{ background: "rgba(31,36,26,0.55)", width: w }}
+      />
     </div>
   );
 }
 
-function Panel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border px-5 py-4" style={{ background: C.surface, borderColor: C.border }}>
+    <div
+      className="rounded-2xl border px-5 py-4"
+      style={{ background: C.surface, borderColor: C.border }}
+    >
       <div
         className="text-xs tracking-widest"
         style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
@@ -122,15 +121,7 @@ function Panel({
   );
 }
 
-function Row({
-  left,
-  right,
-  icon,
-}: {
-  left: string;
-  right: string;
-  icon: string;
-}) {
+function Row({ left, right, icon }: { left: string; right: string; icon: string }) {
   return (
     <div className="px-5 py-4 flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -153,13 +144,8 @@ function Row({
   );
 }
 
-/**
- * A “disc” for the Asc-Year: shows where the Sun is relative to ASC (0–360).
- * This is not the Moon disc — it’s a compass-like orb.
- */
 function AscYearDisc({ cyclePositionDeg }: { cyclePositionDeg: number }) {
   const a = norm360(cyclePositionDeg);
-  // rotate so 0° is “top”
   const rot = a - 90;
 
   return (
@@ -195,7 +181,6 @@ function AscYearDisc({ cyclePositionDeg }: { cyclePositionDeg: number }) {
           <circle cx="110" cy="110" r="92" fill="rgba(31,36,26,0.04)" />
         </g>
 
-        {/* ring */}
         <circle
           cx="110"
           cy="110"
@@ -205,27 +190,31 @@ function AscYearDisc({ cyclePositionDeg }: { cyclePositionDeg: number }) {
           strokeWidth="1.5"
         />
 
-        {/* pointer */}
         <g transform={`rotate(${rot} 110 110)`}>
-          <line x1="110" y1="110" x2="198" y2="110" stroke="rgba(31,36,26,0.55)" strokeWidth="2" />
+          <line
+            x1="110"
+            y1="110"
+            x2="198"
+            y2="110"
+            stroke="rgba(31,36,26,0.55)"
+            strokeWidth="2"
+          />
           <circle cx="198" cy="110" r="6" fill="rgba(31,36,26,0.55)" />
         </g>
       </svg>
-
-      <div className="sr-only">Asc-Year position: {a.toFixed(2)} degrees</div>
     </div>
   );
 }
 
 export default function ProfileClient({
-  displayName,
+  username,
   timezone,
   asOfDate,
   natalJson,
   ascYearJson,
   lunationJson,
 }: {
-  displayName: string;
+  username: string;
   timezone: string;
   asOfDate: string | null;
   natalJson: any;
@@ -234,7 +223,6 @@ export default function ProfileClient({
 }) {
   const ascCore: AscYearCore | null = useMemo(() => {
     if (!ascYearJson) return null;
-    // ensureProfileCaches stores the full /api/asc-year wrapper json
     return ascYearJson as AscYearCore;
   }, [ascYearJson]);
 
@@ -247,7 +235,8 @@ export default function ProfileClient({
   const natalAsc = ascCore?.natal?.ascendant;
   const tSun = ascCore?.asOf?.bodies?.sun?.lon;
 
-  const cyclePos = typeof ay?.cyclePosition === "number" ? norm360(ay.cyclePosition) : null;
+  const cyclePos =
+    typeof ay?.cyclePosition === "number" ? norm360(ay.cyclePosition) : null;
 
   const heroTitle = useMemo(() => {
     const season = ay?.season || "—";
@@ -257,13 +246,18 @@ export default function ProfileClient({
 
   const heroSub = useMemo(() => {
     const seg = ay?.modalitySegment ? ` (${ay.modalitySegment})` : "";
-    const d = typeof ay?.degreesIntoModality === "number" ? ay.degreesIntoModality.toFixed(2) : "—";
+    const d =
+      typeof ay?.degreesIntoModality === "number"
+        ? ay.degreesIntoModality.toFixed(2)
+        : "—";
     return `Degrees into modality: ${d}°${seg}`;
   }, [ay?.degreesIntoModality, ay?.modalitySegment]);
 
   const cycleProgress01 = cyclePos == null ? 0 : cyclePos / 360;
   const modalityProgress01 =
-    typeof ay?.degreesIntoModality === "number" ? clamp01(ay.degreesIntoModality / 30) : 0;
+    typeof ay?.degreesIntoModality === "number"
+      ? clamp01(ay.degreesIntoModality / 30)
+      : 0;
 
   const lunarLabel =
     lunaCore?.lunar?.label ||
@@ -273,7 +267,8 @@ export default function ProfileClient({
     background:
       "linear-gradient(180deg, rgba(244,235,221,0.92) 0%, rgba(213,192,165,0.84) 55%, rgba(185,176,123,0.55) 120%)",
     borderColor: C.border,
-    boxShadow: "0 26px 90px rgba(31,36,26,0.18), 0 2px 0 rgba(255,255,255,0.35) inset",
+    boxShadow:
+      "0 26px 90px rgba(31,36,26,0.18), 0 2px 0 rgba(255,255,255,0.35) inset",
   };
 
   const panelStyle: React.CSSProperties = {
@@ -296,8 +291,11 @@ export default function ProfileClient({
             <div className="text-sm" style={{ color: "rgba(244,235,221,0.75)" }}>
               Profile
             </div>
-            <div className="text-xl font-semibold" style={{ color: "rgba(244,235,221,0.95)" }}>
-              {displayName}
+            <div
+              className="text-xl font-semibold"
+              style={{ color: "rgba(244,235,221,0.95)" }}
+            >
+              {username}
             </div>
           </div>
 
@@ -341,7 +339,9 @@ export default function ProfileClient({
 
               <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
                 Anchor: Natal ASC{" "}
-                {typeof natalAsc === "number" ? `${natalAsc.toFixed(2)}° (${angleToSign(natalAsc)})` : "—"}
+                {typeof natalAsc === "number"
+                  ? `${natalAsc.toFixed(2)}° (${angleToSign(natalAsc)})`
+                  : "—"}
                 {typeof tSun === "number"
                   ? ` • Transiting Sun ${tSun.toFixed(2)}° (${angleToSign(tSun)})`
                   : ""}
@@ -390,7 +390,7 @@ export default function ProfileClient({
           </div>
         </div>
 
-        {/* DETAILS (sun-focused) */}
+        {/* DETAILS */}
         <div
           className="rounded-2xl border overflow-hidden mt-5"
           style={{ ...panelStyle, boxShadow: "0 10px 40px rgba(31,36,26,0.10)" }}
@@ -398,7 +398,11 @@ export default function ProfileClient({
           <div style={{ borderBottom: `1px solid ${C.divider}` }}>
             <Row
               left="Ascendant (Natal)"
-              right={typeof natalAsc === "number" ? `${natalAsc.toFixed(2)}° • ${degMin(natalAsc)}` : "—"}
+              right={
+                typeof natalAsc === "number"
+                  ? `${natalAsc.toFixed(2)}° • ${degMin(natalAsc)}`
+                  : "—"
+              }
               icon="↑"
             />
           </div>
@@ -406,7 +410,9 @@ export default function ProfileClient({
           <div style={{ borderBottom: `1px solid ${C.divider}` }}>
             <Row
               left="Transiting Sun"
-              right={typeof tSun === "number" ? `${tSun.toFixed(2)}° • ${degMin(tSun)}` : "—"}
+              right={
+                typeof tSun === "number" ? `${tSun.toFixed(2)}° • ${degMin(tSun)}` : "—"
+              }
               icon="☉"
             />
           </div>
@@ -425,11 +431,6 @@ export default function ProfileClient({
             icon="⌁"
           />
         </div>
-
-        {/* (Optional later) boundaries / next-hit panel:
-            We can add a “Next Boundary” calculator when we extend /api/core to return timestamps.
-            For now, the profile stays clean + sun-forward.
-        */}
       </div>
     </div>
   );
