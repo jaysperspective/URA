@@ -9,15 +9,17 @@ export default async function ProfilePage() {
   const user = await requireUser();
   if (!user) redirect("/login");
 
-  // Ensure natal + daily (ascYear/lunation) caches are present (timezone-aware)
+  // Ensure natal + daily caches are present
   await ensureProfileCaches(user.id);
 
-  const profile = await prisma.profile.findUnique({ where: { userId: user.id } });
-  if (!profile) redirect("/profile/setup");
+  const profile = await prisma.profile.findUnique({
+    where: { userId: user.id },
+  });
 
+  if (!profile) redirect("/profile/setup");
   if (!profile.setupDone) redirect("/profile/setup");
 
-  // If birth data is somehow incomplete, force setup
+  // Birth data guard
   const hasBirth =
     typeof profile.birthYear === "number" &&
     typeof profile.birthMonth === "number" &&
@@ -29,14 +31,13 @@ export default async function ProfilePage() {
 
   if (!hasBirth) redirect("/profile/setup");
 
-  // Pull cached JSON blobs (Prisma JsonValue)
   const natal = profile.natalChartJson ?? null;
   const asc = profile.ascYearJson ?? null;
   const luna = profile.lunationJson ?? null;
 
   return (
     <ProfileClient
-      displayName={profile.displayName || user.email || "Profile"}
+      username={profile.username || user.email || "Profile"}
       timezone={profile.timezone || "America/New_York"}
       asOfDate={profile.asOfDate ? profile.asOfDate.toISOString() : null}
       natalJson={natal as any}
