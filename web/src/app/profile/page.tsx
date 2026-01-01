@@ -11,42 +11,6 @@ function safeNum(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function norm360(d: number) {
-  let x = d % 360;
-  if (x < 0) x += 360;
-  return x;
-}
-
-const SIGNS = [
-  "Ari",
-  "Tau",
-  "Gem",
-  "Can",
-  "Leo",
-  "Vir",
-  "Lib",
-  "Sco",
-  "Sag",
-  "Cap",
-  "Aqu",
-  "Pis",
-] as const;
-
-function signFromLon(lon: number) {
-  const idx = Math.floor(norm360(lon) / 30) % 12;
-  return SIGNS[idx];
-}
-
-function fmtLon(lon: number) {
-  const x = norm360(lon);
-  const degInSign = x % 30;
-  const d = Math.floor(degInSign);
-  const m = Math.floor((degInSign - d) * 60);
-  const dd = String(d);
-  const mm = String(m).padStart(2, "0");
-  return `${dd}° ${mm}'`;
-}
-
 function pickName(user: any, profile: any) {
   // prefer stored username, otherwise email prefix
   const p = profile?.username?.trim();
@@ -61,6 +25,46 @@ function getNatalSources(natal: any) {
   const planets = natal?.data?.planets ?? natal?.planets ?? null;
   const asc = natal?.data?.ascendant ?? natal?.ascendant ?? natal?.asc ?? null;
   return { planets, asc };
+}
+
+/**
+ * Safely pull a number from a nested object using a list of candidate paths.
+ * Each path is an array of keys, e.g. ["ascYear", "cyclePositionDeg"].
+ */
+function getNumAtPaths(obj: any, paths: (string | number)[][]): number | null {
+  for (const path of paths) {
+    let cur: any = obj;
+    let ok = true;
+    for (const key of path) {
+      if (cur && typeof cur === "object" && key in cur) cur = cur[key as any];
+      else {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const n = safeNum(cur);
+    if (n !== null) return n;
+  }
+  return null;
+}
+
+function debugJsonShape(label: string, value: any) {
+  // enable with: DEBUG_PROFILE_JSON=1 (or "true")
+  const on =
+    process.env.DEBUG_PROFILE_JSON === "1" ||
+    process.env.DEBUG_PROFILE_JSON === "true";
+
+  if (!on) return;
+
+  try {
+    const keys =
+      value && typeof value === "object" ? Object.keys(value).slice(0, 40) : [];
+    console.log(`[profile] ${label} keys:`, keys);
+    console.log(`[profile] ${label} sample:`, JSON.stringify(value, null, 2));
+  } catch (e) {
+    console.log(`[profile] ${label} debug error:`, e);
+  }
 }
 
 export default async function ProfilePage() {
@@ -109,34 +113,47 @@ export default async function ProfilePage() {
   const ascYear = profile.ascYearJson as any;
   const lunation = profile.lunationJson as any;
 
+  // Optional server-side debug (off by default)
+  debugJsonShape("ascYearJson", ascYear);
+  debugJsonShape("lunationJson", lunation);
+
   const { planets, asc } = getNatalSources(natal);
 
+  // natal bodies
   const natalSunLon = safeNum(planets?.sun?.lon);
   const natalMoonLon = safeNum(planets?.moon?.lon);
   const natalAscLon = safeNum(asc);
 
   // moving bodies (as-of)
-  const movingSunLon =
-    safeNum(ascYear?.ascYear?.transitingSunLon) ??
-    safeNum(ascYear?.ascYear?.sunLon) ??
-    safeNum(ascYear?.transitingSunLon) ??
-    safeNum(ascYear?.sunLon);
+  const movingSunLon = getNumAtPaths(ascYear, [
+    ["ascYear", "transitingSunLon"],
+    ["ascYear", "sunLon"],
+    ["transitingSunLon"],
+    ["sunLon"],
+    ["data", "transitingSunLon"],
+    ["data", "sunLon"],
+  ]);
 
-  const movingMoonLon =
-    safeNum(lunation?.moonLon) ??
-    safeNum(lunation?.data?.moonLon) ??
-    safeNum(lunation?.lunation?.moonLon) ??
-    safeNum(lunation?.raw?.moonLon);
+  const movingMoonLon = getNumAtPaths(lunation, [
+    ["moonLon"],
+    ["lunation", "moonLon"],
+    ["data", "moonLon"],
+    ["raw", "moonLon"],
+    ["data", "planets", "moon", "lon"],
+    ["planets", "moon", "lon"],
+  ]);
 
   // asc-year cycle position (Sun-from-ASC, 0–360)
-  const cyclePos =
-    safeNum(ascYear?.ascYear?.cyclePositionDeg) ??
-    safeNum(ascYear?.ascYear?.cyclePosition) ??
-    safeNum(ascYear?.cyclePositionDeg) ??
-    safeNum(ascYear?.cyclePosition);
+  const cyclePos = getNumAtPaths(ascYear, [
+    ["ascYear", "cyclePositionDeg"],
+    ["ascYear", "cyclePosition"],
+    ["cyclePositionDeg"],
+    ["cyclePosition"],
+    ["data", "cyclePositionDeg"],
+    ["data", "cyclePosition"],
+  ]);
 
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
-
   const name = pickName(user, profile);
 
   return (
