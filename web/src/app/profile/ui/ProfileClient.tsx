@@ -40,10 +40,10 @@ function fmtLon(lon: number) {
 const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
 
 const SEASON_SHORT: Record<(typeof SEASONS)[number], string> = {
-  Spring: "SPRG",
-  Summer: "SUMR",
-  Fall: "FALL",
-  Winter: "WNTR",
+  Spring: "Spring",
+  Summer: "Summer",
+  Fall: "Fall",
+  Winter: "Winter",
 };
 
 // mean solar motion (deg/day) used for estimating shift timing
