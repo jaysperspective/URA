@@ -11,8 +11,18 @@ function norm360(d: number) {
 }
 
 const SIGNS = [
-  "Ari","Tau","Gem","Can","Leo","Vir",
-  "Lib","Sco","Sag","Cap","Aqu","Pis",
+  "Ari",
+  "Tau",
+  "Gem",
+  "Can",
+  "Leo",
+  "Vir",
+  "Lib",
+  "Sco",
+  "Sag",
+  "Cap",
+  "Aqu",
+  "Pis",
 ] as const;
 
 function signFromLon(lon: number) {
@@ -28,6 +38,13 @@ function fmtLon(lon: number) {
 }
 
 const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
+
+const SEASON_SHORT: Record<(typeof SEASONS)[number], string> = {
+  Spring: "SPRG",
+  Summer: "SUMR",
+  Fall: "FALL",
+  Winter: "WNTR",
+};
 
 // mean solar motion (deg/day) used for estimating shift timing
 const MEAN_SOLAR_RATE = 0.985647;
@@ -102,13 +119,7 @@ function SubCard({
   );
 }
 
-function Chip({
-  k,
-  v,
-}: {
-  k: string;
-  v: React.ReactNode;
-}) {
+function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="min-w-[92px]">
       <div className="text-[10px] tracking-[0.18em] uppercase text-white/70">
@@ -121,20 +132,26 @@ function Chip({
 
 /**
  * Dial: 8-phase ring, season axes, labels, and a hand that points to cyclePosDeg.
- * 0° is at top (12 o'clock).
+ *
+ * IMPORTANT: URA Profile Dial orientation:
+ *   0° at LEFT (Spring)
+ *   90° at BOTTOM (Summer)
+ *   180° at RIGHT (Fall)
+ *   270° at TOP (Winter)
  */
 function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
-  // Larger + more breathing room for labels
   const size = 360;
   const cx = size / 2;
   const cy = size / 2;
 
-  const ringR = 112;        // ring radius
-  const discR = 92;         // inner disc radius
+  const ringR = 112; // ring radius
+  const discR = 92; // inner disc radius
   const outerR = ringR + 34;
 
   const angle = norm360(cyclePosDeg);
-  const rad = ((angle - 90) * Math.PI) / 180;
+
+  // 0° LEFT, 90° DOWN, 180° RIGHT, 270° UP
+  const rad = ((angle + 180) * Math.PI) / 180;
 
   const handLen = discR + 28;
   const hx = cx + handLen * Math.cos(rad);
@@ -144,7 +161,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
   const minorTicks = Array.from({ length: 16 }, (_, i) => i * 22.5);
 
   const tickLine = (deg: number, major: boolean) => {
-    const a = ((deg - 90) * Math.PI) / 180;
+    const a = ((deg + 180) * Math.PI) / 180;
     const r1 = major ? ringR + 10 : ringR + 14;
     const r2 = major ? ringR + 30 : ringR + 22;
     return {
@@ -155,13 +172,12 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
     };
   };
 
-  // label positions (outside ring, no clipping)
   const labelR = outerR - 6;
   const labelStyle = {
     fill: "rgba(16,43,83,0.72)",
     fontSize: 12,
     letterSpacing: 1.2,
-    fontWeight: 600 as const,
+    fontWeight: 700 as const,
   };
 
   return (
@@ -189,7 +205,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
 
           {/* season axes (0/90/180/270) */}
           {[0, 90, 180, 270].map((deg) => {
-            const a = ((deg - 90) * Math.PI) / 180;
+            const a = ((deg + 180) * Math.PI) / 180;
             const r0 = ringR - 10;
             const r1 = ringR + 8;
             const x0 = cx + r0 * Math.cos(a);
@@ -197,6 +213,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             const x1 = cx + r1 * Math.cos(a);
             const y1 = cy + r1 * Math.sin(a);
 
+            // Make 0° axis (Spring/left) slightly stronger
             const isZero = deg === 0;
             return (
               <line
@@ -238,7 +255,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             );
           })}
 
-          {/* season labels: Left Spring, Down Summer, Right Fall, Up Winter */}
+          {/* season labels: LEFT SPRG, DOWN SUMR, RIGHT FALL, UP WNTR */}
           <text
             x={cx}
             y={cy - labelR}
@@ -246,7 +263,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             dominantBaseline="middle"
             style={labelStyle}
           >
-            Winter
+            WNTR
           </text>
           <text
             x={cx + labelR}
@@ -255,7 +272,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             dominantBaseline="middle"
             style={labelStyle}
           >
-            Fall
+            FALL
           </text>
           <text
             x={cx}
@@ -264,7 +281,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             dominantBaseline="middle"
             style={labelStyle}
           >
-            Summer
+            SUMR
           </text>
           <text
             x={cx - labelR}
@@ -273,7 +290,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             dominantBaseline="middle"
             style={labelStyle}
           >
-            Spring
+            SPRG
           </text>
 
           {/* inner disc */}
@@ -340,9 +357,8 @@ export default function ProfileClient(props: Props) {
     if (cycle == null) {
       return {
         ok: false as const,
-        title: "—",
-        subtitle: "Cycle position unavailable.",
         season: null as string | null,
+        seasonShort: "—",
         phaseIndex: null as number | null,
         phaseDeg: null as number | null,
         seasonDeg: null as number | null,
@@ -351,6 +367,8 @@ export default function ProfileClient(props: Props) {
         nextLabel: "—",
         shiftText: "—",
         seasonDay: null as number | null,
+        remainingDeg: null as number | null,
+        daysToBoundary: null as number | null,
       };
     }
 
@@ -358,17 +376,22 @@ export default function ProfileClient(props: Props) {
     const phaseIndex = Math.floor(cycle / 45) + 1; // 1..8
     const phaseStart = (phaseIndex - 1) * 45;
     const phaseDeg = cycle - phaseStart; // 0..45
+    const phaseProgress = phaseDeg / 45;
 
-    // season mapping (Phase 1–2 Spring, 3–4 Summer, 5–6 Fall, 7–8 Winter)
+    // season mapping by phases: (1–2 Spring, 3–4 Summer, 5–6 Fall, 7–8 Winter)
     const seasonIndex = Math.floor((phaseIndex - 1) / 2); // 0..3
     const season = SEASONS[seasonIndex];
+    const seasonShort = SEASON_SHORT[season];
 
     const seasonStart = seasonIndex * 90;
     const seasonDeg = cycle - seasonStart; // 0..90
     const seasonProgress = seasonDeg / 90;
 
-    // "Day X / 90" — use proportional day count (stable, matches your ask)
-    const seasonDay = Math.max(1, Math.min(90, Math.floor(seasonProgress * 90) + 1));
+    // Day X / 90 (proportional day index)
+    const seasonDay = Math.max(
+      1,
+      Math.min(90, Math.floor(seasonProgress * 90) + 1)
+    );
 
     // next phase + shift estimate (wrap-safe)
     const nextPhase = phaseIndex === 8 ? 1 : phaseIndex + 1;
@@ -377,33 +400,39 @@ export default function ProfileClient(props: Props) {
     if (remainingDeg < 0) remainingDeg += 360;
     if (Math.abs(remainingDeg) < 1e-9) remainingDeg = 0;
 
-    const days = remainingDeg / MEAN_SOLAR_RATE;
+    const daysToBoundary = remainingDeg / MEAN_SOLAR_RATE;
     const asOf = asOfISO ? new Date(asOfISO) : new Date();
-    const shiftAt = new Date(asOf.getTime() + days * 24 * 60 * 60 * 1000);
+    const shiftAt = new Date(asOf.getTime() + daysToBoundary * 86400000);
 
-    const shiftText = `~${days.toFixed(1)} days • ${shiftAt.toLocaleString(undefined, {
-      month: "2-digit",
-      day: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
+    const shiftText = `~${daysToBoundary.toFixed(1)} days • ${shiftAt.toLocaleString(
+      undefined,
+      {
+        month: "2-digit",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    )}`;
 
     const nextSeason = SEASONS[Math.floor((nextPhase - 1) / 2)];
+    const nextSeasonShort = SEASON_SHORT[nextSeason];
+    const nextLabel = `${nextSeasonShort} · Phase ${nextPhase}`;
 
     return {
       ok: true as const,
       season,
+      seasonShort,
       phaseIndex,
       phaseDeg,
       seasonDeg,
-      phaseProgress: phaseDeg / 45,
+      phaseProgress,
       seasonProgress,
-      title: `${season} · Phase ${phaseIndex}`,
-      subtitle: `Degrees into phase: ${phaseDeg.toFixed(2)}° / 45°`,
-      nextLabel: `${nextSeason} · Phase ${nextPhase}`,
+      nextLabel,
       shiftText,
       seasonDay,
+      remainingDeg,
+      daysToBoundary,
     };
   }, [cyclePosDeg, asOfISO]);
 
@@ -420,20 +449,30 @@ export default function ProfileClient(props: Props) {
   }, [asOfISO, timezone]);
 
   const natalAsc =
-    natalAscLon != null ? `${signFromLon(natalAscLon)} ${fmtLon(natalAscLon)}` : "—";
+    natalAscLon != null
+      ? `${signFromLon(natalAscLon)} ${fmtLon(natalAscLon)}`
+      : "—";
   const natalSun =
-    natalSunLon != null ? `${signFromLon(natalSunLon)} ${fmtLon(natalSunLon)}` : "—";
+    natalSunLon != null
+      ? `${signFromLon(natalSunLon)} ${fmtLon(natalSunLon)}`
+      : "—";
   const natalMoon =
-    natalMoonLon != null ? `${signFromLon(natalMoonLon)} ${fmtLon(natalMoonLon)}` : "—";
+    natalMoonLon != null
+      ? `${signFromLon(natalMoonLon)} ${fmtLon(natalMoonLon)}`
+      : "—";
 
-  // NOTE: still showing whatever "moving" longitudes are currently wired.
+  // NOTE: still wired to whatever "moving" longitudes are currently being passed.
   // We'll swap these to progressed Sun/Moon once we confirm the cache keys.
   const movingSun =
-    movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
+    movingSunLon != null
+      ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}`
+      : "—";
   const movingMoon =
-    movingMoonLon != null ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}` : "—";
+    movingMoonLon != null
+      ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}`
+      : "—";
 
-  // "Current Zodiac" uses the current Sun longitude (movingSunLon)
+  // Current Zodiac = current Sun longitude (still sign-based 30° markers)
   const currentZodiac =
     movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
 
@@ -475,11 +514,25 @@ export default function ProfileClient(props: Props) {
               <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/55">
                 Orientation
               </div>
-              <div className="mt-2 text-3xl font-semibold tracking-tight text-[#102B53]">
-                {derived.title}
+
+              {/* Stacked: Season above Phase */}
+              <div className="mt-2 text-3xl font-semibold tracking-tight text-[#102B53] leading-tight">
+                <div className="flex justify-center">
+                  <div>{derived.ok ? derived.seasonShort : "—"}</div>
+                </div>
+                <div className="flex justify-center">
+                  <div>
+                    {derived.ok && derived.phaseIndex != null
+                      ? `Phase ${derived.phaseIndex}`
+                      : "—"}
+                  </div>
+                </div>
               </div>
+
               <div className="mt-2 text-sm text-[#102B53]/70">
-                {derived.subtitle}
+                {derived.ok && derived.phaseDeg != null
+                  ? `Degrees into phase: ${derived.phaseDeg.toFixed(2)}° / 45°`
+                  : "Cycle position unavailable."}
               </div>
             </div>
 
@@ -513,7 +566,7 @@ export default function ProfileClient(props: Props) {
               </SubCard>
             </div>
 
-            {/* PROGRESS: Season arc + (optional) phase bar removed */}
+            {/* PROGRESS: Season arc + Phase boundary (replaces Cycle Position) */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="rounded-2xl border border-black/10 bg-white/55 px-5 py-4">
                 <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/60">
@@ -528,8 +581,10 @@ export default function ProfileClient(props: Props) {
                   labelLeft="0°"
                   labelRight="90°"
                   meta={
-                    derived.ok
-                      ? `Day ${derived.seasonDay}/90 • ${derived.seasonDeg?.toFixed(2)}° / 90°`
+                    derived.ok && derived.seasonDay != null && derived.seasonDeg != null
+                      ? `Day ${derived.seasonDay}/90 • ${derived.seasonDeg.toFixed(
+                          2
+                        )}° / 90°`
                       : "—"
                   }
                 />
@@ -537,18 +592,23 @@ export default function ProfileClient(props: Props) {
 
               <div className="rounded-2xl border border-black/10 bg-white/55 px-5 py-4">
                 <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/60">
-                  Cycle Position
+                  Phase Boundary
                 </div>
                 <div className="mt-2 text-sm text-[#102B53]/70">
-                  Sun-from-ASC position (0–360°).
+                  Remaining to next 45° boundary.
                 </div>
+
                 <ProgressBar
-                  value={cyclePosDeg != null ? norm360(cyclePosDeg) / 360 : 0}
-                  labelLeft="0°"
-                  labelRight="360°"
+                  value={derived.ok ? 1 - derived.phaseProgress : 0}
+                  labelLeft={
+                    derived.ok && derived.remainingDeg != null
+                      ? `${derived.remainingDeg.toFixed(2)}°`
+                      : "—"
+                  }
+                  labelRight="0°"
                   meta={
-                    cyclePosDeg != null
-                      ? `${norm360(cyclePosDeg).toFixed(2)}°`
+                    derived.ok && derived.daysToBoundary != null
+                      ? `~${derived.daysToBoundary.toFixed(1)} days`
                       : "—"
                   }
                 />
