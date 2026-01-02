@@ -127,7 +127,11 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
 
 /**
  * Sideways figure-8 waveform (∞) for the 0–360 cycle position.
- * This is a visual aid: it encodes cycle position along a clean parametric curve.
+ * Labels are fixed to cardinal anchors:
+ *  - SPRG = top center
+ *  - FALL = bottom center
+ *  - WNTR = left center
+ *  - SUMR = right center
  */
 function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const size = 760;
@@ -167,12 +171,15 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
     fontWeight: 700,
   };
 
-  // Season anchor labels (mapped by quarter turns for readability)
-  const labels = [
-    { txt: "SPRG", tt: 0, dy: 28 },
-    { txt: "SUMR", tt: Math.PI / 2, dy: -18 },
-    { txt: "FALL", tt: Math.PI, dy: 28 },
-    { txt: "WNTR", tt: (3 * Math.PI) / 2, dy: 42 },
+  // Fixed label positions (not on the curve)
+  const labelFixed = [
+    // left/right centered
+    { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
+    { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
+
+    // top/bottom at the crossing
+    { txt: "SPRG", x: cx, y: cy - b - 22, anchor: "middle" as const },
+    { txt: "FALL", x: cx, y: cy + b + 34, anchor: "middle" as const },
   ];
 
   return (
@@ -187,13 +194,13 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
 
         <div className="mt-4 overflow-x-auto">
           <svg width={size} height={H} className="block">
-            {/* soft grid */}
+            {/* crosshair (ontology axes) */}
             <line
               x1={0}
               y1={cy}
               x2={size}
               y2={cy}
-              stroke="rgba(0,0,0,0.08)"
+              stroke="rgba(0,0,0,0.10)"
               strokeWidth="1"
             />
             <line
@@ -201,7 +208,7 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
               y1={0}
               x2={cx}
               y2={H}
-              stroke="rgba(0,0,0,0.06)"
+              stroke="rgba(0,0,0,0.10)"
               strokeWidth="1"
             />
 
@@ -220,12 +227,12 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
             <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
 
             {/* labels */}
-            {labels.map((l) => (
+            {labelFixed.map((l) => (
               <text
                 key={l.txt}
-                x={X(l.tt)}
-                y={Y(l.tt) + l.dy}
-                textAnchor="middle"
+                x={l.x}
+                y={l.y}
+                textAnchor={l.anchor}
                 style={labelStyle}
               >
                 {l.txt}
