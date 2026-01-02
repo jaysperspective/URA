@@ -40,10 +40,10 @@ function fmtLon(lon: number) {
 const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
 
 const SEASON_SHORT: Record<(typeof SEASONS)[number], string> = {
-  Spring: "Spring",
-  Summer: "Summer",
-  Fall: "Fall",
-  Winter: "Winter",
+  Spring: "SPRG",
+  Summer: "SUMR",
+  Fall: "FALL",
+  Winter: "WNTR",
 };
 
 // mean solar motion (deg/day) used for estimating shift timing
@@ -63,20 +63,15 @@ function ProgressBar({
   const pct = Math.max(0, Math.min(1, value)) * 100;
   return (
     <div className="mt-2">
-      <div className="flex items-center justify-between text-xs text-[#102B53]/70">
+      <div className="flex items-center justify-between text-xs text-[#403A32]/70">
         <span>{labelLeft}</span>
         <span>{labelRight}</span>
       </div>
 
-      {meta ? (
-        <div className="mt-1 text-xs text-[#102B53]/65">{meta}</div>
-      ) : null}
+      {meta ? <div className="mt-1 text-xs text-[#403A32]/70">{meta}</div> : null}
 
-      <div className="mt-2 h-2 rounded-full bg-[#102B53]/15 overflow-hidden">
-        <div
-          className="h-full rounded-full bg-[#50698D]"
-          style={{ width: `${pct}%` }}
-        />
+      <div className="mt-2 h-2 rounded-full bg-black/10 overflow-hidden">
+        <div className="h-full rounded-full bg-[#8C8377]" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -92,8 +87,8 @@ function CardShell({
   return (
     <div
       className={[
-        "rounded-3xl border border-white/10 bg-white/80 backdrop-blur",
-        "shadow-[0_30px_120px_rgba(0,0,0,0.25)]",
+        "rounded-3xl border border-[#E2D9CC] bg-[#F4EFE6]",
+        "shadow-[0_30px_120px_rgba(0,0,0,0.45)]",
         className,
       ].join(" ")}
     >
@@ -110,8 +105,8 @@ function SubCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-black/10 bg-white/55 px-5 py-4">
-      <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/60">
+    <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
         {title}
       </div>
       <div className="mt-2">{children}</div>
@@ -122,10 +117,10 @@ function SubCard({
 function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="min-w-[92px]">
-      <div className="text-[10px] tracking-[0.18em] uppercase text-white/70">
+      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/70">
         {k}
       </div>
-      <div className="mt-1 text-sm text-white font-medium">{v}</div>
+      <div className="mt-1 text-sm text-[#F4EFE6] font-medium">{v}</div>
     </div>
   );
 }
@@ -133,25 +128,28 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
 /**
  * Dial: 8-phase ring, season axes, labels, and a hand that points to cyclePosDeg.
  *
- * IMPORTANT: URA Profile Dial orientation:
- *   0° at LEFT (Spring)
- *   90° at BOTTOM (Summer)
- *   180° at RIGHT (Fall)
- *   270° at TOP (Winter)
+ * ORIENTATION:
+ *   0°  at LEFT  (SPRG)
+ *   90° at DOWN  (SUMR)
+ *   180° at RIGHT (FALL)
+ *   270° at UP   (WNTR)
+ *
+ * NOTE: cyclePosDeg increases in ecliptic longitude direction; to match visual seasons,
+ * we invert the angle so the hand runs in the intended quadrant flow.
  */
 function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
   const size = 360;
   const cx = size / 2;
   const cy = size / 2;
 
-  const ringR = 112; // ring radius
-  const discR = 92; // inner disc radius
+  const ringR = 112;
+  const discR = 92;
   const outerR = ringR + 34;
 
   const angle = norm360(cyclePosDeg);
 
-  // 0° LEFT, 90° DOWN, 180° RIGHT, 270° UP
-  const rad = ((angle + 180) * Math.PI) / 180;
+  // Inverted to align cyclePosDeg direction with the visual axes
+  const rad = ((-angle + 180) * Math.PI) / 180;
 
   const handLen = discR + 28;
   const hx = cx + handLen * Math.cos(rad);
@@ -161,7 +159,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
   const minorTicks = Array.from({ length: 16 }, (_, i) => i * 22.5);
 
   const tickLine = (deg: number, major: boolean) => {
-    const a = ((deg + 180) * Math.PI) / 180;
+    const a = ((-deg + 180) * Math.PI) / 180;
     const r1 = major ? ringR + 10 : ringR + 14;
     const r2 = major ? ringR + 30 : ringR + 22;
     return {
@@ -173,39 +171,32 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
   };
 
   const labelR = outerR - 6;
-  const labelStyle = {
-    fill: "rgba(16,43,83,0.72)",
-    fontSize: 12,
-    letterSpacing: 1.2,
-    fontWeight: 700 as const,
-  };
 
   return (
     <div className="mx-auto relative w-[360px] h-[360px] flex items-center justify-center">
-      <div className="absolute inset-0 rounded-full bg-white/25 blur-[22px]" />
-      <div className="relative rounded-full border border-black/10 bg-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.7)] w-[350px] h-[350px] flex items-center justify-center">
+      <div className="absolute inset-0 rounded-full bg-black/10 blur-[24px]" />
+      <div className="relative rounded-full border border-black/10 bg-[#F8F2E8] w-[350px] h-[350px] flex items-center justify-center">
         <svg width={size} height={size} className="block">
           <defs>
             <radialGradient id="ura_disc" cx="35%" cy="30%" r="70%">
               <stop offset="0%" stopColor="rgba(255,255,255,0.98)" />
-              <stop offset="60%" stopColor="rgba(255,255,255,0.70)" />
-              <stop offset="100%" stopColor="rgba(16,43,83,0.10)" />
+              <stop offset="60%" stopColor="rgba(245,239,230,0.70)" />
+              <stop offset="100%" stopColor="rgba(0,0,0,0.10)" />
             </radialGradient>
           </defs>
 
-          {/* outer halo ring */}
           <circle
             cx={cx}
             cy={cy}
             r={outerR}
             fill="none"
-            stroke="rgba(16,43,83,0.14)"
+            stroke="rgba(0,0,0,0.10)"
             strokeWidth="2"
           />
 
           {/* season axes (0/90/180/270) */}
           {[0, 90, 180, 270].map((deg) => {
-            const a = ((deg + 180) * Math.PI) / 180;
+            const a = ((-deg + 180) * Math.PI) / 180;
             const r0 = ringR - 10;
             const r1 = ringR + 8;
             const x0 = cx + r0 * Math.cos(a);
@@ -213,7 +204,6 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             const x1 = cx + r1 * Math.cos(a);
             const y1 = cy + r1 * Math.sin(a);
 
-            // Make 0° axis (Spring/left) slightly stronger
             const isZero = deg === 0;
             return (
               <line
@@ -222,7 +212,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
                 y1={y0}
                 x2={x1}
                 y2={y1}
-                stroke={isZero ? "rgba(16,43,83,0.35)" : "rgba(16,43,83,0.22)"}
+                stroke={isZero ? "rgba(0,0,0,0.30)" : "rgba(0,0,0,0.18)"}
                 strokeWidth={isZero ? 3 : 2}
                 strokeLinecap="round"
               />
@@ -236,7 +226,7 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
               <line
                 key={`m-${deg}`}
                 {...t}
-                stroke="rgba(16,43,83,0.18)"
+                stroke="rgba(0,0,0,0.14)"
                 strokeWidth="2"
                 strokeLinecap="round"
               />
@@ -248,20 +238,25 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
               <line
                 key={`M-${deg}`}
                 {...t}
-                stroke="rgba(16,43,83,0.30)"
+                stroke="rgba(0,0,0,0.22)"
                 strokeWidth="3"
                 strokeLinecap="round"
               />
             );
           })}
 
-          {/* season labels: LEFT SPRG, DOWN SUMR, RIGHT FALL, UP WNTR */}
+          {/* labels (abbrev) */}
           <text
             x={cx}
             y={cy - labelR}
             textAnchor="middle"
             dominantBaseline="middle"
-            style={labelStyle}
+            style={{
+              fill: "rgba(0,0,0,0.65)",
+              fontSize: 12,
+              letterSpacing: 1.4,
+              fontWeight: 700,
+            }}
           >
             WNTR
           </text>
@@ -270,7 +265,12 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             y={cy}
             textAnchor="middle"
             dominantBaseline="middle"
-            style={labelStyle}
+            style={{
+              fill: "rgba(0,0,0,0.65)",
+              fontSize: 12,
+              letterSpacing: 1.4,
+              fontWeight: 700,
+            }}
           >
             FALL
           </text>
@@ -279,7 +279,12 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             y={cy + labelR}
             textAnchor="middle"
             dominantBaseline="middle"
-            style={labelStyle}
+            style={{
+              fill: "rgba(0,0,0,0.65)",
+              fontSize: 12,
+              letterSpacing: 1.4,
+              fontWeight: 700,
+            }}
           >
             SUMR
           </text>
@@ -288,12 +293,16 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             y={cy}
             textAnchor="middle"
             dominantBaseline="middle"
-            style={labelStyle}
+            style={{
+              fill: "rgba(0,0,0,0.65)",
+              fontSize: 12,
+              letterSpacing: 1.4,
+              fontWeight: 700,
+            }}
           >
             SPRG
           </text>
 
-          {/* inner disc */}
           <circle
             cx={cx}
             cy={cy}
@@ -309,12 +318,12 @@ function AscYearDial({ cyclePosDeg }: { cyclePosDeg: number }) {
             y1={cy}
             x2={hx}
             y2={hy}
-            stroke="rgba(16,43,83,0.78)"
+            stroke="rgba(0,0,0,0.70)"
             strokeWidth="3"
             strokeLinecap="round"
           />
-          <circle cx={cx} cy={cy} r="4.6" fill="rgba(16,43,83,0.80)" />
-          <circle cx={hx} cy={hy} r="3.6" fill="rgba(80,105,141,0.95)" />
+          <circle cx={cx} cy={cy} r="4.6" fill="rgba(0,0,0,0.65)" />
+          <circle cx={hx} cy={hy} r="3.6" fill="rgba(140,131,119,0.95)" />
         </svg>
       </div>
     </div>
@@ -378,7 +387,7 @@ export default function ProfileClient(props: Props) {
     const phaseDeg = cycle - phaseStart; // 0..45
     const phaseProgress = phaseDeg / 45;
 
-    // season mapping by phases: (1–2 Spring, 3–4 Summer, 5–6 Fall, 7–8 Winter)
+    // seasons by phase pairs: (1–2 SPRG, 3–4 SUMR, 5–6 FALL, 7–8 WNTR)
     const seasonIndex = Math.floor((phaseIndex - 1) / 2); // 0..3
     const season = SEASONS[seasonIndex];
     const seasonShort = SEASON_SHORT[season];
@@ -387,18 +396,16 @@ export default function ProfileClient(props: Props) {
     const seasonDeg = cycle - seasonStart; // 0..90
     const seasonProgress = seasonDeg / 90;
 
-    // Day X / 90 (proportional day index)
     const seasonDay = Math.max(
       1,
       Math.min(90, Math.floor(seasonProgress * 90) + 1)
     );
 
-    // next phase + shift estimate (wrap-safe)
+    // next phase boundary (wrap-safe)
     const nextPhase = phaseIndex === 8 ? 1 : phaseIndex + 1;
-    const boundaryDeg = phaseIndex * 45; // end of current phase
+    const boundaryDeg = phaseIndex * 45;
     let remainingDeg = boundaryDeg - cycle;
     if (remainingDeg < 0) remainingDeg += 360;
-    if (Math.abs(remainingDeg) < 1e-9) remainingDeg = 0;
 
     const daysToBoundary = remainingDeg / MEAN_SOLAR_RATE;
     const asOf = asOfISO ? new Date(asOfISO) : new Date();
@@ -449,32 +456,70 @@ export default function ProfileClient(props: Props) {
   }, [asOfISO, timezone]);
 
   const natalAsc =
-    natalAscLon != null
-      ? `${signFromLon(natalAscLon)} ${fmtLon(natalAscLon)}`
-      : "—";
+    natalAscLon != null ? `${signFromLon(natalAscLon)} ${fmtLon(natalAscLon)}` : "—";
   const natalSun =
-    natalSunLon != null
-      ? `${signFromLon(natalSunLon)} ${fmtLon(natalSunLon)}`
-      : "—";
+    natalSunLon != null ? `${signFromLon(natalSunLon)} ${fmtLon(natalSunLon)}` : "—";
   const natalMoon =
-    natalMoonLon != null
-      ? `${signFromLon(natalMoonLon)} ${fmtLon(natalMoonLon)}`
-      : "—";
+    natalMoonLon != null ? `${signFromLon(natalMoonLon)} ${fmtLon(natalMoonLon)}` : "—";
 
-  // NOTE: still wired to whatever "moving" longitudes are currently being passed.
-  // We'll swap these to progressed Sun/Moon once we confirm the cache keys.
   const movingSun =
-    movingSunLon != null
-      ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}`
-      : "—";
+    movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
   const movingMoon =
-    movingMoonLon != null
-      ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}`
-      : "—";
+    movingMoonLon != null ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}` : "—";
 
-  // Current Zodiac = current Sun longitude (still sign-based 30° markers)
   const currentZodiac =
     movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
+
+  // LLM-ready phase brief template (deterministic for now)
+  const phaseBrief = useMemo(() => {
+    if (!derived.ok || derived.phaseIndex == null || derived.phaseDeg == null || derived.seasonShort === "—") {
+      return {
+        title: "Phase Brief",
+        lines: [
+          "Cycle position unavailable.",
+          "Once the server LLM is connected, this panel will render an interpretation grounded in URA ontology.",
+        ],
+      };
+    }
+
+    const seasonShort = derived.seasonShort;
+    const phase = derived.phaseIndex;
+    const phaseDeg = derived.phaseDeg;
+    const remaining = derived.remainingDeg ?? 0;
+    const day = derived.seasonDay ?? 1;
+
+    // Ontology framing (placeholder but aligned)
+    const frame = `You are in ${seasonShort} — Phase ${phase}.`;
+    const mechanics = `You are ${phaseDeg.toFixed(2)}° into this 45° phase. (${remaining.toFixed(
+      2
+    )}° remaining to boundary)`;
+    const seasonArc = `Season arc: Day ${day}/90 (${(derived.seasonDeg ?? 0).toFixed(2)}° / 90°).`;
+    const zodiac = `Current Zodiac (Sun): ${currentZodiac}.`;
+
+    // simple “intent” by phase pair (still deterministic; we’ll refine with your URA language later)
+    const intent =
+      phase <= 2
+        ? "Intent: Initiate + orient. Build momentum with clean fundamentals."
+        : phase <= 4
+        ? "Intent: Expand + execute. Lean into output and visible progress."
+        : phase <= 6
+        ? "Intent: Refine + harvest. Edit, distill, and consolidate gains."
+        : "Intent: Release + reset. Simplify, restore, and prepare the next turn.";
+
+    const prompts = [
+      "LLM Prompt (server):",
+      `Return a concise interpretation for ${seasonShort} Phase ${phase} using URA ontology.`,
+      `Include: (1) Orientation, (2) Focus, (3) Watch-outs, (4) One practical next step.`,
+      `Use the numeric context: cyclePosDeg=${cyclePosDeg?.toFixed(2) ?? "—"}, phaseDeg=${phaseDeg.toFixed(
+        2
+      )}, seasonDay=${day}, currentZodiac="${currentZodiac}".`,
+    ];
+
+    return {
+      title: "Phase Brief (Ontology + LLM-ready)",
+      lines: [frame, mechanics, seasonArc, zodiac, intent, "", ...prompts],
+    };
+  }, [derived, currentZodiac, cyclePosDeg]);
 
   return (
     <div className="mt-8">
@@ -482,16 +527,16 @@ export default function ProfileClient(props: Props) {
       <div className="mx-auto max-w-5xl">
         <div className="flex items-start justify-between gap-6">
           <div className="flex items-start gap-3">
-            <div className="mt-1 h-10 w-10 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center text-white/60 text-xs">
+            <div className="mt-1 h-10 w-10 rounded-2xl bg-[#151515] border border-[#E2D9CC]/25 flex items-center justify-center text-[#F4EFE6]/70 text-xs">
               +
             </div>
 
             <div>
-              <div className="text-white/90 text-sm">Profile</div>
-              <div className="text-white text-lg font-semibold leading-tight">
+              <div className="text-[#F4EFE6]/80 text-sm">Profile</div>
+              <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">
                 {name}
               </div>
-              <div className="text-white/70 text-sm">{locationLine}</div>
+              <div className="text-[#F4EFE6]/65 text-sm">{locationLine}</div>
             </div>
           </div>
 
@@ -511,68 +556,66 @@ export default function ProfileClient(props: Props) {
         <CardShell>
           <div className="px-8 pt-10 pb-8">
             <div className="text-center">
-              <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/55">
+              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                 Orientation
               </div>
 
               {/* Stacked: Season above Phase */}
-              <div className="mt-2 text-3xl font-semibold tracking-tight text-[#102B53] leading-tight">
+              <div className="mt-2 text-3xl font-semibold tracking-tight text-[#1F1B16] leading-tight">
                 <div className="flex justify-center">
                   <div>{derived.ok ? derived.seasonShort : "—"}</div>
                 </div>
                 <div className="flex justify-center">
                   <div>
-                    {derived.ok && derived.phaseIndex != null
-                      ? `Phase ${derived.phaseIndex}`
-                      : "—"}
+                    {derived.ok && derived.phaseIndex != null ? `Phase ${derived.phaseIndex}` : "—"}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-2 text-sm text-[#102B53]/70">
+              <div className="mt-2 text-sm text-[#403A32]/75">
                 {derived.ok && derived.phaseDeg != null
                   ? `Degrees into phase: ${derived.phaseDeg.toFixed(2)}° / 45°`
                   : "Cycle position unavailable."}
               </div>
             </div>
 
-            {/* TOP ROW: Current Zodiac + Shift + Next */}
+            {/* TOP ROW */}
             <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac">
-                <div className="text-sm font-semibold text-[#102B53]">
+                <div className="text-sm font-semibold text-[#1F1B16]">
                   {currentZodiac}
                 </div>
-                <div className="mt-1 text-sm text-[#102B53]/70">
+                <div className="mt-1 text-sm text-[#403A32]/75">
                   Current Sun position (sign changes at 30° markers).
                 </div>
               </SubCard>
 
               <SubCard title="Shift">
-                <div className="text-sm font-semibold text-[#102B53]">
+                <div className="text-sm font-semibold text-[#1F1B16]">
                   {derived.ok ? derived.shiftText : "—"}
                 </div>
-                <div className="mt-1 text-sm text-[#102B53]/70">
+                <div className="mt-1 text-sm text-[#403A32]/75">
                   Estimated phase boundary crossing (mean solar rate).
                 </div>
               </SubCard>
 
               <SubCard title="Next">
-                <div className="text-sm font-semibold text-[#102B53]">
+                <div className="text-sm font-semibold text-[#1F1B16]">
                   {derived.ok ? derived.nextLabel : "—"}
                 </div>
-                <div className="mt-1 text-sm text-[#102B53]/70">
-                  The next 45° segment (Phase boundary).
+                <div className="mt-1 text-sm text-[#403A32]/75">
+                  The next 45° segment (phase boundary).
                 </div>
               </SubCard>
             </div>
 
-            {/* PROGRESS: Season arc + Phase boundary (replaces Cycle Position) */}
+            {/* PROGRESS */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-black/10 bg-white/55 px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/60">
+              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                   90° Season Arc
                 </div>
-                <div className="mt-2 text-sm text-[#102B53]/70">
+                <div className="mt-2 text-sm text-[#403A32]/75">
                   Progress within the current season (0–90°).
                 </div>
 
@@ -582,19 +625,17 @@ export default function ProfileClient(props: Props) {
                   labelRight="90°"
                   meta={
                     derived.ok && derived.seasonDay != null && derived.seasonDeg != null
-                      ? `Day ${derived.seasonDay}/90 • ${derived.seasonDeg.toFixed(
-                          2
-                        )}° / 90°`
+                      ? `Day ${derived.seasonDay}/90 • ${derived.seasonDeg.toFixed(2)}° / 90°`
                       : "—"
                   }
                 />
               </div>
 
-              <div className="rounded-2xl border border-black/10 bg-white/55 px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/60">
+              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                   Phase Boundary
                 </div>
-                <div className="mt-2 text-sm text-[#102B53]/70">
+                <div className="mt-2 text-sm text-[#403A32]/75">
                   Remaining to next 45° boundary.
                 </div>
 
@@ -615,14 +656,14 @@ export default function ProfileClient(props: Props) {
               </div>
             </div>
 
-            {/* DIAL */}
+            {/* DIAL + PHASE BRIEF */}
             <div className="mt-8">
-              <div className="rounded-3xl border border-black/10 bg-white/50 px-6 py-6">
+              <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
                 <div className="flex items-center justify-between">
-                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#102B53]/60">
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                     Cycle Wheel
                   </div>
-                  <div className="text-xs text-[#102B53]/70">
+                  <div className="text-xs text-[#403A32]/70">
                     {cyclePosDeg != null ? `${norm360(cyclePosDeg).toFixed(2)}°` : "—"}
                   </div>
                 </div>
@@ -631,14 +672,33 @@ export default function ProfileClient(props: Props) {
                   {cyclePosDeg != null ? (
                     <AscYearDial cyclePosDeg={cyclePosDeg} />
                   ) : (
-                    <div className="text-center text-sm text-[#102B53]/70 py-14">
+                    <div className="text-center text-sm text-[#403A32]/70 py-14">
                       Cycle position unavailable.
                     </div>
                   )}
                 </div>
 
-                <div className="mt-4 text-center text-sm text-[#102B53]/70">
+                <div className="mt-4 text-center text-sm text-[#403A32]/75">
                   0° starts at your natal ASC; the hand moves with the cycle position.
+                </div>
+
+                {/* NEW: Phase Brief module (LLM-ready) */}
+                <div className="mt-6 rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                    {phaseBrief.title}
+                  </div>
+
+                  <div className="mt-3 space-y-2 text-sm text-[#1F1B16]/90">
+                    {phaseBrief.lines.map((line, idx) => (
+                      <div key={idx} className={line === "" ? "h-2" : ""}>
+                        {line === "" ? null : line}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 text-xs text-[#403A32]/70">
+                    This will be server-rendered once the URA LLM endpoint is added.
+                  </div>
                 </div>
               </div>
             </div>
@@ -647,19 +707,19 @@ export default function ProfileClient(props: Props) {
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
               <Link
                 href="/seasons"
-                className="rounded-2xl bg-[#102B53] text-white px-4 py-2 text-sm hover:opacity-90"
+                className="rounded-2xl bg-[#151515] text-[#F4EFE6] px-4 py-2 text-sm border border-[#E2D9CC]/40 hover:bg-[#1E1E1E]"
               >
                 Go to /seasons
               </Link>
               <Link
                 href="/calendar"
-                className="rounded-2xl border border-[#102B53]/20 bg-white/60 text-[#102B53] px-4 py-2 text-sm hover:bg-white/70"
+                className="rounded-2xl bg-[#F4EFE6] text-[#151515] px-4 py-2 text-sm border border-black/15 hover:bg-[#EFE7DB]"
               >
                 Go to /calendar
               </Link>
             </div>
 
-            <div className="mt-5 text-center text-xs text-[#102B53]/55">
+            <div className="mt-5 text-center text-xs text-[#403A32]/70">
               {asOfLine}
             </div>
           </div>
