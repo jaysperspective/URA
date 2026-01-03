@@ -3,6 +3,8 @@
 
 import Link from "next/link";
 import React, { useMemo } from "react";
+import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
+import { microcopyFromDegrees } from "@/lib/phaseMicrocopy";
 
 function norm360(d: number) {
   let x = d % 360;
@@ -194,7 +196,6 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
 
         <div className="mt-4 overflow-x-auto">
           <svg width={size} height={H} className="block">
-            {/* crosshair (ontology axes) */}
             <line
               x1={0}
               y1={cy}
@@ -212,7 +213,6 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
               strokeWidth="1"
             />
 
-            {/* curve */}
             <path
               d={pathD}
               fill="none"
@@ -222,11 +222,9 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
               strokeLinejoin="round"
             />
 
-            {/* marker */}
             <circle cx={px} cy={py} r="6" fill="rgba(140,131,119,0.95)" />
             <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
 
-            {/* labels */}
             {labelFixed.map((l) => (
               <text
                 key={l.txt}
@@ -385,6 +383,18 @@ export default function ProfileClient(props: Props) {
 
   const currentZodiac =
     movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
+
+  // --- NEW: Orisha microcopy (driven by cyclePosDeg) ---
+  const phaseCopy = useMemo(() => {
+    const deg = typeof cyclePosDeg === "number" && Number.isFinite(cyclePosDeg) ? cyclePosDeg : 0;
+    return microcopyFromDegrees(deg);
+  }, [cyclePosDeg]);
+
+  const phaseHeaderLine = useMemo(() => {
+    if (!derived.ok || derived.phaseIndex == null) return "—";
+    // prefer your computed seasonShort + phase index for consistency with the page
+    return `${derived.seasonShort} · Phase ${derived.phaseIndex}`;
+  }, [derived]);
 
   const phaseBrief = useMemo(() => {
     if (!derived.ok || derived.phaseIndex == null || derived.phaseDeg == null) {
@@ -566,7 +576,7 @@ export default function ProfileClient(props: Props) {
               </div>
             </div>
 
-            {/* FIGURE-8 + PHASE BRIEF */}
+            {/* FIGURE-8 + ORISHA MICROCOPY + PHASE BRIEF */}
             <div className="mt-8">
               {cyclePosDeg != null ? (
                 <AscYearFigure8 cyclePosDeg={cyclePosDeg} />
@@ -575,6 +585,26 @@ export default function ProfileClient(props: Props) {
                   Cycle position unavailable.
                 </div>
               )}
+
+              {/* NEW: Orisha module (keeps page dark tone inside the light shell) */}
+              <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                  Orisha Phase
+                </div>
+                <div className="mt-2 text-sm text-[#403A32]/75">
+                  {phaseHeaderLine}
+                </div>
+
+                <div className="mt-4">
+                  <PhaseMicrocopyCard
+                    copy={phaseCopy}
+                    tone="dark"
+                    defaultExpanded={false}
+                    showJournal={true}
+                    showActionHint={true}
+                  />
+                </div>
+              </div>
 
               <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
                 <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
