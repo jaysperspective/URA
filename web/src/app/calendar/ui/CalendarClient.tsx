@@ -415,11 +415,6 @@ export default function CalendarClient() {
               </div>
             )}
 
-            {/* ✅ Sun sign added here */}
-            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
-              Sun sign: <span style={{ color: C.ink, fontWeight: 700 }}>{sunSign}</span>
-            </div>
-
             <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
               Day {data?.solar?.dayIndexInYear ?? "—"} /{" "}
               {typeof data?.solar?.yearLength === "number"
@@ -445,6 +440,12 @@ export default function CalendarClient() {
                       : "0%",
                 }}
               />
+            </div>
+
+            {/* ✅ moved beneath progress bar */}
+            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
+              Sun sign:{" "}
+              <span style={{ color: C.ink, fontWeight: 700 }}>{sunSign}</span>
             </div>
           </div>
 
