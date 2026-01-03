@@ -3,8 +3,8 @@
 
 import Link from "next/link";
 import React, { useMemo } from "react";
-import { themeForPhase, BASE as C } from "@/lib/phaseTheme";
-import type { PhaseId } from "@/lib/phaseMicrocopy";
+import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
+import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 
 function norm360(d: number) {
   let x = d % 360;
@@ -40,6 +40,7 @@ function fmtLon(lon: number) {
 }
 
 const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
+
 const SEASON_SHORT: Record<(typeof SEASONS)[number], string> = {
   Spring: "Spring",
   Summer: "Summer",
@@ -47,6 +48,7 @@ const SEASON_SHORT: Record<(typeof SEASONS)[number], string> = {
   Winter: "Winter",
 };
 
+// mean solar motion (deg/day) used for estimating shift timing
 const MEAN_SOLAR_RATE = 0.985647;
 
 function ProgressBar({
@@ -54,54 +56,59 @@ function ProgressBar({
   labelLeft,
   labelRight,
   meta,
-  fill,
 }: {
   value: number; // 0..1
   labelLeft: string;
   labelRight: string;
   meta?: string;
-  fill: string;
 }) {
   const pct = Math.max(0, Math.min(1, value)) * 100;
   return (
     <div className="mt-2">
-      <div className="flex items-center justify-between text-xs" style={{ color: C.inkMuted }}>
+      <div className="flex items-center justify-between text-xs text-[#403A32]/70">
         <span>{labelLeft}</span>
         <span>{labelRight}</span>
       </div>
 
-      {meta ? (
-        <div className="mt-1 text-xs" style={{ color: C.inkMuted }}>
-          {meta}
-        </div>
-      ) : null}
+      {meta ? <div className="mt-1 text-xs text-[#403A32]/70">{meta}</div> : null}
 
-      <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "rgba(31,36,26,0.18)" }}>
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: fill }} />
+      <div className="mt-2 h-2 rounded-full bg-black/10 overflow-hidden">
+        <div className="h-full rounded-full bg-[#8C8377]" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
 }
 
-function CardShell({ children }: { children: React.ReactNode }) {
+function CardShell({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <div
-      className="rounded-3xl border"
-      style={{
-        borderColor: C.border,
-        background: "linear-gradient(180deg, rgba(244,235,221,0.92) 0%, rgba(213,192,165,0.80) 55%, rgba(185,176,123,0.50) 120%)",
-        boxShadow: "0 26px 90px rgba(31,36,26,0.18), 0 2px 0 rgba(255,255,255,0.35) inset",
-      }}
+      className={[
+        "rounded-3xl border border-[#E2D9CC] bg-[#F4EFE6]",
+        "shadow-[0_30px_120px_rgba(0,0,0,0.45)]",
+        className,
+      ].join(" ")}
     >
       {children}
     </div>
   );
 }
 
-function SubCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SubCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-2xl border px-5 py-4" style={{ background: C.surface, borderColor: C.border }}>
-      <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: C.inkSoft, fontWeight: 800 }}>
+    <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
         {title}
       </div>
       <div className="mt-2">{children}</div>
@@ -112,27 +119,23 @@ function SubCard({ title, children }: { title: string; children: React.ReactNode
 function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="min-w-[92px]">
-      <div className="text-[10px] tracking-[0.18em] uppercase" style={{ color: C.inkSoft }}>
+      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/70">
         {k}
       </div>
-      <div className="mt-1 text-sm font-medium" style={{ color: C.ink }}>
-        {v}
-      </div>
+      <div className="mt-1 text-sm text-[#F4EFE6] font-medium">{v}</div>
     </div>
   );
 }
 
 /**
- * Sideways figure-8 waveform (∞) for 0–360 cycle position.
- * Labels: SPRG top, FALL bottom, WNTR left, SUMR right.
+ * Sideways figure-8 waveform (∞) for the 0–360 cycle position.
+ * Labels are fixed to cardinal anchors:
+ *  - SPRG = top center
+ *  - FALL = bottom center
+ *  - WNTR = left center
+ *  - SUMR = right center
  */
-function AscYearFigure8({
-  cyclePosDeg,
-  accent,
-}: {
-  cyclePosDeg: number;
-  accent: string;
-}) {
+function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const size = 760;
   const H = 260;
 
@@ -142,9 +145,11 @@ function AscYearFigure8({
   const pos = norm360(cyclePosDeg);
   const t = (pos / 360) * Math.PI * 2;
 
-  const a = 290;
-  const b = 95;
+  // Sideways ∞ curve
+  const a = 290; // x radius
+  const b = 95; // y radius
 
+  // Curve: x = sin(t), y = sin(2t)  (scaled)
   const X = (tt: number) => cx + a * Math.sin(tt);
   const Y = (tt: number) => cy - b * Math.sin(2 * tt);
 
@@ -162,57 +167,83 @@ function AscYearFigure8({
   const py = Y(t);
 
   const labelStyle: React.CSSProperties = {
-    fill: C.inkSoft,
+    fill: "rgba(64,58,50,0.65)",
     fontSize: 11,
     letterSpacing: "0.14em",
-    fontWeight: 800,
+    fontWeight: 700,
   };
 
+  // Fixed label positions (not on the curve)
   const labelFixed = [
+    // left/right centered
     { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
     { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
+
+    // top/bottom at the crossing
     { txt: "SPRG", x: cx, y: cy - b - 22, anchor: "middle" as const },
     { txt: "FALL", x: cx, y: cy + b + 34, anchor: "middle" as const },
   ];
 
   return (
     <div className="mx-auto w-full max-w-[820px]">
-      <div className="rounded-3xl border px-6 py-6" style={{ borderColor: C.border, background: C.surface }}>
+      <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
         <div className="flex items-center justify-between">
-          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: C.inkSoft, fontWeight: 800 }}>
+          <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
             Cycle Waveform
           </div>
-          <div className="text-xs" style={{ color: C.inkMuted }}>
-            {pos.toFixed(2)}°
-          </div>
+          <div className="text-xs text-[#403A32]/70">{pos.toFixed(2)}°</div>
         </div>
 
         <div className="mt-4 overflow-x-auto">
           <svg width={size} height={H} className="block">
-            <line x1={0} y1={cy} x2={size} y2={cy} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
-            <line x1={cx} y1={0} x2={cx} y2={H} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
+            {/* crosshair (ontology axes) */}
+            <line
+              x1={0}
+              y1={cy}
+              x2={size}
+              y2={cy}
+              stroke="rgba(0,0,0,0.10)"
+              strokeWidth="1"
+            />
+            <line
+              x1={cx}
+              y1={0}
+              x2={cx}
+              y2={H}
+              stroke="rgba(0,0,0,0.10)"
+              strokeWidth="1"
+            />
 
+            {/* curve */}
             <path
               d={pathD}
               fill="none"
-              stroke="rgba(31,36,26,0.58)"
+              stroke="rgba(0,0,0,0.58)"
               strokeWidth="2.6"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
 
-            <circle cx={px} cy={py} r="6" fill={accent} />
-            <circle cx={px} cy={py} r="12" fill="rgba(31,36,26,0.10)" />
+            {/* marker */}
+            <circle cx={px} cy={py} r="6" fill="rgba(140,131,119,0.95)" />
+            <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
 
+            {/* labels */}
             {labelFixed.map((l) => (
-              <text key={l.txt} x={l.x} y={l.y} textAnchor={l.anchor} style={labelStyle}>
+              <text
+                key={l.txt}
+                x={l.x}
+                y={l.y}
+                textAnchor={l.anchor}
+                style={labelStyle}
+              >
                 {l.txt}
               </text>
             ))}
           </svg>
         </div>
 
-        <div className="mt-3 text-center text-sm" style={{ color: C.inkMuted }}>
+        <div className="mt-3 text-center text-sm text-[#403A32]/75">
           Sideways ∞ map. Marker = current cycle position (0–360°).
         </div>
       </div>
@@ -284,7 +315,10 @@ export default function ProfileClient(props: Props) {
     const seasonDeg = cycle - seasonStart;
     const seasonProgress = seasonDeg / 90;
 
-    const seasonDay = Math.max(1, Math.min(90, Math.floor(seasonProgress * 90) + 1));
+    const seasonDay = Math.max(
+      1,
+      Math.min(90, Math.floor(seasonProgress * 90) + 1)
+    );
 
     const nextPhase = phaseIndex === 8 ? 1 : phaseIndex + 1;
     const boundaryDeg = phaseIndex * 45;
@@ -295,13 +329,16 @@ export default function ProfileClient(props: Props) {
     const asOf = asOfISO ? new Date(asOfISO) : new Date();
     const shiftAt = new Date(asOf.getTime() + daysToBoundary * 86400000);
 
-    const shiftText = `~${daysToBoundary.toFixed(1)} days • ${shiftAt.toLocaleString(undefined, {
-      month: "2-digit",
-      day: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
+    const shiftText = `~${daysToBoundary.toFixed(1)} days • ${shiftAt.toLocaleString(
+      undefined,
+      {
+        month: "2-digit",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    )}`;
 
     const nextSeason = SEASONS[Math.floor((nextPhase - 1) / 2)];
     const nextSeasonShort = SEASON_SHORT[nextSeason];
@@ -324,13 +361,14 @@ export default function ProfileClient(props: Props) {
     };
   }, [cyclePosDeg, asOfISO]);
 
-  const phaseId = useMemo(() => {
+  // Orisha microcopy uses PHASE 1–8
+  const phaseCopy = useMemo(() => {
     const p = derived.phaseIndex;
-    if (typeof p === "number" && p >= 1 && p <= 8) return p as PhaseId;
-    return 1 as PhaseId;
+    if (typeof p === "number" && p >= 1 && p <= 8) {
+      return microcopyForPhase(p as PhaseId);
+    }
+    return microcopyForPhase(1);
   }, [derived.phaseIndex]);
-
-  const theme = useMemo(() => themeForPhase(phaseId), [phaseId]);
 
   const asOfLine = useMemo(() => {
     if (!asOfISO) return timezone;
@@ -407,35 +445,22 @@ export default function ProfileClient(props: Props) {
     };
   }, [derived, currentZodiac, cyclePosDeg]);
 
-  const phaseChip: React.CSSProperties = {
-    borderColor: C.border,
-    color: C.ink,
-    background: `linear-gradient(180deg, rgba(244,235,221,0.90) 0%, ${theme.accentSoft} 140%)`,
-  };
-
   return (
     <div className="mt-8">
       {/* TOP STRIP */}
       <div className="mx-auto max-w-5xl">
         <div className="flex items-start justify-between gap-6">
           <div className="flex items-start gap-3">
-            <div
-              className="mt-1 h-10 w-10 rounded-2xl border flex items-center justify-center text-xs"
-              style={{ background: "rgba(244,235,221,0.70)", borderColor: C.border, color: C.inkMuted }}
-            >
+            <div className="mt-1 h-10 w-10 rounded-2xl bg-[#151515] border border-[#E2D9CC]/25 flex items-center justify-center text-[#F4EFE6]/70 text-xs">
               +
             </div>
 
             <div>
-              <div className="text-sm" style={{ color: C.inkMuted }}>
-                Profile
-              </div>
-              <div className="text-lg font-semibold leading-tight" style={{ color: C.ink }}>
+              <div className="text-[#F4EFE6]/80 text-sm">Profile</div>
+              <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">
                 {name}
               </div>
-              <div className="text-sm" style={{ color: C.inkMuted }}>
-                {locationLine}
-              </div>
+              <div className="text-[#F4EFE6]/65 text-sm">{locationLine}</div>
             </div>
           </div>
 
@@ -455,27 +480,22 @@ export default function ProfileClient(props: Props) {
         <CardShell>
           <div className="px-8 pt-10 pb-8">
             <div className="text-center">
-              <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: C.inkSoft, fontWeight: 800 }}>
+              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                 Orientation
               </div>
 
-              <div className="mt-3 flex justify-center">
-                <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs" style={phaseChip}>
-                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: theme.accentDeep }} />
-                  <span style={{ letterSpacing: "0.14em" }}>PHASE {phaseId}</span>
-                </div>
-              </div>
-
-              <div className="mt-3 text-3xl font-semibold tracking-tight leading-tight" style={{ color: C.ink }}>
+              <div className="mt-2 text-3xl font-semibold tracking-tight text-[#1F1B16] leading-tight">
                 <div className="flex justify-center">
                   <div>{derived.ok ? derived.seasonShort : "—"}</div>
                 </div>
                 <div className="flex justify-center">
-                  <div>{derived.ok && derived.phaseIndex != null ? `Phase ${derived.phaseIndex}` : "—"}</div>
+                  <div>
+                    {derived.ok && derived.phaseIndex != null ? `Phase ${derived.phaseIndex}` : "—"}
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
+              <div className="mt-2 text-sm text-[#403A32]/75">
                 {derived.ok && derived.phaseDeg != null
                   ? `Degrees into phase: ${derived.phaseDeg.toFixed(2)}° / 45°`
                   : "Cycle position unavailable."}
@@ -485,28 +505,26 @@ export default function ProfileClient(props: Props) {
             {/* TOP ROW */}
             <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac">
-                <div className="text-sm font-semibold" style={{ color: C.ink }}>
-                  {currentZodiac}
-                </div>
-                <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+                <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
+                <div className="mt-1 text-sm text-[#403A32]/75">
                   Current Sun position (sign changes at 30° markers).
                 </div>
               </SubCard>
 
               <SubCard title="Shift">
-                <div className="text-sm font-semibold" style={{ color: C.ink }}>
+                <div className="text-sm font-semibold text-[#1F1B16]">
                   {derived.ok ? derived.shiftText : "—"}
                 </div>
-                <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+                <div className="mt-1 text-sm text-[#403A32]/75">
                   Estimated phase boundary crossing (mean solar rate).
                 </div>
               </SubCard>
 
               <SubCard title="Next">
-                <div className="text-sm font-semibold" style={{ color: C.ink }}>
+                <div className="text-sm font-semibold text-[#1F1B16]">
                   {derived.ok ? derived.nextLabel : "—"}
                 </div>
-                <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+                <div className="mt-1 text-sm text-[#403A32]/75">
                   The next 45° segment (phase boundary).
                 </div>
               </SubCard>
@@ -514,11 +532,11 @@ export default function ProfileClient(props: Props) {
 
             {/* PROGRESS */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-2xl border px-5 py-4" style={{ background: C.surface, borderColor: C.border }}>
-                <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: C.inkSoft, fontWeight: 800 }}>
+              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                   90° Season Arc
                 </div>
-                <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
+                <div className="mt-2 text-sm text-[#403A32]/75">
                   Progress within the current season (0–90°).
                 </div>
 
@@ -531,56 +549,72 @@ export default function ProfileClient(props: Props) {
                       ? `Day ${derived.seasonDay}/90 • ${derived.seasonDeg.toFixed(2)}° / 90°`
                       : "—"
                   }
-                  fill={theme.accentDeep}
                 />
               </div>
 
-              <div className="rounded-2xl border px-5 py-4" style={{ background: C.surface, borderColor: C.border }}>
-                <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: C.inkSoft, fontWeight: 800 }}>
+              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                   Phase Boundary
                 </div>
-                <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
+                <div className="mt-2 text-sm text-[#403A32]/75">
                   Remaining to next 45° boundary.
                 </div>
 
                 <ProgressBar
                   value={derived.ok ? 1 - derived.phaseProgress : 0}
                   labelLeft={
-                    derived.ok && derived.remainingDeg != null ? `${derived.remainingDeg.toFixed(2)}°` : "—"
+                    derived.ok && derived.remainingDeg != null
+                      ? `${derived.remainingDeg.toFixed(2)}°`
+                      : "—"
                   }
                   labelRight="0°"
-                  meta={derived.ok && derived.daysToBoundary != null ? `~${derived.daysToBoundary.toFixed(1)} days` : "—"}
-                  fill={theme.accentDeep}
+                  meta={
+                    derived.ok && derived.daysToBoundary != null
+                      ? `~${derived.daysToBoundary.toFixed(1)} days`
+                      : "—"
+                  }
                 />
               </div>
             </div>
 
-            {/* FIGURE-8 + PHASE BRIEF */}
+            {/* FIGURE-8 */}
             <div className="mt-8">
               {cyclePosDeg != null ? (
-                <AscYearFigure8 cyclePosDeg={cyclePosDeg} accent={theme.accentDeep} />
+                <AscYearFigure8 cyclePosDeg={cyclePosDeg} />
               ) : (
-                <div className="rounded-3xl border px-6 py-10 text-center text-sm" style={{ background: C.surface, borderColor: C.border, color: C.inkMuted }}>
+                <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-10 text-center text-sm text-[#403A32]/70">
                   Cycle position unavailable.
                 </div>
               )}
+            </div>
 
-              <div className="mt-4 rounded-3xl border px-6 py-6" style={{ background: C.surface, borderColor: C.border }}>
-                <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: C.inkSoft, fontWeight: 800 }}>
-                  {phaseBrief.title}
-                </div>
+            {/* ORISHA PHASE MODULE (linen tone) */}
+            <div className="mt-4">
+              <PhaseMicrocopyCard
+                copy={phaseCopy}
+                tone="linen"
+                defaultExpanded={false}
+                showJournal={true}
+                showActionHint={true}
+              />
+            </div>
 
-                <div className="mt-3 space-y-2 text-sm" style={{ color: C.ink }}>
-                  {phaseBrief.lines.map((line, idx) => (
-                    <div key={idx} className={line === "" ? "h-2" : ""}>
-                      {line === "" ? null : line}
-                    </div>
-                  ))}
-                </div>
+            {/* PHASE BRIEF */}
+            <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
+              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                {phaseBrief.title}
+              </div>
 
-                <div className="mt-3 text-xs" style={{ color: C.inkMuted }}>
-                  This will be server-rendered once the URA LLM endpoint is added.
-                </div>
+              <div className="mt-3 space-y-2 text-sm text-[#1F1B16]/90">
+                {phaseBrief.lines.map((line, idx) => (
+                  <div key={idx} className={line === "" ? "h-2" : ""}>
+                    {line === "" ? null : line}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 text-xs text-[#403A32]/70">
+                This will be server-rendered once the URA LLM endpoint is added.
               </div>
             </div>
 
@@ -588,31 +622,19 @@ export default function ProfileClient(props: Props) {
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
               <Link
                 href="/seasons"
-                className="rounded-2xl px-4 py-2 text-sm border hover:opacity-95"
-                style={{
-                  borderColor: C.border,
-                  background: theme.accentSoft,
-                  color: C.ink,
-                }}
+                className="rounded-2xl bg-[#151515] text-[#F4EFE6] px-4 py-2 text-sm border border-[#E2D9CC]/40 hover:bg-[#1E1E1E]"
               >
                 Go to /seasons
               </Link>
               <Link
                 href="/calendar"
-                className="rounded-2xl px-4 py-2 text-sm border hover:opacity-95"
-                style={{
-                  borderColor: C.border,
-                  background: "rgba(244,235,221,0.78)",
-                  color: C.ink,
-                }}
+                className="rounded-2xl bg-[#F4EFE6] text-[#151515] px-4 py-2 text-sm border border-black/15 hover:bg-[#EFE7DB]"
               >
                 Go to /calendar
               </Link>
             </div>
 
-            <div className="mt-5 text-center text-xs" style={{ color: C.inkMuted }}>
-              {asOfLine}
-            </div>
+            <div className="mt-5 text-center text-xs text-[#403A32]/70">{asOfLine}</div>
           </div>
         </CardShell>
       </div>
