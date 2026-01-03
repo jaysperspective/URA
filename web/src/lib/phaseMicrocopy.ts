@@ -19,7 +19,7 @@ export type PhaseMicrocopy = {
   season: SeasonAbbrev;
   orisha: OrishaKey;
 
-  header: string; // e.g. "FALL · Phase 6 — Ochosi"
+  header: string;
   oneLine: string;
 
   description: string;
