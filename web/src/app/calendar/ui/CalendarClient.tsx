@@ -2,6 +2,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
+import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 
 type Marker = {
   kind: "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
@@ -60,14 +62,12 @@ const C = {
   linen: "#D5C0A5",
   brown: "#6B4F3A",
 
-  // NEW: readable “ink” levels
-  ink: "#1F241A", // near-black olive
+  ink: "#1F241A",
   inkMuted: "rgba(31,36,26,0.72)",
   inkSoft: "rgba(31,36,26,0.55)",
 
-  // surfaces/borders
-  surface: "rgba(244,235,221,0.88)", // brighter linen (more contrast)
-  surface2: "rgba(213,192,165,0.78)", // deeper linen
+  surface: "rgba(244,235,221,0.88)",
+  surface2: "rgba(213,192,165,0.78)",
   border: "rgba(31,36,26,0.16)",
   divider: "rgba(31,36,26,0.14)",
 };
@@ -138,7 +138,6 @@ function MoonDisc({
         <g clipPath="url(#moonClip)" filter="url(#softGlow)">
           <circle cx="110" cy="110" r={r} fill="url(#moonSurface)" />
 
-          {/* subtle crater speckle */}
           <g opacity="0.15">
             <circle cx="78" cy="88" r="10" fill="rgba(107,79,58,0.25)" />
             <circle cx="145" cy="78" r="7" fill="rgba(107,79,58,0.20)" />
@@ -247,7 +246,15 @@ export default function CalendarClient() {
     return { top: "CURRENT", mid: data.lunar.phaseName };
   }, [data]);
 
-  // Hero card: keep vibe but boost contrast
+  // Phase microcopy uses SOLAR phase 1–8 (your 8-phase calendar)
+  const phaseCopy = useMemo(() => {
+    const p = data?.solar?.phase;
+    if (typeof p === "number" && p >= 1 && p <= 8) {
+      return microcopyForPhase(p as PhaseId);
+    }
+    return microcopyForPhase(1);
+  }, [data?.solar?.phase]);
+
   const cardStyle: React.CSSProperties = {
     background:
       "linear-gradient(180deg, rgba(244,235,221,0.92) 0%, rgba(213,192,165,0.82) 55%, rgba(185,176,123,0.55) 120%)",
@@ -389,6 +396,17 @@ export default function CalendarClient() {
               Moon: {data?.astro?.moonPos ?? "—"}
             </div>
           </div>
+        </div>
+
+        {/* Orisha phase microcopy module */}
+        <div className="mt-5 text-left">
+          <PhaseMicrocopyCard
+            copy={phaseCopy}
+            tone="linen"
+            defaultExpanded={false}
+            showJournal={true}
+            showActionHint={true}
+          />
         </div>
 
         {/* Moon Disc */}
