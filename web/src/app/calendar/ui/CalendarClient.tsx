@@ -89,6 +89,31 @@ function humanizeLunarLabel(label: string) {
     .replace(/\bLD-?(\d+)\b/g, "Lunar Day $1");
 }
 
+function norm360(d: number) {
+  let x = d % 360;
+  if (x < 0) x += 360;
+  return x;
+}
+
+const SIGNS = [
+  "Ari",
+  "Tau",
+  "Gem",
+  "Can",
+  "Leo",
+  "Vir",
+  "Lib",
+  "Sco",
+  "Sag",
+  "Cap",
+  "Aqu",
+  "Pis",
+] as const;
+
+function signFromLon(lon: number) {
+  return SIGNS[Math.floor(norm360(lon) / 30) % 12];
+}
+
 /**
  * Moon disc rendering fix:
  * Fade shadow out as we approach Full so “Full” looks full.
@@ -278,6 +303,11 @@ export default function CalendarClient() {
     return microcopyForPhase(1);
   }, [data?.solar?.phase]);
 
+  const sunSign = useMemo(() => {
+    if (typeof data?.astro?.sunLon === "number") return signFromLon(data.astro.sunLon);
+    return "—";
+  }, [data?.astro?.sunLon]);
+
   const cardStyle: React.CSSProperties = {
     background:
       "linear-gradient(180deg, rgba(244,235,221,0.92) 0%, rgba(213,192,165,0.82) 55%, rgba(185,176,123,0.55) 120%)",
@@ -317,7 +347,7 @@ export default function CalendarClient() {
           {header.mid}
         </div>
 
-        {/* Moon sign block DIRECTLY under “Full” (readable) */}
+        {/* Moon sign block DIRECTLY under “Full” */}
         <div
           className="mt-4 mx-auto max-w-md rounded-2xl border px-4 py-3"
           style={{
@@ -385,6 +415,11 @@ export default function CalendarClient() {
               </div>
             )}
 
+            {/* ✅ Sun sign added here */}
+            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
+              Sun sign: <span style={{ color: C.ink, fontWeight: 700 }}>{sunSign}</span>
+            </div>
+
             <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
               Day {data?.solar?.dayIndexInYear ?? "—"} /{" "}
               {typeof data?.solar?.yearLength === "number"
@@ -411,8 +446,6 @@ export default function CalendarClient() {
                 }}
               />
             </div>
-
-            {/* anchor line removed */}
           </div>
 
           {/* Lunar */}
