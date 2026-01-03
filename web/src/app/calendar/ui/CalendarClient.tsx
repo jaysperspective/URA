@@ -67,7 +67,6 @@ const C = {
   inkSoft: "rgba(31,36,26,0.55)",
 
   surface: "rgba(244,235,221,0.88)",
-  surface2: "rgba(213,192,165,0.78)",
   border: "rgba(31,36,26,0.16)",
   divider: "rgba(31,36,26,0.14)",
 };
@@ -92,8 +91,7 @@ function humanizeLunarLabel(label: string) {
 
 /**
  * Moon disc rendering fix:
- * We keep your current geometry, but fade the shadow out as we approach Full.
- * This prevents “Full” from still showing a dark bite.
+ * Fade shadow out as we approach Full so “Full” looks full.
  */
 function MoonDisc({
   phaseName,
@@ -304,11 +302,53 @@ export default function CalendarClient() {
           {header.top}
         </div>
 
+        {/* Moon Disc ABOVE the phase name */}
+        <div className="mt-4 flex justify-center">
+          <MoonDisc
+            phaseName={header.mid}
+            phaseAngleDeg={data?.lunar?.phaseAngleDeg}
+          />
+        </div>
+
         <div
           className="text-4xl font-semibold tracking-tight mt-2"
           style={{ color: C.ink }}
         >
           {header.mid}
+        </div>
+
+        {/* Moon sign block DIRECTLY under “Full” (readable) */}
+        <div
+          className="mt-4 mx-auto max-w-md rounded-2xl border px-4 py-3"
+          style={{
+            background: "rgba(244,235,221,0.82)",
+            borderColor: "rgba(31,36,26,0.14)",
+            boxShadow: "0 10px 35px rgba(31,36,26,0.10)",
+          }}
+        >
+          <div className="text-base" style={{ color: C.ink }}>
+            The Moon is in{" "}
+            <span className="font-semibold" style={{ color: C.ink }}>
+              {data?.astro.moonSign ?? "—"}
+            </span>
+          </div>
+
+          <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+            As of{" "}
+            <span style={{ color: C.ink }} className="opacity-85">
+              {data?.gregorian.asOfLocal ?? "—"}
+            </span>
+          </div>
+
+          <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+            Enters{" "}
+            <span style={{ color: C.ink }} className="opacity-85">
+              {data?.astro.moonEntersSign ?? "—"}
+            </span>{" "}
+            <span style={{ color: C.ink }} className="opacity-85">
+              {data?.astro.moonEntersLocal ?? "—"}
+            </span>
+          </div>
         </div>
 
         {/* SOLAR + LUNAR PANELS */}
@@ -372,7 +412,7 @@ export default function CalendarClient() {
               />
             </div>
 
-            {/* anchor line removed (per your request) */}
+            {/* anchor line removed */}
           </div>
 
           {/* Lunar */}
@@ -430,39 +470,6 @@ export default function CalendarClient() {
             showJournal={true}
             showActionHint={true}
           />
-        </div>
-
-        {/* Moon Disc (fixed) */}
-        <div className="mt-7 flex justify-center">
-          <MoonDisc
-            phaseName={header.mid}
-            phaseAngleDeg={data?.lunar?.phaseAngleDeg}
-          />
-        </div>
-
-        {/* Moon sign block (kept readable) */}
-        <div className="mt-6 text-xl" style={{ color: C.ink }}>
-          The Moon is in{" "}
-          <span style={{ color: C.ink }} className="font-semibold">
-            {data?.astro.moonSign ?? "—"}
-          </span>
-        </div>
-
-        <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
-          As of{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.gregorian.asOfLocal ?? "—"}
-          </span>
-        </div>
-
-        <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
-          Enters{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.astro.moonEntersSign ?? "—"}
-          </span>{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.astro.moonEntersLocal ?? "—"}
-          </span>
         </div>
 
         {/* Nav */}
