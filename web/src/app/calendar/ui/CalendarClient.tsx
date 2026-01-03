@@ -138,7 +138,6 @@ function MoonDisc({
         <g clipPath="url(#moonClip)" filter="url(#softGlow)">
           <circle cx="110" cy="110" r={r} fill="url(#moonSurface)" />
 
-          {/* subtle crater speckle */}
           <g opacity="0.15">
             <circle cx="78" cy="88" r="10" fill="rgba(107,79,58,0.25)" />
             <circle cx="145" cy="78" r="7" fill="rgba(107,79,58,0.20)" />
@@ -247,7 +246,6 @@ export default function CalendarClient() {
     return { top: "CURRENT", mid: data.lunar.phaseName };
   }, [data]);
 
-  // Phase microcopy uses SOLAR phase 1–8 (your 8-phase calendar)
   const phaseCopy = useMemo(() => {
     const p = data?.solar?.phase;
     if (typeof p === "number" && p >= 1 && p <= 8) {
@@ -280,7 +278,7 @@ export default function CalendarClient() {
           {header.top}
         </div>
 
-        {/* ✅ MOVED: Lunar visualization ABOVE the phase name */}
+        {/* Moon Disc */}
         <div className="mt-4 flex justify-center">
           <MoonDisc
             phaseName={header.mid}
@@ -288,11 +286,50 @@ export default function CalendarClient() {
           />
         </div>
 
+        {/* Phase name */}
         <div
           className="mt-3 text-4xl font-semibold tracking-tight"
           style={{ color: C.ink }}
         >
           {header.mid}
+        </div>
+
+        {/* ✅ MOVED HERE: “Moon is in … / As of / Enters …” (readable panel) */}
+        <div className="mt-4 flex justify-center">
+          <div
+            className="rounded-2xl border px-5 py-4 text-center"
+            style={{
+              background: "rgba(244,235,221,0.92)",
+              borderColor: C.border,
+              boxShadow: "0 10px 40px rgba(31,36,26,0.10)",
+              maxWidth: 520,
+              width: "100%",
+            }}
+          >
+            <div className="text-lg" style={{ color: C.ink }}>
+              The Moon is in{" "}
+              <span className="font-semibold" style={{ color: C.ink }}>
+                {data?.astro?.moonSign ?? "—"}
+              </span>
+            </div>
+
+            <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+              As of{" "}
+              <span className="font-medium" style={{ color: C.ink }}>
+                {data?.gregorian?.asOfLocal ?? "—"}
+              </span>
+            </div>
+
+            <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+              Enters{" "}
+              <span className="font-medium" style={{ color: C.ink }}>
+                {data?.astro?.moonEntersSign ?? "—"}
+              </span>{" "}
+              <span className="font-medium" style={{ color: C.ink }}>
+                {data?.astro?.moonEntersLocal ?? "—"}
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* SOLAR + LUNAR PANELS */}
@@ -418,30 +455,6 @@ export default function CalendarClient() {
           />
         </div>
 
-        <div className="mt-6 text-xl" style={{ color: C.ink }}>
-          The Moon is in{" "}
-          <span style={{ color: C.ink }} className="font-semibold">
-            {data?.astro.moonSign ?? "—"}
-          </span>
-        </div>
-
-        <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
-          As of{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.gregorian.asOfLocal ?? "—"}
-          </span>
-        </div>
-
-        <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
-          Enters{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.astro.moonEntersSign ?? "—"}
-          </span>{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.astro.moonEntersLocal ?? "—"}
-          </span>
-        </div>
-
         {/* Nav */}
         <div className="mt-6 flex items-center justify-between">
           <button
@@ -558,4 +571,3 @@ export default function CalendarClient() {
     </div>
   );
 }
-
