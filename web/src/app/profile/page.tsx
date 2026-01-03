@@ -65,29 +65,32 @@ export default async function ProfilePage() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-[#0B0B0B] text-[#F4EFE6] flex items-center justify-center px-6">
-        <div className="text-[#F4EFE6]/70 text-sm">No profile found.</div>
+      <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)" }}>
+        <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+          No profile found.
+        </div>
       </div>
     );
   }
 
   if (!profile.setupDone) {
     return (
-      <div className="min-h-screen bg-[#0B0B0B] text-[#F4EFE6] flex items-center justify-center px-6">
-        <div className="w-full max-w-lg rounded-3xl border border-[#E2D9CC]/30 bg-[#121212] p-6">
-          <div className="text-[11px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">
+      <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)" }}>
+        <div className="w-full max-w-lg rounded-3xl border p-6" style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.88)" }}>
+          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
             Setup
           </div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight text-[#F4EFE6]">
+          <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "#1F241A" }}>
             Finish your profile
           </div>
-          <div className="mt-3 text-sm text-[#F4EFE6]/70">
+          <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
             Add birth details and location so URA can generate your live cycle.
           </div>
           <div className="mt-6">
             <Link
               href="/profile/setup"
-              className="inline-flex items-center justify-center rounded-2xl border border-[#E2D9CC]/40 bg-[#1A1A1A] px-4 py-2 text-sm text-[#F4EFE6] hover:bg-[#222]"
+              className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
+              style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.78)", color: "#1F241A" }}
             >
               Continue
             </Link>
@@ -98,8 +101,7 @@ export default async function ProfilePage() {
   }
 
   const tz = profile.timezone ?? "America/New_York";
-  const locationLine =
-    [profile.city, profile.state].filter(Boolean).join(", ") || tz;
+  const locationLine = [profile.city, profile.state].filter(Boolean).join(", ") || tz;
 
   const natal = profile.natalChartJson as any;
   const ascYear = profile.ascYearJson as any;
@@ -111,7 +113,6 @@ export default async function ProfilePage() {
   const natalMoonLon = safeNum(planets?.moon?.lon);
   const natalAscLon = safeNum(asc);
 
-  // moving bodies (as-of) — still wired, we’ll swap to progressed later
   const movingSunLon =
     safeNum(ascYear?.ascYear?.transitingSunLon) ??
     safeNum(ascYear?.ascYear?.sunLon) ??
@@ -134,21 +135,24 @@ export default async function ProfilePage() {
   const name = pickName(user, profile);
 
   return (
-    <div className="min-h-screen bg-[#0B0B0B]">
-      {/* Moonstone atmosphere */}
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.06),rgba(0,0,0,0)_58%)]" />
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_bottom,rgba(244,239,230,0.06),rgba(0,0,0,0)_60%)]" />
-
+    <div
+      className="min-h-screen"
+      style={{
+        background:
+          "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)",
+      }}
+    >
       <div className="relative mx-auto w-full max-w-7xl px-6 py-10">
         <div className="flex items-center justify-between gap-4">
-          <div className="text-[#F4EFE6]/70 text-[11px] tracking-[0.18em] uppercase">
+          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
             URA • Profile
           </div>
 
           <div className="flex items-center gap-2">
             <Link
               href="/profile/setup"
-              className="inline-flex items-center justify-center rounded-2xl border border-[#E2D9CC]/40 bg-[#151515] px-4 py-2 text-sm text-[#F4EFE6] hover:bg-[#1E1E1E]"
+              className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
+              style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.78)", color: "#1F241A" }}
             >
               Edit
             </Link>
@@ -156,7 +160,8 @@ export default async function ProfilePage() {
             <form action={logoutAction}>
               <button
                 type="submit"
-                className="inline-flex items-center justify-center rounded-2xl border border-[#E2D9CC]/40 bg-[#151515] px-4 py-2 text-sm text-[#F4EFE6] hover:bg-[#1E1E1E]"
+                className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
+                style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.78)", color: "#1F241A" }}
               >
                 Log out
               </button>
