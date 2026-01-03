@@ -254,6 +254,15 @@ export default function CalendarClient() {
     return microcopyForPhase(1);
   }, [data?.solar?.phase]);
 
+  // Helper: convert "LC-0 • LD-15 (Full)" -> "Full Lunar Cycle 0 • Lunar Day 15 (Full)"
+  const lunarLabelHuman = useMemo(() => {
+    const raw = data?.lunar?.label ?? "";
+    if (!raw) return "—";
+    return raw
+      .replace(/\bLC-?(\d+)\b/g, "Full Lunar Cycle $1")
+      .replace(/\bLD-?(\d+)\b/g, "Lunar Day $1");
+  }, [data?.lunar?.label]);
+
   const cardStyle: React.CSSProperties = {
     background:
       "linear-gradient(180deg, rgba(244,235,221,0.92) 0%, rgba(213,192,165,0.82) 55%, rgba(185,176,123,0.55) 120%)",
@@ -294,7 +303,7 @@ export default function CalendarClient() {
           {header.mid}
         </div>
 
-        {/* ✅ MOVED HERE: “Moon is in … / As of / Enters …” (readable panel) */}
+        {/* Moon sign panel */}
         <div className="mt-4 flex justify-center">
           <div
             className="rounded-2xl border px-5 py-4 text-center"
@@ -340,7 +349,7 @@ export default function CalendarClient() {
               className="text-xs tracking-widest"
               style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
             >
-              SOLAR CONTEXT
+              SOLAR CONTEXT ☉
             </div>
 
             {data?.solar?.kind === "INTERPHASE" ? (
@@ -367,7 +376,7 @@ export default function CalendarClient() {
             )}
 
             <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
-              Day index: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
+              Day: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
               {typeof data?.solar?.yearLength === "number"
                 ? data.solar.yearLength - 1
                 : "—"}
@@ -392,10 +401,7 @@ export default function CalendarClient() {
               />
             </div>
 
-            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
-              Anchor: {data?.solar?.anchors?.equinoxLocalDay ?? "—"} → Next:{" "}
-              {data?.solar?.anchors?.nextEquinoxLocalDay ?? "—"}
-            </div>
+            {/* anchor text removed intentionally */}
           </div>
 
           {/* Lunar */}
@@ -404,11 +410,11 @@ export default function CalendarClient() {
               className="text-xs tracking-widest"
               style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
             >
-              LUNAR CONTEXT
+              LUNAR CONTEXT ☾
             </div>
 
             <div className="mt-2 text-sm" style={{ color: C.ink }}>
-              {data?.lunar?.label ?? "—"}
+              {lunarLabelHuman}
             </div>
 
             <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
@@ -416,7 +422,7 @@ export default function CalendarClient() {
               {typeof data?.lunar?.lunarAgeDays === "number"
                 ? `${data.lunar.lunarAgeDays.toFixed(2)} days`
                 : "—"}{" "}
-              • LD-{data?.lunar?.lunarDay ?? "—"}
+              • Lunar Day {data?.lunar?.lunarDay ?? "—"}
             </div>
 
             <div
