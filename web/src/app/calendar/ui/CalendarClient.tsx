@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
+import { BASE as C, themeForPhase } from "@/lib/phaseTheme";
 
 type Marker = {
   kind: "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
@@ -53,23 +54,6 @@ type CalendarAPI = {
   };
 
   lunation: { markers: Marker[] };
-};
-
-// --- Palette from reference (+ readability system) ---
-const C = {
-  wheat: "#B9B07B",
-  olive: "#71744F",
-  linen: "#D5C0A5",
-  brown: "#6B4F3A",
-
-  ink: "#1F241A",
-  inkMuted: "rgba(31,36,26,0.72)",
-  inkSoft: "rgba(31,36,26,0.55)",
-
-  surface: "rgba(244,235,221,0.88)",
-  surface2: "rgba(213,192,165,0.78)",
-  border: "rgba(31,36,26,0.16)",
-  divider: "rgba(31,36,26,0.14)",
 };
 
 function iconFor(kind: Marker["kind"]) {
@@ -138,6 +122,7 @@ function MoonDisc({
         <g clipPath="url(#moonClip)" filter="url(#softGlow)">
           <circle cx="110" cy="110" r={r} fill="url(#moonSurface)" />
 
+          {/* subtle crater speckle */}
           <g opacity="0.15">
             <circle cx="78" cy="88" r="10" fill="rgba(107,79,58,0.25)" />
             <circle cx="145" cy="78" r="7" fill="rgba(107,79,58,0.20)" />
@@ -246,8 +231,16 @@ export default function CalendarClient() {
     return { top: "CURRENT", mid: data.lunar.phaseName };
   }, [data]);
 
-  // Phase microcopy uses SOLAR phase 1–8 (your 8-phase calendar)
-  // UPDATED: if solar.kind === "INTERPHASE", show the "next" phase's microcopy.
+  // Determine phase for theming + microcopy
+  const phaseId = useMemo(() => {
+    const p = data?.solar?.phase;
+    if (typeof p === "number" && p >= 1 && p <= 8) return p as PhaseId;
+    return 1 as PhaseId;
+  }, [data?.solar?.phase]);
+
+  const theme = useMemo(() => themeForPhase(phaseId), [phaseId]);
+
+  // Microcopy: if INTERPHASE, show the “next” phase’s microcopy
   const phaseCopy = useMemo(() => {
     const p = data?.solar?.phase;
 
@@ -264,9 +257,12 @@ export default function CalendarClient() {
     return microcopyForPhase(1);
   }, [data?.solar?.phase, data?.solar?.kind]);
 
+  const pageStyle: React.CSSProperties = {
+    background: theme.pageWash,
+  };
+
   const cardStyle: React.CSSProperties = {
-    background:
-      "linear-gradient(180deg, rgba(244,235,221,0.92) 0%, rgba(213,192,165,0.82) 55%, rgba(185,176,123,0.55) 120%)",
+    background: theme.heroGradient,
     borderColor: C.border,
     boxShadow:
       "0 26px 90px rgba(31,36,26,0.18), 0 2px 0 rgba(255,255,255,0.35) inset",
@@ -278,294 +274,320 @@ export default function CalendarClient() {
   };
 
   const trackBg = "rgba(31,36,26,0.18)";
-  const fillBg = "rgba(31,36,26,0.55)";
+  const fillBg = theme.accentDeep; // phase-aware fill
+
+  const microWrap: React.CSSProperties = {
+    borderColor: C.border,
+    background: `linear-gradient(180deg, ${C.surface} 0%, ${theme.accentSoft} 140%)`,
+    boxShadow: "0 12px 40px rgba(31,36,26,0.10)",
+  };
+
+  const phaseChip: React.CSSProperties = {
+    borderColor: C.border,
+    color: C.ink,
+    background: `linear-gradient(180deg, rgba(244,235,221,0.90) 0%, ${theme.accentSoft} 140%)`,
+  };
 
   return (
-    <div className="space-y-5">
-      {/* HERO */}
-      <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
-        <div className="text-sm tracking-widest" style={{ color: C.inkSoft }}>
-          {header.top}
-        </div>
-
-        <div
-          className="text-4xl font-semibold tracking-tight mt-2"
-          style={{ color: C.ink }}
-        >
-          {header.mid}
-        </div>
-
-        {/* SOLAR + LUNAR PANELS */}
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-          {/* Solar */}
-          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div
-              className="text-xs tracking-widest"
-              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
-            >
-              SOLAR CONTEXT
-            </div>
-
-            {data?.solar?.kind === "INTERPHASE" ? (
-              <div className="mt-2 text-sm" style={{ color: C.ink }}>
-                Interphase • Day{" "}
-                <span className="font-semibold">
-                  {data?.solar?.interphaseDay ?? "—"}
-                </span>{" "}
-                of{" "}
-                <span className="font-semibold">
-                  {data?.solar?.interphaseTotal ?? "—"}
-                </span>
+    <div className="min-h-screen px-4 py-8" style={pageStyle}>
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="space-y-5">
+          {/* HERO */}
+          <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
+            <div className="flex items-center justify-center gap-2">
+              <div className="text-sm tracking-widest" style={{ color: C.inkSoft }}>
+                {header.top}
               </div>
-            ) : (
-              <div className="mt-2 text-sm" style={{ color: C.ink }}>
-                Phase{" "}
-                <span className="font-semibold">{data?.solar?.phase ?? "—"}</span>{" "}
-                of 8 • Day{" "}
-                <span className="font-semibold">
-                  {data?.solar?.dayInPhase ?? "—"}
-                </span>{" "}
-                of 45
-              </div>
-            )}
-
-            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
-              Day index: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
-              {typeof data?.solar?.yearLength === "number"
-                ? data.solar.yearLength - 1
-                : "—"}
-            </div>
-
-            <div
-              className="mt-3 w-full h-2 rounded-full overflow-hidden"
-              style={{ background: trackBg }}
-            >
               <div
-                className="h-full"
-                style={{
-                  background: fillBg,
-                  width:
-                    typeof data?.solar?.dayIndexInYear === "number" &&
-                    typeof data?.solar?.yearLength === "number"
-                      ? `${Math.round(
-                          ((data.solar.dayIndexInYear + 1) / data.solar.yearLength) *
-                            100
-                        )}%`
-                      : "0%",
-                }}
+                className="ml-1 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+                style={phaseChip}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ background: theme.accentDeep }}
+                />
+                <span style={{ letterSpacing: "0.14em" }}>PHASE {phaseId}</span>
+              </div>
+            </div>
+
+            <div
+              className="text-4xl font-semibold tracking-tight mt-2"
+              style={{ color: C.ink }}
+            >
+              {header.mid}
+            </div>
+
+            {/* SOLAR + LUNAR PANELS */}
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+              {/* Solar */}
+              <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
+                <div
+                  className="text-xs tracking-widest"
+                  style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+                >
+                  SOLAR CONTEXT
+                </div>
+
+                {data?.solar?.kind === "INTERPHASE" ? (
+                  <div className="mt-2 text-sm" style={{ color: C.ink }}>
+                    Interphase • Day{" "}
+                    <span className="font-semibold">
+                      {data?.solar?.interphaseDay ?? "—"}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-semibold">
+                      {data?.solar?.interphaseTotal ?? "—"}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-sm" style={{ color: C.ink }}>
+                    Phase{" "}
+                    <span className="font-semibold">{data?.solar?.phase ?? "—"}</span>{" "}
+                    of 8 • Day{" "}
+                    <span className="font-semibold">
+                      {data?.solar?.dayInPhase ?? "—"}
+                    </span>{" "}
+                    of 45
+                  </div>
+                )}
+
+                <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
+                  Day index: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
+                  {typeof data?.solar?.yearLength === "number"
+                    ? data.solar.yearLength - 1
+                    : "—"}
+                </div>
+
+                <div
+                  className="mt-3 w-full h-2 rounded-full overflow-hidden"
+                  style={{ background: trackBg }}
+                >
+                  <div
+                    className="h-full"
+                    style={{
+                      background: fillBg,
+                      width:
+                        typeof data?.solar?.dayIndexInYear === "number" &&
+                        typeof data?.solar?.yearLength === "number"
+                          ? `${Math.round(
+                              ((data.solar.dayIndexInYear + 1) / data.solar.yearLength) *
+                                100
+                            )}%`
+                          : "0%",
+                    }}
+                  />
+                </div>
+
+                <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
+                  Anchor: {data?.solar?.anchors?.equinoxLocalDay ?? "—"} → Next:{" "}
+                  {data?.solar?.anchors?.nextEquinoxLocalDay ?? "—"}
+                </div>
+              </div>
+
+              {/* Lunar */}
+              <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
+                <div
+                  className="text-xs tracking-widest"
+                  style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+                >
+                  LUNAR CONTEXT
+                </div>
+
+                <div className="mt-2 text-sm" style={{ color: C.ink }}>
+                  {data?.lunar?.label ?? "—"}
+                </div>
+
+                <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
+                  Age:{" "}
+                  {typeof data?.lunar?.lunarAgeDays === "number"
+                    ? `${data.lunar.lunarAgeDays.toFixed(2)} days`
+                    : "—"}{" "}
+                  • LD-{data?.lunar?.lunarDay ?? "—"}
+                </div>
+
+                <div
+                  className="mt-3 w-full h-2 rounded-full overflow-hidden"
+                  style={{ background: trackBg }}
+                >
+                  <div
+                    className="h-full"
+                    style={{
+                      background: fillBg,
+                      width:
+                        typeof data?.lunar?.lunarAgeDays === "number" &&
+                        typeof data?.lunar?.synodicMonthDays === "number"
+                          ? `${Math.round(
+                              (data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) *
+                                100
+                            )}%`
+                          : "0%",
+                    }}
+                  />
+                </div>
+
+                <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
+                  Moon: {data?.astro?.moonPos ?? "—"}
+                </div>
+              </div>
+            </div>
+
+            {/* Orisha phase microcopy module (calendar-style wrapper) */}
+            <div className="mt-5 text-left rounded-2xl border p-4" style={microWrap}>
+              <PhaseMicrocopyCard
+                copy={phaseCopy}
+                tone="linen"
+                defaultExpanded={false}
+                showJournal={true}
+                showActionHint={true}
               />
             </div>
 
-            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
-              Anchor: {data?.solar?.anchors?.equinoxLocalDay ?? "—"} → Next:{" "}
-              {data?.solar?.anchors?.nextEquinoxLocalDay ?? "—"}
-            </div>
-          </div>
-
-          {/* Lunar */}
-          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div
-              className="text-xs tracking-widest"
-              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
-            >
-              LUNAR CONTEXT
-            </div>
-
-            <div className="mt-2 text-sm" style={{ color: C.ink }}>
-              {data?.lunar?.label ?? "—"}
-            </div>
-
-            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
-              Age:{" "}
-              {typeof data?.lunar?.lunarAgeDays === "number"
-                ? `${data.lunar.lunarAgeDays.toFixed(2)} days`
-                : "—"}{" "}
-              • LD-{data?.lunar?.lunarDay ?? "—"}
-            </div>
-
-            <div
-              className="mt-3 w-full h-2 rounded-full overflow-hidden"
-              style={{ background: trackBg }}
-            >
-              <div
-                className="h-full"
-                style={{
-                  background: fillBg,
-                  width:
-                    typeof data?.lunar?.lunarAgeDays === "number" &&
-                    typeof data?.lunar?.synodicMonthDays === "number"
-                      ? `${Math.round(
-                          (data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) *
-                            100
-                        )}%`
-                      : "0%",
-                }}
+            {/* Moon Disc */}
+            <div className="mt-7 flex justify-center">
+              <MoonDisc
+                phaseName={header.mid}
+                phaseAngleDeg={data?.lunar?.phaseAngleDeg}
               />
             </div>
 
-            <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
-              Moon: {data?.astro?.moonPos ?? "—"}
+            <div className="mt-6 text-xl" style={{ color: C.ink }}>
+              The Moon is in{" "}
+              <span style={{ color: C.ink }} className="font-semibold">
+                {data?.astro.moonSign ?? "—"}
+              </span>
+            </div>
+
+            <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
+              As of{" "}
+              <span style={{ color: C.ink }} className="opacity-85">
+                {data?.gregorian.asOfLocal ?? "—"}
+              </span>
+            </div>
+
+            <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
+              Enters{" "}
+              <span style={{ color: C.ink }} className="opacity-85">
+                {data?.astro.moonEntersSign ?? "—"}
+              </span>{" "}
+              <span style={{ color: C.ink }} className="opacity-85">
+                {data?.astro.moonEntersLocal ?? "—"}
+              </span>
+            </div>
+
+            {/* Nav */}
+            <div className="mt-6 flex items-center justify-between">
+              <button
+                onClick={() => nav(-1)}
+                className="text-sm px-3 py-2 rounded-full border"
+                style={{
+                  color: C.ink,
+                  borderColor: C.border,
+                  background: "rgba(244,235,221,0.70)",
+                }}
+              >
+                ◀
+              </button>
+
+              <button
+                onClick={() => load()}
+                className="text-sm px-4 py-2 rounded-full border"
+                style={{
+                  color: C.ink,
+                  borderColor: C.border,
+                  background: "rgba(244,235,221,0.70)",
+                }}
+              >
+                ● Today
+              </button>
+
+              <button
+                onClick={() => nav(1)}
+                className="text-sm px-3 py-2 rounded-full border"
+                style={{
+                  color: C.ink,
+                  borderColor: C.border,
+                  background: "rgba(244,235,221,0.70)",
+                }}
+              >
+                ▶
+              </button>
+            </div>
+
+            <div className="mt-5 text-xs" style={{ color: C.inkMuted }}>
+              {loading ? "…" : data?.solar.label ?? ""}
+              <span style={{ color: C.inkSoft }}> • </span>
+              {data?.lunar.label ?? ""}
             </div>
           </div>
-        </div>
 
-        {/* Orisha phase microcopy module */}
-        <div className="mt-5 text-left">
-          <PhaseMicrocopyCard
-            copy={phaseCopy}
-            tone="linen"
-            defaultExpanded={false}
-            showJournal={true}
-            showActionHint={true}
-          />
-        </div>
-
-        {/* Moon Disc */}
-        <div className="mt-7 flex justify-center">
-          <MoonDisc
-            phaseName={header.mid}
-            phaseAngleDeg={data?.lunar?.phaseAngleDeg}
-          />
-        </div>
-
-        <div className="mt-6 text-xl" style={{ color: C.ink }}>
-          The Moon is in{" "}
-          <span style={{ color: C.ink }} className="font-semibold">
-            {data?.astro.moonSign ?? "—"}
-          </span>
-        </div>
-
-        <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
-          As of{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.gregorian.asOfLocal ?? "—"}
-          </span>
-        </div>
-
-        <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
-          Enters{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.astro.moonEntersSign ?? "—"}
-          </span>{" "}
-          <span style={{ color: C.ink }} className="opacity-85">
-            {data?.astro.moonEntersLocal ?? "—"}
-          </span>
-        </div>
-
-        {/* Nav */}
-        <div className="mt-6 flex items-center justify-between">
-          <button
-            onClick={() => nav(-1)}
-            className="text-sm px-3 py-2 rounded-full border"
-            style={{
-              color: C.ink,
-              borderColor: C.border,
-              background: "rgba(244,235,221,0.70)",
-            }}
-          >
-            ◀
-          </button>
-
-          <button
-            onClick={() => load()}
-            className="text-sm px-4 py-2 rounded-full border"
-            style={{
-              color: C.ink,
-              borderColor: C.border,
-              background: "rgba(244,235,221,0.70)",
-            }}
-          >
-            ● Today
-          </button>
-
-          <button
-            onClick={() => nav(1)}
-            className="text-sm px-3 py-2 rounded-full border"
-            style={{
-              color: C.ink,
-              borderColor: C.border,
-              background: "rgba(244,235,221,0.70)",
-            }}
-          >
-            ▶
-          </button>
-        </div>
-
-        <div className="mt-5 text-xs" style={{ color: C.inkMuted }}>
-          {loading ? "…" : data?.solar.label ?? ""}
-          <span style={{ color: C.inkSoft }}> • </span>
-          {data?.lunar.label ?? ""}
-        </div>
-      </div>
-
-      {/* Moon phase cycle */}
-      <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-        <div
-          className="text-xs tracking-widest text-center"
-          style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
-        >
-          MOON PHASE CYCLE
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-          {(data?.lunation.markers ?? []).map((m) => (
-            <div key={m.kind} className="space-y-2">
-              <div style={{ color: C.ink }} className="text-2xl opacity-80">
-                {iconFor(m.kind)}
-              </div>
-              <div style={{ color: C.inkMuted }} className="text-xs">
-                {m.kind}
-              </div>
-              <div style={{ color: C.ink }} className="text-sm font-semibold">
-                {m.degreeText}
-              </div>
-              <div style={{ color: C.inkMuted }} className="text-xs">
-                {m.whenLocal}
-              </div>
+          {/* Moon phase cycle */}
+          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
+            <div
+              className="text-xs tracking-widest text-center"
+              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
+              MOON PHASE CYCLE
             </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Bottom rows */}
-      <div
-        className="rounded-2xl border overflow-hidden"
-        style={{
-          ...panelStyle,
-          boxShadow: "0 10px 40px rgba(31,36,26,0.10)",
-        }}
-      >
-        <div style={{ borderBottom: `1px solid ${C.divider}` }}>
-          <Row left="Current Calendar" right={data?.solar.label ?? "—"} icon="⟐" />
-        </div>
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+              {(data?.lunation.markers ?? []).map((m) => (
+                <div key={m.kind} className="space-y-2">
+                  <div style={{ color: C.ink }} className="text-2xl opacity-80">
+                    {iconFor(m.kind)}
+                  </div>
+                  <div style={{ color: C.inkMuted }} className="text-xs">
+                    {m.kind}
+                  </div>
+                  <div style={{ color: C.ink }} className="text-sm font-semibold">
+                    {m.degreeText}
+                  </div>
+                  <div style={{ color: C.inkMuted }} className="text-xs">
+                    {m.whenLocal}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
-        <div style={{ borderBottom: `1px solid ${C.divider}` }}>
-          <Row left="Sun" right={data?.astro.sunPos ?? "—"} icon="☉" />
-        </div>
+          {/* Bottom rows */}
+          <div
+            className="rounded-2xl border overflow-hidden"
+            style={{
+              ...panelStyle,
+              boxShadow: "0 10px 40px rgba(31,36,26,0.10)",
+            }}
+          >
+            <div style={{ borderBottom: `1px solid ${C.divider}` }}>
+              <Row left="Current Calendar" right={data?.solar.label ?? "—"} icon="⟐" />
+            </div>
 
-        <div style={{ borderBottom: `1px solid ${C.divider}` }}>
-          <Row
-            left="Sun Longitude (0–360°)"
-            right={
-              typeof data?.astro?.sunLon === "number"
-                ? `${data.astro.sunLon.toFixed(2)}°`
-                : "—"
-            }
-            icon="⦿"
-          />
-        </div>
+            <div style={{ borderBottom: `1px solid ${C.divider}` }}>
+              <Row left="Sun" right={data?.astro.sunPos ?? "—"} icon="☉" />
+            </div>
 
-        <Row
-          left="Solar Progress"
-          right={
-            data?.solar?.kind === "INTERPHASE"
-              ? `Interphase Day ${data?.solar?.interphaseDay ?? "—"}`
-              : `Phase ${data?.solar?.phase ?? "—"} • Day ${
-                  data?.solar?.dayInPhase ?? "—"
-                }`
-          }
-          icon="⌁"
-        />
+            <div style={{ borderBottom: `1px solid ${C.divider}` }}>
+              <Row
+                left="Sun Longitude (0–360°)"
+                right={
+                  typeof data?.astro?.sunLon === "number"
+                    ? `${data.astro.sunLon.toFixed(2)}°`
+                    : "—"
+                }
+                icon="⦿"
+              />
+            </div>
+
+            <Row
+              left="Solar Progress"
+              right={
+                data?.solar?.kind === "INTERPHASE"
+                  ? `Interphase Day ${data?.solar?.interphaseDay ?? "—"}`
+                  : `Phase ${data?.solar?.phase ?? "—"} • Day ${data?.solar?.dayInPhase ?? "—"}`
+              }
+              icon="⌁"
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
