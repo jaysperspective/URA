@@ -247,13 +247,22 @@ export default function CalendarClient() {
   }, [data]);
 
   // Phase microcopy uses SOLAR phase 1–8 (your 8-phase calendar)
+  // UPDATED: if solar.kind === "INTERPHASE", show the "next" phase's microcopy.
   const phaseCopy = useMemo(() => {
     const p = data?.solar?.phase;
+
+    if (data?.solar?.kind === "INTERPHASE") {
+      const next =
+        typeof p === "number" && p >= 1 && p <= 8 ? ((p % 8) + 1) : 1;
+      return microcopyForPhase(next as PhaseId);
+    }
+
     if (typeof p === "number" && p >= 1 && p <= 8) {
       return microcopyForPhase(p as PhaseId);
     }
+
     return microcopyForPhase(1);
-  }, [data?.solar?.phase]);
+  }, [data?.solar?.phase, data?.solar?.kind]);
 
   const cardStyle: React.CSSProperties = {
     background:
@@ -339,7 +348,8 @@ export default function CalendarClient() {
                     typeof data?.solar?.dayIndexInYear === "number" &&
                     typeof data?.solar?.yearLength === "number"
                       ? `${Math.round(
-                          ((data.solar.dayIndexInYear + 1) / data.solar.yearLength) * 100
+                          ((data.solar.dayIndexInYear + 1) / data.solar.yearLength) *
+                            100
                         )}%`
                       : "0%",
                 }}
@@ -385,7 +395,8 @@ export default function CalendarClient() {
                     typeof data?.lunar?.lunarAgeDays === "number" &&
                     typeof data?.lunar?.synodicMonthDays === "number"
                       ? `${Math.round(
-                          (data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) * 100
+                          (data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) *
+                            100
                         )}%`
                       : "0%",
                 }}
@@ -549,7 +560,9 @@ export default function CalendarClient() {
           right={
             data?.solar?.kind === "INTERPHASE"
               ? `Interphase Day ${data?.solar?.interphaseDay ?? "—"}`
-              : `Phase ${data?.solar?.phase ?? "—"} • Day ${data?.solar?.dayInPhase ?? "—"}`
+              : `Phase ${data?.solar?.phase ?? "—"} • Day ${
+                  data?.solar?.dayInPhase ?? "—"
+                }`
           }
           icon="⌁"
         />
