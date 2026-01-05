@@ -1,4 +1,4 @@
-// src/lib/ura/ontology.ts
+]// src/lib/ura/ontology.ts
 
 export type PhaseId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
@@ -24,27 +24,22 @@ export type PlanetKey =
 
 export type URAPhaseMeta = {
   id: PhaseId;
-
-  // KEEP your current label style (Phase 1–8 / P1..P8 lives in UI, not forced here)
-  title: string; // short internal name, not replacing UI labels
+  title: string;     // internal (does not replace your labels)
   function: string;
-
   ecology: string;
   psyche: string;
 
-  // Modal operator
   orisha: {
     key: OrishaKey;
-    modality: string;     // what force does in the world
-    distortion: string;   // what it looks like when mis-metabolized
-    practice: string;     // small actionable correction
+    modality: string;
+    distortion: string;
+    practice: string;
   };
 
-  // Planet overlay
   planet: {
     key: PlanetKey;
-    force: string;        // what kind of pressure
-    distortion: string;   // phase-inappropriate expression
+    force: string;
+    distortion: string;
   };
 };
 
@@ -203,7 +198,8 @@ export const URA_PHASES: Record<PhaseId, URAPhaseMeta> = {
 };
 
 export function metaForPhase(id: number | null | undefined): URAPhaseMeta | null {
-  if (!id) return null;
+  if (typeof id !== "number") return null;
   if (id < 1 || id > 8) return null;
   return URA_PHASES[id as PhaseId];
 }
+
