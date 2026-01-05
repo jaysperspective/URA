@@ -8,11 +8,11 @@ export function norm360(d: number) {
 
 export type SolarPhase = {
   phaseId: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
-  phaseIndex0: number;     // 0..7
-  degIntoPhase: number;    // 0..45
-  progress01: number;      // 0..1
-  startDeg: number;        // multiple of 45
-  endDeg: number;          // start+45
+  phaseIndex0: number;   // 0..7
+  degIntoPhase: number;  // 0..45
+  progress01: number;    // 0..1
+  startDeg: number;      // multiple of 45
+  endDeg: number;        // start+45
 };
 
 export function solarPhaseFromSunLon(sunLon: number): SolarPhase {
