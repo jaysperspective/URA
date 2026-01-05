@@ -1,7 +1,7 @@
 // src/app/api/gann/route.ts
 import { NextResponse, NextRequest } from "next/server";
 
-/* -------------------- Rate limiter (copied pattern) -------------------- */
+/* -------------------- Rate limiter -------------------- */
 const RATE_WINDOW_MS = 5000;
 const RATE_MAX_REQUESTS = 40;
 
@@ -47,11 +47,15 @@ function roundToTick(value: number, tickSize: number) {
 
 /**
  * Classic Square-of-9 "sqrt step" projection:
- * - 360° corresponds to +2 on the sqrt scale
- * - so deltaSqrt = angle / 180
- * - target = (sqrt(anchor) ± deltaSqrt)^2
+ * deltaSqrt = angle / 180
+ * target = (sqrt(anchor) ± deltaSqrt)^2
  */
-function gannTargetsFromAnchor(anchor: number, angles: number[], tickSize: number, includeDownside: boolean) {
+function gannTargetsFromAnchor(
+  anchor: number,
+  angles: number[],
+  tickSize: number,
+  includeDownside: boolean
+) {
   if (!Number.isFinite(anchor) || anchor <= 0) {
     throw new Error("Anchor must be a positive number.");
   }
@@ -61,7 +65,7 @@ function gannTargetsFromAnchor(anchor: number, angles: number[], tickSize: numbe
     .map((a) => normDeg(a))
     .sort((a, b) => a - b)
     .map((angle) => {
-      const deltaSqrt = angle / 180; // key mapping
+      const deltaSqrt = angle / 180;
       const up = roundToTick(Math.pow(root + deltaSqrt, 2), tickSize);
       const downRaw = Math.pow(root - deltaSqrt, 2);
       const down = includeDownside ? roundToTick(downRaw, tickSize) : null;
@@ -70,7 +74,11 @@ function gannTargetsFromAnchor(anchor: number, angles: number[], tickSize: numbe
     });
 }
 
-function personalPosition(anchorDateTime: string, cycleDays: number, angles: number[]) {
+/**
+ * Time → angle marker + next boundary times
+ * Used for both personal and market marker.
+ */
+function timeMarker(anchorDateTime: string, cycleDays: number, angles: number[]) {
   if (!anchorDateTime) throw new Error("anchorDateTime is required.");
   const anchor = new Date(anchorDateTime);
   if (Number.isNaN(anchor.getTime())) throw new Error("Invalid anchorDateTime.");
@@ -83,36 +91,23 @@ function personalPosition(anchorDateTime: string, cycleDays: number, angles: num
   const progress01 = ((elapsedDays / cycleDays) % 1 + 1) % 1;
   const markerDeg = progress01 * 360;
 
-  // next boundary times for each requested angle
   const nextBoundaries = angles
     .map((a) => normDeg(a))
     .sort((a, b) => a - b)
     .map((angle) => {
       const target01 = angle / 360;
-      // find the next occurrence strictly ahead of current progress
       let delta01 = target01 - progress01;
       if (delta01 <= 0) delta01 += 1;
 
       const deltaDays = delta01 * cycleDays;
       const at = new Date(now.getTime() + deltaDays * msPerDay);
 
-      const inHours = Math.round((deltaDays * 24) * 10) / 10;
+      const inHours = Math.round(deltaDays * 24 * 10) / 10;
 
-      return {
-        angle,
-        at: at.toISOString(),
-        inHours,
-      };
+      return { angle, at: at.toISOString(), inHours };
     });
 
-  return {
-    anchorDateTime,
-    cycleDays,
-    now: now.toISOString(),
-    markerDeg,
-    progress01,
-    nextBoundaries,
-  };
+  return { now: now.toISOString(), markerDeg, progress01, nextBoundaries };
 }
 
 /* -------------------- Route -------------------- */
@@ -146,6 +141,21 @@ export async function POST(request: NextRequest) {
 
       const targets = gannTargetsFromAnchor(anchor, angles, tickSize, includeDownside);
 
+      // ✅ Market marker upgrade (optional)
+      let markerDeg: number | null = null;
+      let progress01: number | null = null;
+      let nextBoundaries: any[] = [];
+
+      const pivotDateTime = body?.pivotDateTime ? String(body.pivotDateTime) : "";
+      const cycleDays = Number(body?.cycleDays);
+
+      if (pivotDateTime && Number.isFinite(cycleDays) && cycleDays > 0) {
+        const tm = timeMarker(pivotDateTime, cycleDays, angles);
+        markerDeg = tm.markerDeg;
+        progress01 = tm.progress01;
+        nextBoundaries = tm.nextBoundaries;
+      }
+
       return NextResponse.json({
         ok: true,
         mode,
@@ -154,7 +164,9 @@ export async function POST(request: NextRequest) {
           symbol: body?.symbol ?? null,
           anchor,
           tickSize,
-          markerDeg: 0, // marker is optional in v1 market mode; we keep ring anchored at 0°
+          markerDeg, // ✅ now meaningful when pivot+cycle provided
+          progress01,
+          nextBoundaries,
           targets,
         },
       });
@@ -164,17 +176,24 @@ export async function POST(request: NextRequest) {
       const anchorDateTime = String(body?.anchorDateTime ?? "");
       const cycleDays = Number(body?.cycleDays ?? 365.2425);
 
-      const data = personalPosition(anchorDateTime, cycleDays, angles);
+      const tm = timeMarker(anchorDateTime, cycleDays, angles);
 
       return NextResponse.json({
         ok: true,
         mode,
         input: body,
-        data,
+        data: {
+          anchorDateTime,
+          cycleDays,
+          ...tm,
+        },
       });
     }
 
-    return NextResponse.json({ ok: false, error: "Invalid mode. Use 'market' or 'personal'." }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Invalid mode. Use 'market' or 'personal'." },
+      { status: 400 }
+    );
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || "Unknown error" }, { status: 500 });
   }
