@@ -3,7 +3,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import URAFoundationCard from "@/components/ura/URAFoundationCard";
+import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
+
 
 /**
  * Seasons Page (Client)
@@ -286,7 +287,7 @@ export default function SeasonsPage() {
 
           {/* Right / Foundation: Solar 8-Phase + Orisha + Planet Overlay */}
           <div className="lg:col-span-1">
-            <URAFoundationCard
+            <URAFoundationPanel
               phaseId={uraCtx?.solar?.phaseId ?? null}
               progress01={uraCtx?.solar?.progress01 ?? null}
               ontology={uraCtx?.ontology ?? null}
