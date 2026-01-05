@@ -7,12 +7,10 @@ import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 
 /**
  * Seasons Page (Client)
- *
- * - Primary purpose: interact with /api/core in a “terminal” style UI
- * - Secondary: show URA Solar 8-phase context (degree-true) via /api/ura/context
- *
- * NOTE: URAFoundationPanel props caused TS errors in build because the component
- * does not declare phaseId/progress01/ontology. We therefore render it without props.
+ * - Terminal interface for /api/core
+ * - Displays URA Solar 8-phase context via /api/ura/context
+ * - Renders URAFoundationPanel using its REQUIRED props:
+ *   solarPhaseId, solarProgress01, sunText, ontology
  */
 
 type CoreResponse = {
@@ -21,7 +19,6 @@ type CoreResponse = {
   error?: string;
   input?: any;
   derived?: any;
-  // older wrappers sometimes return these
   summary?: any;
   lunation?: any;
   ascYear?: any;
@@ -45,7 +42,7 @@ type UraContext = {
 
 const LS_KEY = "ura:lastPayloadText";
 
-// --- your dark “terminal” palette ---
+// --- terminal palette ---
 const UI = {
   bg: "#0b0906",
   panel: "#0f0d0a",
@@ -64,12 +61,36 @@ function todayYMDLocal() {
   return `${y}-${m}-${day}`;
 }
 
+function norm360(d: number) {
+  let x = d % 360;
+  if (x < 0) x += 360;
+  return x;
+}
+
+const SIGNS = [
+  "Ari",
+  "Tau",
+  "Gem",
+  "Can",
+  "Leo",
+  "Vir",
+  "Lib",
+  "Sco",
+  "Sag",
+  "Cap",
+  "Aqu",
+  "Pis",
+] as const;
+
+function signFromLon(lon: number) {
+  return SIGNS[Math.floor(norm360(lon) / 30) % 12];
+}
+
 export default function SeasonsPage() {
   const [payloadText, setPayloadText] = useState<string>("");
   const [resultText, setResultText] = useState<string>("");
   const [coreJson, setCoreJson] = useState<CoreResponse | null>(null);
 
-  // URA context (solar 8-phase driver)
   const [uraCtx, setUraCtx] = useState<UraContext | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -81,7 +102,6 @@ export default function SeasonsPage() {
       const saved = window.localStorage.getItem(LS_KEY);
       if (saved && saved.trim()) setPayloadText(saved);
       else {
-        // light default payload
         setPayloadText(
           `birth_datetime: 1990-01-24 01:39
 tz_offset: -05:00
@@ -95,7 +115,6 @@ as_of_date: ${todayYMDLocal()}`
     }
   }, []);
 
-  // Save payload on change (so /calendar can read it too if needed)
   useEffect(() => {
     try {
       window.localStorage.setItem(LS_KEY, payloadText);
@@ -104,7 +123,6 @@ as_of_date: ${todayYMDLocal()}`
     }
   }, [payloadText]);
 
-  // ---------- actions ----------
   async function runCore() {
     setLoading(true);
     setErr(null);
@@ -131,7 +149,6 @@ as_of_date: ${todayYMDLocal()}`
         );
         setErr(json?.error ?? "core failed");
       } else {
-        // prefer json.text if present, else stringify core
         const text = (json as any)?.text ?? JSON.stringify(json, null, 2);
         setResultText(text);
       }
@@ -146,8 +163,6 @@ as_of_date: ${todayYMDLocal()}`
 
   async function refreshUraContext() {
     try {
-      // We sample “now” unless you want to anchor this to as_of_date.
-      // Your /api/ura/context already supports ?asOf=ISO if needed.
       const r = await fetch("/api/ura/context", { cache: "no-store" });
       const j = (await r.json().catch(() => null)) as UraContext | null;
       setUraCtx(j?.ok ? j : null);
@@ -160,16 +175,35 @@ as_of_date: ${todayYMDLocal()}`
     refreshUraContext();
   }, []);
 
-  const uraPhaseLabel = useMemo(() => {
+  // --- Required props for URAFoundationPanel ---
+  const solarPhaseId = useMemo(() => {
     const pid = uraCtx?.solar?.phaseId;
-    return typeof pid === "number" ? `Phase ${pid}` : "—";
+    // hard default prevents TS + runtime issues
+    if (typeof pid === "number" && Number.isFinite(pid)) return pid;
+    return 1;
   }, [uraCtx?.solar?.phaseId]);
 
-  const uraProgress = useMemo(() => {
+  const solarProgress01 = useMemo(() => {
     const p = uraCtx?.solar?.progress01;
-    if (typeof p !== "number" || !Number.isFinite(p)) return null;
-    return Math.max(0, Math.min(1, p));
+    if (typeof p === "number" && Number.isFinite(p)) {
+      return Math.max(0, Math.min(1, p));
+    }
+    return 0;
   }, [uraCtx?.solar?.progress01]);
+
+  const sunText = useMemo(() => {
+    const lon = uraCtx?.astro?.sunLon;
+    if (typeof lon !== "number" || !Number.isFinite(lon)) return "Sun: —";
+    const s = signFromLon(lon);
+    return `Sun: ${s} ${norm360(lon).toFixed(2)}°`;
+  }, [uraCtx?.astro?.sunLon]);
+
+  const ontology = useMemo(() => {
+    // panel expects a value even if null
+    return uraCtx?.ontology ?? null;
+  }, [uraCtx?.ontology]);
+
+  const uraPhaseLabel = useMemo(() => `Phase ${solarPhaseId}`, [solarPhaseId]);
 
   return (
     <div className="min-h-[100svh]" style={{ background: UI.bg, color: UI.text }}>
@@ -206,7 +240,7 @@ as_of_date: ${todayYMDLocal()}`
           </div>
         </div>
 
-        {/* Top row: URA context + actions */}
+        {/* Top row */}
         <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="rounded-2xl border p-5 lg:col-span-2" style={{ borderColor: UI.border, background: UI.panel }}>
             <div className="flex items-center justify-between gap-4">
@@ -220,6 +254,9 @@ as_of_date: ${todayYMDLocal()}`
                 <div className="mt-1 text-[12px]" style={{ color: UI.subtle }}>
                   Degree-true Solar phase via /api/ura/context
                 </div>
+                <div className="mt-2 text-[12px]" style={{ color: UI.subtle }}>
+                  {sunText}
+                </div>
               </div>
 
               <div className="min-w-[220px]">
@@ -230,7 +267,7 @@ as_of_date: ${todayYMDLocal()}`
                   <div
                     className="h-2 rounded-full"
                     style={{
-                      width: `${Math.round((uraProgress ?? 0) * 100)}%`,
+                      width: `${Math.round(solarProgress01 * 100)}%`,
                       background: UI.accent,
                     }}
                   />
@@ -244,9 +281,14 @@ as_of_date: ${todayYMDLocal()}`
               </div>
             </div>
 
-            {/* Foundation Panel (NO PROPS to avoid TS mismatch) */}
+            {/* ✅ REQUIRED PROPS — fixes your TS build error */}
             <div className="mt-4">
-              <URAFoundationPanel />
+              <URAFoundationPanel
+                solarPhaseId={solarPhaseId}
+                solarProgress01={solarProgress01}
+                sunText={sunText}
+                ontology={ontology}
+              />
             </div>
 
             <div className="mt-4 flex items-center gap-2">
