@@ -16,27 +16,35 @@ export default function ChartPage() {
 
   // MARKET inputs
   const [symbol, setSymbol] = useState("SOL-USD");
-  const [anchorPrice, setAnchorPrice] = useState("200"); // string input
+  const [anchorPrice, setAnchorPrice] = useState("200");
   const [tickSize, setTickSize] = useState("0.01");
   const [anglesCsv, setAnglesCsv] = useState(DEFAULT_ANGLES.join(","));
   const [includeDownside, setIncludeDownside] = useState(true);
 
-  // PERSONAL inputs
-  const [anchorDateTime, setAnchorDateTime] = useState(() => {
-    // default: a stable anchor, user can change
-    return "1990-01-24T01:39";
+  // ✅ Market marker upgrade: pivot datetime + cycle length
+  const [pivotDateTime, setPivotDateTime] = useState<string>(() => {
+    // default: now, but user can set to a real pivot
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const s = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+      d.getHours()
+    )}:${pad(d.getMinutes())}`;
+    return s;
   });
-  const [cycleDays, setCycleDays] = useState("365.2425"); // solar year default
+  const [marketCycleDays, setMarketCycleDays] = useState("90"); // simple default
+
+  // PERSONAL inputs
+  const [anchorDateTime, setAnchorDateTime] = useState("1990-01-24T01:39");
+  const [cycleDays, setCycleDays] = useState("365.2425");
   const [personalAnglesCsv, setPersonalAnglesCsv] = useState(DEFAULT_ANGLES.join(","));
 
   const [res, setRes] = useState<GannResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const angles = useMemo(() => parseAnglesCsv(mode === "market" ? anglesCsv : personalAnglesCsv), [
-    mode,
-    anglesCsv,
-    personalAnglesCsv,
-  ]);
+  const angles = useMemo(
+    () => parseAnglesCsv(mode === "market" ? anglesCsv : personalAnglesCsv),
+    [mode, anglesCsv, personalAnglesCsv]
+  );
 
   async function run() {
     setLoading(true);
@@ -52,6 +60,9 @@ export default function ChartPage() {
               tickSize: Number(tickSize),
               angles,
               includeDownside,
+              // ✅ market marker inputs
+              pivotDateTime,
+              cycleDays: Number(marketCycleDays),
             }
           : {
               mode,
@@ -80,7 +91,6 @@ export default function ChartPage() {
   return (
     <div style={pageStyle}>
       <div style={wrapStyle}>
-        {/* Top bar */}
         <div style={topBarStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ opacity: 0.85 }}>Chart mode</span>
@@ -142,8 +152,38 @@ export default function ChartPage() {
                   <span style={{ opacity: 0.9 }}>Include downside targets</span>
                 </label>
 
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
+                    Market Marker (time → angle)
+                  </div>
+
+                  <Field label="Pivot date/time (local)">
+                    <input
+                      type="datetime-local"
+                      value={pivotDateTime}
+                      onChange={(e) => setPivotDateTime(e.target.value)}
+                      style={inputStyle}
+                    />
+                  </Field>
+
+                  <Field label="Market cycle length (days)">
+                    <input
+                      value={marketCycleDays}
+                      onChange={(e) => setMarketCycleDays(e.target.value)}
+                      inputMode="decimal"
+                      style={inputStyle}
+                    />
+                  </Field>
+
+                  <div style={helpStyle}>
+                    Marker maps <em>time since pivot</em> into the 360° ring:
+                    <br />
+                    <code style={codeStyle}>deg = ((now - pivot)/cycleDays mod 1) × 360</code>
+                  </div>
+                </div>
+
                 <div style={helpStyle}>
-                  Targets are computed using the classic Square-of-9 square-root step:
+                  Price targets use classic Square-of-9 sqrt step:
                   <br />
                   <code style={codeStyle}>target = (sqrt(anchor) ± (angle/180))²</code>
                 </div>
@@ -202,14 +242,12 @@ export default function ChartPage() {
                 markerDeg={res.data?.markerDeg ?? null}
                 subtitle={
                   mode === "market"
-                    ? `Anchor: ${formatNum(res.data.anchor)} ${res.input.symbol ? `(${res.input.symbol})` : ""}`
+                    ? `Anchor: ${formatNum(res.data.anchor)}${res.input.symbol ? ` (${res.input.symbol})` : ""}`
                     : `Now @ ${formatNum(res.data.markerDeg)}° of cycle`
                 }
               />
             ) : (
-              <div style={{ opacity: 0.8, padding: 12 }}>
-                Run to generate the ring and targets.
-              </div>
+              <div style={{ opacity: 0.8, padding: 12 }}>Run to generate the ring and outputs.</div>
             )}
           </div>
 
@@ -224,9 +262,7 @@ export default function ChartPage() {
                 <PersonalPanel data={res.data} />
               )
             ) : (
-              <div style={{ opacity: 0.8, padding: 12 }}>
-                Outputs appear here.
-              </div>
+              <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>
             )}
           </div>
         </div>
@@ -264,10 +300,7 @@ function Segmented({
             key={o.value}
             type="button"
             onClick={() => onChange(o.value)}
-            style={{
-              ...segBtnStyle,
-              ...(active ? segBtnActiveStyle : null),
-            }}
+            style={{ ...segBtnStyle, ...(active ? segBtnActiveStyle : null) }}
           >
             {o.label}
           </button>
@@ -291,14 +324,13 @@ function AngleRing({
   const cy = size / 2;
   const r = 120;
 
+  // ✅ 0° at EAST, 90° at SOUTH (clockwise)
   const spokes = angles.map((deg) => {
-    const a = ((deg - 90) * Math.PI) / 180;
-    const x2 = cx + Math.cos(a) * r;
-    const y2 = cy + Math.sin(a) * r;
-    return { deg, x2, y2 };
+    const p = polarToXY_East0_CW(cx, cy, r, deg);
+    return { deg, x2: p.x, y2: p.y };
   });
 
-  const marker = markerDeg == null ? null : polarToXY(cx, cy, r, markerDeg);
+  const marker = markerDeg == null ? null : polarToXY_East0_CW(cx, cy, r, markerDeg);
 
   return (
     <div style={{ padding: 12 }}>
@@ -310,14 +342,7 @@ function AngleRing({
         {/* spokes */}
         {spokes.map((s) => (
           <g key={s.deg}>
-            <line
-              x1={cx}
-              y1={cy}
-              x2={s.x2}
-              y2={s.y2}
-              stroke="rgba(237,227,204,0.15)"
-              strokeWidth={2}
-            />
+            <line x1={cx} y1={cy} x2={s.x2} y2={s.y2} stroke="rgba(237,227,204,0.15)" strokeWidth={2} />
             <text
               x={cx + (s.x2 - cx) * 1.12}
               y={cy + (s.y2 - cy) * 1.12}
@@ -346,6 +371,11 @@ function AngleRing({
       <div style={{ fontSize: 12, opacity: 0.85, textAlign: "center", marginTop: 10 }}>
         {markerDeg == null ? "Marker appears after run." : `Marker: ${formatNum(markerDeg)}°`}
       </div>
+
+      {/* tiny compass hint */}
+      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 6 }}>
+        0° East • 90° South • 180° West • 270° North
+      </div>
     </div>
   );
 }
@@ -356,6 +386,25 @@ function TargetsPanel({ data }: { data: any }) {
       <div style={{ fontSize: 12, opacity: 0.85 }}>
         Anchor: <strong>{formatNum(data.anchor)}</strong>
       </div>
+
+      {Number.isFinite(Number(data.markerDeg)) ? (
+        <div style={miniCardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ fontWeight: 600 }}>Market marker</div>
+            <div style={{ opacity: 0.85 }}>{formatNum(data.markerDeg)}°</div>
+          </div>
+          {Array.isArray(data.nextBoundaries) && data.nextBoundaries.length ? (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+              {data.nextBoundaries.slice(0, 4).map((b: any) => (
+                <div key={b.angle} style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between" }}>
+                  <span>{b.angle}° next</span>
+                  <span>{String(b.at).slice(0, 19).replace("T", " ")} ({b.inHours}h)</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {(data.targets ?? []).map((t: any) => (
@@ -380,8 +429,7 @@ function TargetsPanel({ data }: { data: any }) {
       </div>
 
       <div style={helpStyle}>
-        Interpretation (basic): 45°/90°/180°/270° targets are common “reaction” levels. Use them as reference levels,
-        not certainty.
+        Basic read: the angle list is your “structure.” The marker is “timing.” Targets are “levels.” You’re watching when timing + levels converge.
       </div>
     </div>
   );
@@ -421,10 +469,7 @@ function PersonalPanel({ data }: { data: any }) {
         ))}
       </div>
 
-      <div style={helpStyle}>
-        Personal use (basic): treat the boundaries as “chapter shifts.” You’re not predicting events — you’re tracking
-        when your internal context tends to change.
-      </div>
+      <div style={helpStyle}>Personal use: you’re tracking *context shifts* as you cross key angles.</div>
     </div>
   );
 }
@@ -442,12 +487,15 @@ function parseAnglesCsv(csv: string): number[] {
     .filter((n) => Number.isFinite(n))
     .map((n) => ((n % 360) + 360) % 360);
 
-  // de-dupe & sort
   return Array.from(new Set(nums)).sort((a, b) => a - b);
 }
 
-function polarToXY(cx: number, cy: number, r: number, deg: number) {
-  const a = ((deg - 90) * Math.PI) / 180;
+/**
+ * ✅ 0° at EAST, increasing clockwise:
+ * 0° East, 90° South, 180° West, 270° North
+ */
+function polarToXY_East0_CW(cx: number, cy: number, r: number, deg: number) {
+  const a = (deg * Math.PI) / 180;
   return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
 }
 
