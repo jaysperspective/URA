@@ -18,17 +18,13 @@ export async function GET(req: Request) {
     const asOf = parseAsOf(url.searchParams);
 
     const { sunLon, moonLon } = await fetchSunMoonLongitudesUTC(asOf);
-
     const solar = solarPhaseFromSunLon(sunLon);
-    const meta = metaForPhase(solar.phaseId);
+    const ontology = metaForPhase(solar.phaseId);
 
     return NextResponse.json({
       ok: true,
       asOfUTC: asOf.toISOString(),
-      astro: {
-        sunLon,
-        moonLon,
-      },
+      astro: { sunLon, moonLon },
       solar: {
         phaseId: solar.phaseId,
         phaseIndex0: solar.phaseIndex0,
@@ -37,7 +33,7 @@ export async function GET(req: Request) {
         startDeg: solar.startDeg,
         endDeg: solar.endDeg,
       },
-      ontology: meta, // may be null if something is off
+      ontology,
     });
   } catch (e: any) {
     return NextResponse.json(
@@ -46,3 +42,4 @@ export async function GET(req: Request) {
     );
   }
 }
+
