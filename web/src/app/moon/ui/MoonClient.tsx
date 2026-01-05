@@ -65,13 +65,6 @@ const M = {
   shadow: "0 26px 90px rgba(0,0,0,0.45)",
 };
 
-function iconFor(kind: Marker["kind"]) {
-  if (kind === "New Moon") return "◯";
-  if (kind === "First Quarter") return "◐";
-  if (kind === "Full Moon") return "●";
-  return "◑";
-}
-
 function normalizeAngle0to360(a: number) {
   let x = a % 360;
   if (x < 0) x += 360;
@@ -106,6 +99,26 @@ function lunarURAPhaseId(params: {
   const idx = Math.floor((a + 22.5) / 45) % 8; // 0..7
   return (idx + 1) as PhaseId;
 }
+
+/**
+ * 8 moon phases aligned to your 8-phase URA lens.
+ * (This is what you asked for: show all 8 phases, not just 4 markers.)
+ */
+const MOON_PHASES_8: Array<{
+  id: PhaseId;
+  name: string;
+  glyph: string;
+  boundaryDeg: number;
+}> = [
+  { id: 1, name: "New Moon", glyph: "◯", boundaryDeg: 0 },
+  { id: 2, name: "Waxing Crescent", glyph: "◔", boundaryDeg: 45 },
+  { id: 3, name: "First Quarter", glyph: "◐", boundaryDeg: 90 },
+  { id: 4, name: "Waxing Gibbous", glyph: "◕", boundaryDeg: 135 },
+  { id: 5, name: "Full Moon", glyph: "●", boundaryDeg: 180 },
+  { id: 6, name: "Waning Gibbous", glyph: "◖", boundaryDeg: 225 },
+  { id: 7, name: "Last Quarter", glyph: "◑", boundaryDeg: 270 },
+  { id: 8, name: "Waning Crescent", glyph: "◗", boundaryDeg: 315 },
+];
 
 function MoonDisc({
   phaseName,
@@ -156,7 +169,6 @@ function MoonDisc({
           </filter>
         </defs>
 
-        {/* outer ring */}
         <circle
           cx="110"
           cy="110"
@@ -169,7 +181,6 @@ function MoonDisc({
         <g clipPath="url(#moonClipMoonPage)" filter="url(#moonGlowMoonPage)">
           <circle cx="110" cy="110" r={r} fill="url(#moonSurfaceMoonPage)" />
 
-          {/* craters */}
           <g opacity="0.12">
             <circle cx="78" cy="88" r="10" fill="rgba(40,44,60,0.35)" />
             <circle cx="145" cy="78" r="7" fill="rgba(40,44,60,0.30)" />
@@ -182,7 +193,6 @@ function MoonDisc({
           <circle cx={110 + dx * 0.92} cy="110" r={r} fill="rgba(10,14,24,0.06)" />
         </g>
 
-        {/* inner ring */}
         <circle
           cx="110"
           cy="110"
@@ -260,6 +270,9 @@ export default function MoonClient() {
     borderColor: "rgba(18,22,32,0.12)",
   };
 
+  const currentMoonPhaseName =
+    MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ?? (data?.lunar?.phaseName ?? "—");
+
   return (
     <div className="space-y-5">
       <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
@@ -290,7 +303,7 @@ export default function MoonClient() {
               borderColor: "rgba(18,22,32,0.16)",
               color: M.ink,
             }}
-            title={lunarCopy.header}
+            title={`${lunarCopy.header} • ${currentMoonPhaseName}`}
           >
             Lunar URA: <span className="font-semibold">Phase {lunarPhaseId}</span>
           </div>
@@ -342,38 +355,85 @@ export default function MoonClient() {
               </span>
             </div>
             <div className="mt-2 text-xs" style={{ color: M.inkSoft }}>
-              Lunar Day: <span style={{ color: M.inkMuted }}>{data?.lunar?.lunarDay ?? "—"}</span>
+              Lunar Day:{" "}
+              <span style={{ color: M.inkMuted }}>{data?.lunar?.lunarDay ?? "—"}</span>
             </div>
           </div>
         </div>
 
-        {/* Lunation markers */}
+        {/* ✅ MOON PHASES (8) — replaces “Lunation markers” */}
         <div className="mt-5 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
               className="text-xs tracking-widest text-center"
               style={{ color: M.ink, fontWeight: 800, letterSpacing: "0.16em" }}
             >
-              LUNATION MARKERS
+              MOON PHASES
             </div>
 
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-              {(data?.lunation.markers ?? []).map((m) => (
-                <div key={m.kind} className="space-y-2">
-                  <div style={{ color: M.ink }} className="text-2xl opacity-80">
-                    {iconFor(m.kind)}
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              {MOON_PHASES_8.map((p) => {
+                const copy = microcopyForPhase(p.id);
+                const isCurrent = p.id === lunarPhaseId;
+
+                return (
+                  <div
+                    key={p.id}
+                    className="rounded-2xl border px-4 py-4 text-center"
+                    style={{
+                      borderColor: isCurrent
+                        ? "rgba(18,22,32,0.22)"
+                        : "rgba(18,22,32,0.12)",
+                      background: isCurrent
+                        ? "rgba(255,255,255,0.70)"
+                        : "rgba(255,255,255,0.50)",
+                      boxShadow: isCurrent ? "0 14px 40px rgba(0,0,0,0.12)" : undefined,
+                    }}
+                    title={`${p.name} • URA Phase ${p.id} • ${copy.orisha}`}
+                  >
+                    <div style={{ color: M.ink }} className="text-2xl opacity-90">
+                      {p.glyph}
+                    </div>
+
+                    <div className="mt-2 text-xs" style={{ color: M.inkMuted }}>
+                      {p.name}
+                    </div>
+
+                    <div className="mt-2 text-sm font-semibold" style={{ color: M.ink }}>
+                      Phase {p.id} · {copy.orisha}
+                    </div>
+
+                    <div className="mt-2 text-xs" style={{ color: M.inkMuted }}>
+                      {copy.oneLine}
+                    </div>
+
+                    {copy.actionHint ? (
+                      <div className="mt-2 text-[11px]" style={{ color: M.inkSoft }}>
+                        Directive:{" "}
+                        <span style={{ color: M.inkMuted, fontWeight: 600 }}>
+                          {copy.actionHint}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-2 text-[11px]" style={{ color: M.inkSoft }}>
+                      {p.boundaryDeg}°
+                      {isCurrent ? (
+                        <span style={{ color: M.inkMuted, fontWeight: 700 }}> • CURRENT</span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div style={{ color: M.inkMuted }} className="text-xs">
-                    {m.kind}
-                  </div>
-                  <div style={{ color: M.ink }} className="text-sm font-semibold">
-                    {m.degreeText}
-                  </div>
-                  <div style={{ color: M.inkMuted }} className="text-xs">
-                    {m.whenLocal}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+
+            {/* Optional: a tiny “current lens” line, like /lunation vibes */}
+            <div className="mt-4 text-sm text-center" style={{ color: M.inkMuted }}>
+              Lunar URA lens:{" "}
+              <span style={{ color: M.ink, fontWeight: 700 }}>
+                {lunarCopy.orisha}
+              </span>{" "}
+              — {lunarCopy.oneLine}
             </div>
           </div>
         </div>
