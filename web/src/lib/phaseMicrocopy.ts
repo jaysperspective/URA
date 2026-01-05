@@ -2,6 +2,9 @@
 
 export type PhaseId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
+// Optional selector for Phase 6 (non-breaking)
+export type Phase6Aspect = "oya" | "ogun";
+
 export type PhaseMicrocopy = {
   id: PhaseId;
   season: "SPRG" | "SUMR" | "FALL" | "WNTR";
@@ -19,90 +22,91 @@ export type PhaseMicrocopy = {
   footer?: string;
 };
 
-// Keep this aligned to your new ontology.
+// Keep this aligned to the URA ontology canon.
 // IMPORTANT: Phase 7 is Olokun (not Oya).
+// Canon: 1 Eshu, 2 Obatala, 3 Oshun, 4 Yemoja, 5 Shango, 6 Oya ⇄ Ogun, 7 Olokun, 8 Orunmila
 const PHASES: Record<PhaseId, PhaseMicrocopy> = {
   1: {
     id: 1,
     season: "SPRG",
-    orisha: "Obatala",
-    header: "SPRG · Phase 1 — Obatala",
-    oneLine: "Clean beginnings. Establish order without forcing speed.",
+    orisha: "Eshu",
+    header: "SPRG · Phase 1 — Emergence (Eshu)",
+    oneLine: "Initiation and entry. The threshold opens through motion.",
     description:
-      "Start light. Set the simplest structure that can hold the next 45°. Remove clutter, name the goal, and build a calm baseline.",
-    actionHint: "Choose one priority. Reduce it to the first clean step.",
-    journalPrompt: "What does a clean beginning look like today?",
-    journalHelper: "Write plainly. Focus on what is real and doable.",
+      "Begin without demanding certainty. Name the doorway, take the first real step, and let clarity arrive after movement. This phase governs access.",
+    actionHint: "Start the smallest true action that proves you’ve begun.",
+    journalPrompt: "What is trying to begin through me today?",
+    journalHelper: "One sentence: the start. One sentence: the next step.",
     footer: "You are here in the cycle.",
   },
 
   2: {
     id: 2,
     season: "SPRG",
-    orisha: "Oshun",
-    header: "SPRG · Phase 2 — Oshun",
-    oneLine: "Momentum with warmth. Let the work feel alive.",
+    orisha: "Obatala",
+    header: "SPRG · Phase 2 — Stabilization (Obatala)",
+    oneLine: "Form and ethics. Structure that can actually last.",
     description:
-      "This phase rewards care and attraction: the things you nurture respond. Increase output gently while keeping quality high.",
-    actionHint: "Add one improvement that makes the process sweeter.",
-    journalPrompt: "What deserves more care — and what deserves less?",
-    journalHelper: "Name the one thing you can nurture without overextending.",
+      "Ground what started. Set the clean constraint: boundaries, rhythm, and a pace you can sustain. This phase determines whether the system can hold.",
+    actionHint: "Strengthen one core structure. Remove one unstable element.",
+    journalPrompt: "What structure would protect the truth of this beginning?",
+    journalHelper: "Name one boundary or rule you’ll keep for the next 45°.",
     footer: "You are here in the cycle.",
   },
 
   3: {
     id: 3,
     season: "SUMR",
-    orisha: "Shango",
-    header: "SUMR · Phase 3 — Shango",
-    oneLine: "Visibility and power. Commit to decisive action.",
+    orisha: "Oshun",
+    header: "SUMR · Phase 3 — Differentiation (Oshun)",
+    oneLine: "Tending and refinement. Care that makes the system bloom.",
     description:
-      "Execution has teeth here. Make the call, ship the thing, say the truth out loud. Lead the energy instead of negotiating with it.",
-    actionHint: "Pick the decision you’ve been avoiding and decide.",
-    journalPrompt: "Where am I being asked to lead instead of wait?",
-    journalHelper: "State the decision in one sentence. No justification needed.",
+      "This phase rewards attention. Refine what you’re building, calibrate value, and nurture what responds. Differentiation happens through quality, not force.",
+    actionHint: "Improve one detail that increases clarity, beauty, or ease.",
+    journalPrompt: "What deserves more care — and what deserves less?",
+    journalHelper: "Name one thing to nurture and one thing to stop feeding.",
     footer: "You are here in the cycle.",
   },
 
   4: {
     id: 4,
     season: "SUMR",
-    orisha: "Ogun",
-    header: "SUMR · Phase 4 — Ogun",
-    oneLine: "Build and cut. Strength through discipline.",
+    orisha: "Yemoja",
+    header: "SUMR · Phase 4 — Bonding (Yemoja)",
+    oneLine: "Containment and belonging. Safety before independence.",
     description:
-      "Deep work. Tools. Craft. Put in the reps and remove what blocks the path. Progress comes from commitment to the work itself.",
-    actionHint: "Do the hardest 30 minutes first.",
-    journalPrompt: "What needs to be built — and what needs to be cut away?",
-    journalHelper: "List one build action and one cut action.",
+      "Strengthen the nursery: support systems, emotional safety, and the container that holds growth. Bonding is co-regulation—life held gently until it’s ready.",
+    actionHint: "Reinforce the one support that helps you stay steady.",
+    journalPrompt: "Where do I need support, safety, or steadier belonging?",
+    journalHelper: "Name the container (who/what), and what you need from it.",
     footer: "You are here in the cycle.",
   },
 
   5: {
     id: 5,
     season: "FALL",
-    orisha: "Yemaya",
-    header: "FALL · Phase 5 — Yemaya",
-    oneLine: "Harvest and hold. Protect what matters.",
+    orisha: "Shango",
+    header: "FALL · Phase 5 — Assertion (Shango)",
+    oneLine: "Presence and authority. Lead with consequence and clarity.",
     description:
-      "Consolidate gains. Strengthen your container, your boundaries, and your support. Keep what’s nourishing; release what isn’t.",
-    actionHint: "Reinforce the one system that keeps you stable.",
-    journalPrompt: "What am I responsible for preserving right now?",
-    journalHelper: "Name what you’re protecting and why it matters.",
+      "Execution has teeth here. Make the call, ship the thing, say the truth out loud. This phase prevents collapse through decisive, accountable action.",
+    actionHint: "Pick the decision you’ve been avoiding and decide—cleanly.",
+    journalPrompt: "Where am I being asked to lead instead of wait?",
+    journalHelper: "State the decision in one sentence. No justification needed.",
     footer: "You are here in the cycle.",
   },
 
   6: {
     id: 6,
     season: "FALL",
-    orisha: "Orunmila",
-    header: "FALL · Phase 6 — Orunmila",
-    oneLine: "Refine and interpret. Wisdom through pattern.",
+    orisha: "Oya ⇄ Ogun",
+    header: "FALL · Phase 6 — Transformation (Oya ⇄ Ogun)",
+    oneLine: "Clear what’s done. Forge what’s next.",
     description:
-      "Make meaning from what happened. Review, edit, and distill lessons. The right next move becomes obvious when you see the pattern clearly.",
-    actionHint: "Reduce complexity: keep the signal, drop the noise.",
-    journalPrompt: "What pattern is repeating — and what is it teaching me?",
-    journalHelper: "Write the pattern. Then write the lesson.",
+      "Transformation has two necessary motions: Oya clears stagnation and ends what’s over; Ogun rebuilds through tools, discipline, and new form. Same phase, two mechanisms.",
+    actionHint: "Choose your mode: clear (Oya) or forge (Ogun). Do the clear first.",
+    journalPrompt: "What must end — and what must be rebuilt in its place?",
+    journalHelper: "Write 1 ending (Oya) + 1 rebuild step (Ogun). Start with the ending.",
     footer: "You are here in the cycle.",
   },
 
@@ -110,31 +114,68 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
     id: 7,
     season: "WNTR",
     orisha: "Olokun",
-    header: "WNTR · Phase 7 — Olokun",
-    oneLine: "Return to scale. Dissolve the ego’s tight grip.",
+    header: "WNTR · Phase 7 — Dissolution (Olokun)",
+    oneLine: "Return to scale. Ego softens; context expands.",
     description:
-      "This is deep water. Widen the frame beyond the personal story. Let what can’t be carried dissolve. Reconnect to the larger system you’re part of.",
+      "Deep water. Widen the frame beyond the personal story. Let what can’t be carried dissolve. Reconnect to the larger system you’re part of.",
     actionHint: "Widen the frame: one act that reconnects you to scale.",
     journalPrompt: "What am I holding onto that is already over?",
-    journalHelper: "Write plainly. No performance required.",
+    journalHelper: "Write plainly. No performance required. Let it loosen.",
     footer: "You are here in the cycle.",
   },
 
   8: {
     id: 8,
     season: "WNTR",
-    orisha: "Eshu",
-    header: "WNTR · Phase 8 — Eshu",
-    oneLine: "Reset the crossroads. Prepare the new turn.",
+    orisha: "Orunmila",
+    header: "WNTR · Phase 8 — Witnessing (Orunmila)",
+    oneLine: "Meaning and integration. Convert experience into guidance.",
     description:
-      "Clear the path for what comes next. Close loops, clean the space, and set the next intention. The smallest ritual counts.",
-    actionHint: "Close one loop today. Even a small one.",
-    journalPrompt: "What needs to be released so the next cycle starts clean?",
-    journalHelper: "Name it. Release it. Replace it with one simple intention.",
+      "Review the pattern and extract the lesson. This phase converts what happened into orientation for the next turn. Wisdom is the output.",
+    actionHint: "Write the lesson as a rule you’ll carry into the next cycle.",
+    journalPrompt: "What did this cycle teach me that I can carry forward?",
+    journalHelper: "Pattern → lesson → one practical rule for next cycle.",
     footer: "You are here in the cycle.",
   },
 };
 
-export function microcopyForPhase(id: PhaseId): PhaseMicrocopy {
+// Optional: aspect microcopy for Phase 6 (non-breaking; only used if UI asks for it)
+const PHASE_6_ASPECTS: Record<Phase6Aspect, PhaseMicrocopy> = {
+  oya: {
+    id: 6,
+    season: "FALL",
+    orisha: "Oya",
+    header: "FALL · Phase 6 — Transformation (Oya)",
+    oneLine: "Storm-clearing. Release, sever, and let endings be clean.",
+    description:
+      "Oya ends what’s over. Grief, honesty, severance, liberation. Do not negotiate with completion—clear the space so the cycle can continue.",
+    actionHint: "Name the ending. Make the clean cut.",
+    journalPrompt: "What is over — even if I’m still holding it?",
+    journalHelper: "Write the truth. Then write the boundary that proves it’s done.",
+    footer: "You are here in the cycle.",
+  },
+  ogun: {
+    id: 6,
+    season: "FALL",
+    orisha: "Ogun",
+    header: "FALL · Phase 6 — Transformation (Ogun)",
+    oneLine: "Forge-rebuild. Tools, discipline, and new form.",
+    description:
+      "Ogun rebuilds. Use tools, craft, reps, and structure to form the next version. Transformation becomes real when the new system is constructed.",
+    actionHint: "Do the hardest 30 minutes first. Use tools, not mood.",
+    journalPrompt: "What must be rebuilt now that the old version can’t hold?",
+    journalHelper: "List one cut (remove) and one forge step (build). Start with the cut.",
+    footer: "You are here in the cycle.",
+  },
+};
+
+export function microcopyForPhase(
+  id: PhaseId,
+  opts?: { phase6Aspect?: Phase6Aspect }
+): PhaseMicrocopy {
+  if (id === 6 && opts?.phase6Aspect) {
+    return PHASE_6_ASPECTS[opts.phase6Aspect] ?? PHASES[6];
+  }
   return PHASES[id] ?? PHASES[1];
 }
+
