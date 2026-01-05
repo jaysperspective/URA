@@ -322,8 +322,15 @@ function AngleRing({
   const cy = size / 2;
   const r = 120;
 
-  // ✅ 0° at WEST, increasing clockwise:
-  // 0° West, 90° North, 180° East, 270° South
+  // Quadrant shading (subtle, 4 wedges: 0–90, 90–180, 180–270, 270–360)
+  // Oriented with 0° at WEST, increasing clockwise.
+  const quadrantWedges = [
+    { start: 0, end: 90, opacity: 0.10 },
+    { start: 90, end: 180, opacity: 0.06 },
+    { start: 180, end: 270, opacity: 0.10 },
+    { start: 270, end: 360, opacity: 0.06 },
+  ];
+
   const spokes = angles.map((deg) => {
     const p = polarToXY_West0_CW(cx, cy, r, deg);
     return { deg, x2: p.x, y2: p.y };
@@ -336,9 +343,20 @@ function AngleRing({
       {subtitle ? <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>{subtitle}</div> : null}
 
       <svg width={size} height={size} style={{ display: "block", margin: "0 auto" }}>
+        {/* Quadrant wedges */}
+        {quadrantWedges.map((q) => (
+          <path
+            key={`${q.start}-${q.end}`}
+            d={wedgePath(cx, cy, r, q.start, q.end)}
+            fill={`rgba(237,227,204,${q.opacity})`}
+            stroke="none"
+          />
+        ))}
+
+        {/* Outer circle */}
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(237,227,204,0.25)" strokeWidth={2} />
 
-        {/* spokes */}
+        {/* spokes + labels */}
         {spokes.map((s) => (
           <g key={s.deg}>
             <line x1={cx} y1={cy} x2={s.x2} y2={s.y2} stroke="rgba(237,227,204,0.15)" strokeWidth={2} />
@@ -504,6 +522,20 @@ function parseAnglesCsv(csv: string): number[] {
 function polarToXY_West0_CW(cx: number, cy: number, r: number, deg: number) {
   const a = ((deg + 180) * Math.PI) / 180;
   return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+}
+
+function wedgePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
+  // Uses the same mapping as polarToXY_West0_CW
+  const p1 = polarToXY_West0_CW(cx, cy, r, startDeg);
+  const p2 = polarToXY_West0_CW(cx, cy, r, endDeg);
+  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+
+  return [
+    `M ${cx} ${cy}`,
+    `L ${p1.x} ${p1.y}`,
+    `A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`,
+    "Z",
+  ].join(" ");
 }
 
 function formatNum(n: any) {
