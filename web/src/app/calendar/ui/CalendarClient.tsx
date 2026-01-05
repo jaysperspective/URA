@@ -20,7 +20,7 @@ type CalendarAPI = {
   solar: {
     label: string;
     kind?: "PHASE" | "INTERPHASE";
-    phase?: number;
+    phase?: number; // (legacy driver — we will no longer treat as canonical)
     dayInPhase?: number;
     interphaseDay?: number;
     interphaseTotal?: number;
@@ -53,6 +53,22 @@ type CalendarAPI = {
   };
 
   lunation: { markers: Marker[] };
+};
+
+type UraContext = {
+  ok: boolean;
+  error?: string;
+  asOfUTC?: string;
+  astro?: { sunLon: number; moonLon: number };
+  solar?: {
+    phaseId: number; // 1..8
+    phaseIndex0: number; // 0..7
+    degIntoPhase: number; // 0..45
+    progress01: number; // 0..1
+    startDeg: number;
+    endDeg: number;
+  };
+  ontology?: any | null;
 };
 
 // --- Palette from reference (+ readability system) ---
@@ -250,9 +266,18 @@ function Row({
   );
 }
 
+function ymdToUTCNoonISO(ymd: string) {
+  // Calendar is day-scoped; we sample at 12:00 UTC to reduce edge issues.
+  // If you later want the user's local noon, we can compute using tz.
+  const [yy, mm, dd] = ymd.split("-").map(Number);
+  const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
+  return d.toISOString();
+}
+
 export default function CalendarClient() {
   const [ymd, setYmd] = useState<string | null>(null);
   const [data, setData] = useState<CalendarAPI | null>(null);
+  const [ura, setUra] = useState<UraContext | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function load(targetYmd?: string) {
@@ -263,8 +288,17 @@ export default function CalendarClient() {
         : "/api/calendar";
       const res = await fetch(url, { cache: "no-store" });
       const json = (await res.json()) as CalendarAPI;
+
       setData(json);
       setYmd(json.gregorian.ymd);
+
+      // Fetch URA context for the SAME day we’re viewing
+      // (authoritative ontology driver)
+      const asOfISO = ymdToUTCNoonISO(json.gregorian.ymd);
+      fetch(`/api/ura/context?asOf=${encodeURIComponent(asOfISO)}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j) => setUra(j?.ok ? j : null))
+        .catch(() => setUra(null));
     } finally {
       setLoading(false);
     }
@@ -294,19 +328,40 @@ export default function CalendarClient() {
     return { top: "CURRENT", mid: data.lunar.phaseName };
   }, [data]);
 
-  // Phase microcopy uses SOLAR phase 1–8 (your 8-phase calendar)
-  const phaseCopy = useMemo(() => {
+  // --- Canonical phase driver ---
+  const calendarPhase = useMemo(() => {
     const p = data?.solar?.phase;
-    if (typeof p === "number" && p >= 1 && p <= 8) {
-      return microcopyForPhase(p as PhaseId);
-    }
-    return microcopyForPhase(1);
+    return typeof p === "number" && p >= 1 && p <= 8 ? (p as PhaseId) : null;
   }, [data?.solar?.phase]);
 
+  const uraPhase = useMemo(() => {
+    const p = ura?.solar?.phaseId;
+    return typeof p === "number" && p >= 1 && p <= 8 ? (p as PhaseId) : null;
+  }, [ura?.solar?.phaseId]);
+
+  const canonicalPhase: PhaseId = (uraPhase ?? calendarPhase ?? 1) as PhaseId;
+
+  // Phase microcopy uses URA solar phase 1–8 (authoritative)
+  const phaseCopy = useMemo(() => microcopyForPhase(canonicalPhase), [canonicalPhase]);
+
   const sunSign = useMemo(() => {
-    if (typeof data?.astro?.sunLon === "number") return signFromLon(data.astro.sunLon);
+    // Prefer URA Sun lon (same endpoint profile uses), fallback to calendar
+    const lon =
+      typeof ura?.astro?.sunLon === "number"
+        ? ura.astro.sunLon
+        : typeof data?.astro?.sunLon === "number"
+        ? data.astro.sunLon
+        : null;
+
+    if (typeof lon === "number") return signFromLon(lon);
     return "—";
-  }, [data?.astro?.sunLon]);
+  }, [ura?.astro?.sunLon, data?.astro?.sunLon]);
+
+  const mismatchNote = useMemo(() => {
+    if (!uraPhase || !calendarPhase) return null;
+    if (uraPhase === calendarPhase) return null;
+    return `Driver mismatch: URA Solar Phase ${uraPhase} ≠ Calendar Phase ${calendarPhase}`;
+  }, [uraPhase, calendarPhase]);
 
   const cardStyle: React.CSSProperties = {
     background:
@@ -323,6 +378,11 @@ export default function CalendarClient() {
 
   const trackBg = "rgba(31,36,26,0.18)";
   const fillBg = "rgba(31,36,26,0.55)";
+
+  const driverBadge = useMemo(() => {
+    const label = uraPhase ? `URA Solar Phase ${uraPhase}` : calendarPhase ? `Calendar Phase ${calendarPhase}` : "—";
+    return label;
+  }, [uraPhase, calendarPhase]);
 
   return (
     <div className="space-y-5">
@@ -346,6 +406,32 @@ export default function CalendarClient() {
         >
           {header.mid}
         </div>
+
+        {/* Driver badge */}
+        <div className="mt-3 flex justify-center">
+          <div
+            className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+            style={{
+              background: "rgba(244,235,221,0.70)",
+              borderColor: "rgba(31,36,26,0.14)",
+              color: C.inkMuted,
+            }}
+          >
+            <span style={{ color: C.ink, fontWeight: 700 }}>Driver:</span>
+            <span style={{ color: C.ink, fontWeight: 700 }}>{driverBadge}</span>
+            {typeof ura?.solar?.degIntoPhase === "number" ? (
+              <span style={{ color: C.inkMuted }}>
+                • {ura.solar.degIntoPhase.toFixed(2)}° / 45°
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        {mismatchNote ? (
+          <div className="mt-2 text-xs" style={{ color: C.inkSoft }}>
+            {mismatchNote}
+          </div>
+        ) : null}
 
         {/* Moon sign block DIRECTLY under “Full” */}
         <div
@@ -392,6 +478,7 @@ export default function CalendarClient() {
               SOLAR CONTEXT ☉
             </div>
 
+            {/* Keep your existing year/day progress (this is calendar-specific, not ontology) */}
             {data?.solar?.kind === "INTERPHASE" ? (
               <div className="mt-2 text-sm" style={{ color: C.ink }}>
                 Interphase • Day{" "}
@@ -406,7 +493,7 @@ export default function CalendarClient() {
             ) : (
               <div className="mt-2 text-sm" style={{ color: C.ink }}>
                 Phase{" "}
-                <span className="font-semibold">{data?.solar?.phase ?? "—"}</span>{" "}
+                <span className="font-semibold">{canonicalPhase}</span>{" "}
                 of 8 • Day{" "}
                 <span className="font-semibold">
                   {data?.solar?.dayInPhase ?? "—"}
@@ -446,6 +533,11 @@ export default function CalendarClient() {
             <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
               Sun sign:{" "}
               <span style={{ color: C.ink, fontWeight: 700 }}>{sunSign}</span>
+              {typeof ura?.astro?.sunLon === "number" ? (
+                <span style={{ color: C.inkSoft }}> • (URA)</span>
+              ) : (
+                <span style={{ color: C.inkSoft }}> • (Calendar)</span>
+              )}
             </div>
           </div>
 
@@ -495,7 +587,7 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        {/* Orisha phase microcopy module */}
+        {/* Orisha phase microcopy module (now URA-driven) */}
         <div className="mt-5 text-left">
           <PhaseMicrocopyCard
             copy={phaseCopy}
@@ -601,8 +693,8 @@ export default function CalendarClient() {
           <Row
             left="Sun Longitude (0–360°)"
             right={
-              typeof data?.astro?.sunLon === "number"
-                ? `${data.astro.sunLon.toFixed(2)}°`
+              typeof (ura?.astro?.sunLon ?? data?.astro?.sunLon) === "number"
+                ? `${(ura?.astro?.sunLon ?? data!.astro.sunLon).toFixed(2)}°`
                 : "—"
             }
             icon="⦿"
@@ -612,9 +704,13 @@ export default function CalendarClient() {
         <Row
           left="Solar Progress"
           right={
-            data?.solar?.kind === "INTERPHASE"
-              ? `Interphase Day ${data?.solar?.interphaseDay ?? "—"}`
-              : `Phase ${data?.solar?.phase ?? "—"} • Day ${data?.solar?.dayInPhase ?? "—"}`
+            `URA Phase ${canonicalPhase}` +
+            (typeof ura?.solar?.degIntoPhase === "number"
+              ? ` • ${ura.solar.degIntoPhase.toFixed(2)}° / 45°`
+              : data?.solar?.kind === "INTERPHASE"
+              ? ` • Interphase Day ${data?.solar?.interphaseDay ?? "—"}`
+              : ` • Day ${data?.solar?.dayInPhase ?? "—"}`
+            )
           }
           icon="⌁"
         />
