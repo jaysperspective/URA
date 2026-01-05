@@ -5,316 +5,373 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 
-
 /**
  * Seasons Page (Client)
- * - Preserves your existing “Asc-Year season/modality” worldview (Spring/Summer/Fall/Winter, etc.)
- * - Adds URA Foundation layer (Solar 8-phase → Orisha modality → Planet force overlay)
- * - Does NOT rename any existing labels
  *
- * NOTE:
- * This page expects your existing /api/asc-year route to be callable.
- * If your /seasons page previously used a different endpoint/payload, swap the payload builder below
- * to match what you already do. The URA Foundation layer is independent and safe.
+ * - Primary purpose: interact with /api/core in a “terminal” style UI
+ * - Secondary: show URA Solar 8-phase context (degree-true) via /api/ura/context
+ *
+ * NOTE: URAFoundationPanel props caused TS errors in build because the component
+ * does not declare phaseId/progress01/ontology. We therefore render it without props.
  */
+
+type CoreResponse = {
+  ok: boolean;
+  text?: string;
+  error?: string;
+  input?: any;
+  derived?: any;
+  // older wrappers sometimes return these
+  summary?: any;
+  lunation?: any;
+  ascYear?: any;
+};
 
 type UraContext = {
   ok: boolean;
+  error?: string;
   asOfUTC?: string;
   astro?: { sunLon: number; moonLon: number };
   solar?: {
-    phaseId: number;
-    phaseIndex0: number;
-    degIntoPhase: number;
-    progress01: number;
+    phaseId: number; // 1..8
+    phaseIndex0: number; // 0..7
+    degIntoPhase: number; // 0..45
+    progress01: number; // 0..1
     startDeg: number;
     endDeg: number;
   };
-  ontology?: any;
+  ontology?: any | null;
 };
 
-type AscYearResponse = {
-  ok: boolean;
-  ascYear?: {
-    natalAscLon?: number | null;
-    transitingSunLon?: number | null;
-    cyclePosition?: number | null;
+const LS_KEY = "ura:lastPayloadText";
 
-    phaseIndex?: number; // 0..7
-    phaseLabel?: string; // P1..P8
-    phaseDegInto?: number;
-    phaseProgress01?: number;
-
-    nextPhaseLabel?: string;
-    nextPhaseBoundaryLon?: number;
-    daysUntilNextPhase?: number;
-
-    season?: string; // Spring/Summer/Fall/Winter
-    seasonDegInto?: number;
-    seasonProgress01?: number;
-  };
-  error?: string;
+// --- your dark “terminal” palette ---
+const UI = {
+  bg: "#0b0906",
+  panel: "#0f0d0a",
+  border: "#2a241d",
+  text: "#efe6d8",
+  muted: "#b9a88f",
+  subtle: "#8f7f6a",
+  accent: "#c2a06f",
 };
 
-function safeNum(v: any): number | null {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function fmtDeg(n: number | null | undefined, digits = 2) {
-  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
-  return `${n.toFixed(digits)}°`;
-}
-
-function pct(n: number | null | undefined) {
-  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
-  return `${Math.round(n * 100)}%`;
+function todayYMDLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function SeasonsPage() {
+  const [payloadText, setPayloadText] = useState<string>("");
+  const [resultText, setResultText] = useState<string>("");
+  const [coreJson, setCoreJson] = useState<CoreResponse | null>(null);
+
+  // URA context (solar 8-phase driver)
   const [uraCtx, setUraCtx] = useState<UraContext | null>(null);
-  const [asc, setAsc] = useState<AscYearResponse | null>(null);
-  const [loadingAsc, setLoadingAsc] = useState(false);
 
-  // ---- If your /seasons previously used user profile data:
-  // Replace this with your existing payload builder / form / stored profile.
-  // This default payload is a safe placeholder; your /api/asc-year route will likely require real birth data.
-  const defaultPayload = useMemo(() => {
-    // ✅ Keep this structure compatible with ensureProfileCaches payload (birth + lat/lon + timezone)
-    // You should replace these with your actual stored profile inputs or your existing form state.
-    return {
-      year: 1990,
-      month: 1,
-      day: 24,
-      hour: 1,
-      minute: 39,
-      lat: 36.585,
-      lon: -79.395,
-      latitude: 36.585,
-      longitude: -79.395,
-      timezone: "America/New_York",
-    };
-  }, []);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  // 1) URA Foundation Layer — does NOT depend on asc-year; safe to fetch always
+  // ---------- init ----------
   useEffect(() => {
-    fetch("/api/ura/context", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setUraCtx(j?.ok ? j : null))
-      .catch(() => setUraCtx(null));
-  }, []);
-
-  // 2) Asc-Year Layer (your existing seasons logic)
-  useEffect(() => {
-    let alive = true;
-
-    async function run() {
-      setLoadingAsc(true);
-      try {
-        const r = await fetch("/api/asc-year", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(defaultPayload),
-          cache: "no-store",
-        });
-        const j = (await r.json().catch(() => null)) as AscYearResponse | null;
-        if (!alive) return;
-        setAsc(j ?? null);
-      } catch (e) {
-        if (!alive) return;
-        setAsc({ ok: false, error: "Failed to fetch /api/asc-year" });
-      } finally {
-        if (!alive) return;
-        setLoadingAsc(false);
+    try {
+      const saved = window.localStorage.getItem(LS_KEY);
+      if (saved && saved.trim()) setPayloadText(saved);
+      else {
+        // light default payload
+        setPayloadText(
+          `birth_datetime: 1990-01-24 01:39
+tz_offset: -05:00
+lat: 36.585
+lon: -79.395
+as_of_date: ${todayYMDLocal()}`
+        );
       }
+    } catch {
+      // ignore
     }
+  }, []);
 
-    run();
-    return () => {
-      alive = false;
-    };
-  }, [defaultPayload]);
+  // Save payload on change (so /calendar can read it too if needed)
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LS_KEY, payloadText);
+    } catch {
+      // ignore
+    }
+  }, [payloadText]);
 
-  const ascYear = asc?.ascYear ?? null;
+  // ---------- actions ----------
+  async function runCore() {
+    setLoading(true);
+    setErr(null);
+
+    try {
+      const r = await fetch("/api/core", {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body: payloadText,
+        cache: "no-store",
+      });
+
+      const json = (await r.json().catch(async () => {
+        const raw = await r.text().catch(() => "");
+        return { ok: false, error: "Non-JSON response", raw };
+      })) as CoreResponse;
+
+      setCoreJson(json);
+
+      if (!r.ok || json?.ok === false) {
+        setResultText(
+          `ERROR\n\n${json?.error ?? `core failed (${r.status})`}\n\n` +
+            (json ? JSON.stringify(json, null, 2) : "")
+        );
+        setErr(json?.error ?? "core failed");
+      } else {
+        // prefer json.text if present, else stringify core
+        const text = (json as any)?.text ?? JSON.stringify(json, null, 2);
+        setResultText(text);
+      }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      setErr(msg);
+      setResultText(`ERROR\n\n${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshUraContext() {
+    try {
+      // We sample “now” unless you want to anchor this to as_of_date.
+      // Your /api/ura/context already supports ?asOf=ISO if needed.
+      const r = await fetch("/api/ura/context", { cache: "no-store" });
+      const j = (await r.json().catch(() => null)) as UraContext | null;
+      setUraCtx(j?.ok ? j : null);
+    } catch {
+      setUraCtx(null);
+    }
+  }
+
+  useEffect(() => {
+    refreshUraContext();
+  }, []);
+
+  const uraPhaseLabel = useMemo(() => {
+    const pid = uraCtx?.solar?.phaseId;
+    return typeof pid === "number" ? `Phase ${pid}` : "—";
+  }, [uraCtx?.solar?.phaseId]);
+
+  const uraProgress = useMemo(() => {
+    const p = uraCtx?.solar?.progress01;
+    if (typeof p !== "number" || !Number.isFinite(p)) return null;
+    return Math.max(0, Math.min(1, p));
+  }, [uraCtx?.solar?.progress01]);
 
   return (
-    <div
-      className="min-h-screen"
-      style={{
-        background:
-          "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)",
-      }}
-    >
-      <div className="relative mx-auto w-full max-w-7xl px-6 py-10">
-        {/* Top bar */}
-        <div className="flex items-center justify-between gap-4">
-          <div
-            className="text-[11px] tracking-[0.18em] uppercase"
-            style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-          >
-            URA • Seasons
+    <div className="min-h-[100svh]" style={{ background: UI.bg, color: UI.text }}>
+      <div className="mx-auto w-full max-w-6xl p-6">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[12px] tracking-[0.18em] uppercase" style={{ color: UI.muted }}>
+              URA • Seasons
+            </div>
+            <div className="mt-2 text-[28px] leading-tight font-semibold">
+              Core Terminal + Solar Ontology
+            </div>
+            <div className="mt-1 text-[13px]" style={{ color: UI.subtle }}>
+              /api/core (Asc-Year + Lunation) plus /api/ura/context (Solar 8-phase driver)
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <Link
-              href="/profile"
-              className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
-              style={{
-                borderColor: "rgba(31,36,26,0.16)",
-                background: "rgba(244,235,221,0.78)",
-                color: "#1F241A",
-              }}
-            >
-              Profile
-            </Link>
-
-            <Link
               href="/calendar"
-              className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
-              style={{
-                borderColor: "rgba(31,36,26,0.16)",
-                background: "rgba(244,235,221,0.78)",
-                color: "#1F241A",
-              }}
+              className="rounded-xl border px-4 py-2 text-[12px] hover:opacity-95"
+              style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
             >
-              Calendar
+              /calendar
+            </Link>
+            <Link
+              href="/profile"
+              className="rounded-xl border px-4 py-2 text-[12px] hover:opacity-95"
+              style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
+            >
+              /profile
             </Link>
           </div>
         </div>
 
-        {/* Main grid */}
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left / Primary: Your existing “Orientation” block (Asc-Year) */}
-          <div className="lg:col-span-2 rounded-3xl border p-6"
-               style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.88)" }}>
-            <div className="flex items-start justify-between gap-4">
+        {/* Top row: URA context + actions */}
+        <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="rounded-2xl border p-5 lg:col-span-2" style={{ borderColor: UI.border, background: UI.panel }}>
+            <div className="flex items-center justify-between gap-4">
               <div>
-                <div
-                  className="text-[11px] tracking-[0.18em] uppercase"
-                  style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-                >
-                  Orientation
+                <div className="text-[12px] tracking-[0.18em] uppercase" style={{ color: UI.muted }}>
+                  Solar Driver
                 </div>
-                <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "#1F241A" }}>
-                  Asc-Year Season Arc
+                <div className="mt-2 text-[16px]" style={{ color: UI.text }}>
+                  {uraPhaseLabel}
                 </div>
-                <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-                  This module preserves your existing season model (Spring/Summer/Fall/Winter) and phase progression.
+                <div className="mt-1 text-[12px]" style={{ color: UI.subtle }}>
+                  Degree-true Solar phase via /api/ura/context
                 </div>
               </div>
 
-              <div className="text-right">
-                <div className="text-[11px]" style={{ color: "rgba(31,36,26,0.55)" }}>
-                  Status
+              <div className="min-w-[220px]">
+                <div className="text-[11px] mb-2" style={{ color: UI.subtle }}>
+                  Progress (0–45°)
                 </div>
-                <div className="mt-1 text-sm" style={{ color: "#1F241A" }}>
-                  {loadingAsc ? "Refreshing…" : asc?.ok ? "Live" : "Unavailable"}
-                </div>
-              </div>
-            </div>
-
-            {/* Body */}
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-2xl border p-4"
-                   style={{ borderColor: "rgba(31,36,26,0.12)", background: "rgba(244,235,221,0.72)" }}>
-                <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
-                  Current Season
-                </div>
-                <div className="mt-2 text-xl font-semibold" style={{ color: "#1F241A" }}>
-                  {ascYear?.season ?? "—"}
-                </div>
-                <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-                  Progress: {pct(safeNum(ascYear?.seasonProgress01))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border p-4"
-                   style={{ borderColor: "rgba(31,36,26,0.12)", background: "rgba(244,235,221,0.72)" }}>
-                <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
-                  8-Phase Position
-                </div>
-                <div className="mt-2 text-xl font-semibold" style={{ color: "#1F241A" }}>
-                  {ascYear?.phaseLabel ?? "—"}
-                </div>
-                <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-                  Into phase: {fmtDeg(safeNum(ascYear?.phaseDegInto), 2)} • {pct(safeNum(ascYear?.phaseProgress01))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border p-4 md:col-span-2"
-                   style={{ borderColor: "rgba(31,36,26,0.12)", background: "rgba(244,235,221,0.72)" }}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
-                      Next Boundary
-                    </div>
-                    <div className="mt-2 text-sm" style={{ color: "#1F241A" }}>
-                      Next phase: <span className="font-semibold">{ascYear?.nextPhaseLabel ?? "—"}</span>
-                      {" • "}
-                      Boundary lon: <span className="font-semibold">{fmtDeg(safeNum(ascYear?.nextPhaseBoundaryLon), 2)}</span>
-                    </div>
-                  </div>
-
-                  <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-                    ETA:{" "}
-                    <span className="font-semibold" style={{ color: "#1F241A" }}>
-                      {typeof ascYear?.daysUntilNextPhase === "number"
-                        ? `${ascYear.daysUntilNextPhase.toFixed(1)} days`
-                        : "—"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Simple progress bar (keeps labels intact) */}
-                <div className="mt-4 h-2 w-full rounded-full" style={{ background: "rgba(31,36,26,0.12)" }}>
+                <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: "#1a1510" }}>
                   <div
                     className="h-2 rounded-full"
                     style={{
-                      width: `${Math.max(0, Math.min(100, (safeNum(ascYear?.seasonProgress01) ?? 0) * 100))}%`,
-                      background: "rgba(31,36,26,0.55)",
+                      width: `${Math.round((uraProgress ?? 0) * 100)}%`,
+                      background: UI.accent,
                     }}
                   />
                 </div>
 
-                {!asc?.ok && asc?.error ? (
-                  <div className="mt-4 text-xs" style={{ color: "rgba(31,36,26,0.55)" }}>
-                    {asc.error}
-                  </div>
-                ) : null}
+                <div className="mt-2 text-[11px]" style={{ color: UI.subtle }}>
+                  {typeof uraCtx?.solar?.degIntoPhase === "number"
+                    ? `${uraCtx.solar.degIntoPhase.toFixed(2)}° / 45°`
+                    : "—"}
+                </div>
+              </div>
+            </div>
+
+            {/* Foundation Panel (NO PROPS to avoid TS mismatch) */}
+            <div className="mt-4">
+              <URAFoundationPanel />
+            </div>
+
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                onClick={refreshUraContext}
+                className="rounded-xl border px-4 py-2 text-[12px] hover:opacity-95"
+                style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
+              >
+                Refresh Solar Context
+              </button>
+              <div className="text-[11px]" style={{ color: UI.subtle }}>
+                {uraCtx?.asOfUTC ? `As-of ${uraCtx.asOfUTC.replace(".000Z", "Z")}` : ""}
               </div>
             </div>
           </div>
 
-          {/* Right / Foundation: Solar 8-Phase + Orisha + Planet Overlay */}
-          <div className="lg:col-span-1">
-            <URAFoundationPanel
-              phaseId={uraCtx?.solar?.phaseId ?? null}
-              progress01={uraCtx?.solar?.progress01 ?? null}
-              ontology={uraCtx?.ontology ?? null}
-            />
-            <div className="mt-4 rounded-2xl border p-4"
-                 style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.78)" }}>
-              <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
-                Solar (Degree-True)
+          <div className="rounded-2xl border p-5" style={{ borderColor: UI.border, background: UI.panel }}>
+            <div className="text-[12px] tracking-[0.18em] uppercase" style={{ color: UI.muted }}>
+              Run core
+            </div>
+            <div className="mt-2 text-[13px]" style={{ color: UI.subtle }}>
+              Posts your payload into <span style={{ color: UI.text }}>/api/core</span>.
+            </div>
+
+            <button
+              onClick={runCore}
+              disabled={loading}
+              className="mt-4 w-full rounded-xl border px-4 py-3 text-[13px] hover:opacity-95 disabled:opacity-60"
+              style={{ borderColor: UI.border, background: "rgba(0,0,0,0.22)", color: UI.text }}
+            >
+              {loading ? "Running…" : "Run"}
+            </button>
+
+            {err ? (
+              <div className="mt-3 text-[12px]" style={{ color: "#e5b3a8" }}>
+                {err}
               </div>
-              <div className="mt-2 text-sm" style={{ color: "#1F241A" }}>
-                Sun: <span className="font-semibold">{fmtDeg(safeNum(uraCtx?.astro?.sunLon), 2)}</span>
-                {" • "}
-                Moon: <span className="font-semibold">{fmtDeg(safeNum(uraCtx?.astro?.moonLon), 2)}</span>
-              </div>
-              <div className="mt-2 text-xs" style={{ color: "rgba(31,36,26,0.55)" }}>
-                Source of truth for the URA Solar Phase (8 × 45°). Labels remain unchanged.
-              </div>
+            ) : null}
+
+            <div className="mt-4 text-[11px]" style={{ color: UI.subtle }}>
+              Tip: Save a clean payload here. /calendar and /profile can reference it.
             </div>
           </div>
         </div>
 
-        {/* Footer note */}
-        <div className="mt-10 text-xs" style={{ color: "rgba(31,36,26,0.55)" }}>
-          Tip: Replace the placeholder birth payload in this page with your user’s stored profile inputs (or the same payload you use in your existing seasons build).
+        {/* Main: payload editor + terminal output */}
+        <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="rounded-2xl border p-5" style={{ borderColor: UI.border, background: UI.panel }}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[12px] tracking-[0.18em] uppercase" style={{ color: UI.muted }}>
+                  Payload
+                </div>
+                <div className="mt-1 text-[12px]" style={{ color: UI.subtle }}>
+                  text/plain contract (birth + tz + lat/lon + as_of_date)
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  try {
+                    navigator.clipboard.writeText(payloadText);
+                  } catch {}
+                }}
+                className="rounded-xl border px-3 py-2 text-[12px] hover:opacity-95"
+                style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
+              >
+                Copy
+              </button>
+            </div>
+
+            <textarea
+              value={payloadText}
+              onChange={(e) => setPayloadText(e.target.value)}
+              className="mt-4 w-full min-h-[320px] rounded-2xl border p-4 text-[12px] leading-relaxed"
+              style={{
+                borderColor: UI.border,
+                background: "#0b0906",
+                color: UI.text,
+                fontFamily: "Menlo, Monaco, Consolas, monospace",
+              }}
+              spellCheck={false}
+            />
+
+            <div className="mt-3 text-[11px]" style={{ color: UI.subtle }}>
+              Saved locally as <span style={{ color: UI.text }}>{LS_KEY}</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border p-5" style={{ borderColor: UI.border, background: UI.panel }}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[12px] tracking-[0.18em] uppercase" style={{ color: UI.muted }}>
+                  Output
+                </div>
+                <div className="mt-1 text-[12px]" style={{ color: UI.subtle }}>
+                  Terminal view of /api/core response
+                </div>
+              </div>
+              <button
+                onClick={() => setResultText("")}
+                className="rounded-xl border px-3 py-2 text-[12px] hover:opacity-95"
+                style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
+              >
+                Clear
+              </button>
+            </div>
+
+            <pre
+              className="mt-4 w-full min-h-[320px] rounded-2xl border p-4 text-[12px] leading-relaxed overflow-auto"
+              style={{
+                borderColor: UI.border,
+                background: "#0b0906",
+                color: UI.text,
+                fontFamily: "Menlo, Monaco, Consolas, monospace",
+              }}
+            >
+              {resultText || "—"}
+            </pre>
+
+            <div className="mt-3 text-[11px]" style={{ color: UI.subtle }}>
+              {coreJson?.ok ? "core ok" : coreJson ? "core error" : ""}
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
