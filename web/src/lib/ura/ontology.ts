@@ -5,10 +5,11 @@ export type PhaseId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type OrishaKey =
   | "Eshu"
   | "Obatala"
-  | "Osanyin"
+  | "Oshun"
   | "Yemoja"
   | "Shango"
   | "Oya"
+  | "Ogun"
   | "Olokun"
   | "Orunmila";
 
@@ -24,13 +25,21 @@ export type PlanetKey =
 
 export type URAPhaseMeta = {
   id: PhaseId;
-  title: string;     // internal (does not replace your labels)
+  title: string; // internal (does not replace your labels)
   function: string;
   ecology: string;
   psyche: string;
 
   orisha: {
+    // Primary key (for Phase 6, Oya is the "clear" lead)
     key: OrishaKey;
+
+    // Optional secondary key (used only when a phase is canonically dual)
+    secondaryKey?: OrishaKey;
+
+    // Optional flag for clarity in UI/LLM
+    dual?: boolean;
+
     modality: string;
     distortion: string;
     practice: string;
@@ -86,13 +95,13 @@ export const URA_PHASES: Record<PhaseId, URAPhaseMeta> = {
     id: 3,
     title: "Differentiation",
     function: "Tending / Refinement",
-    ecology: "Micro-life maintenance: insects, fungi, medicine, unseen work.",
+    ecology: "Micro-life maintenance: medicine, subtle repair, unseen labor.",
     psyche: "Discernment; care through accurate adjustment.",
     orisha: {
-      key: "Osanyin",
-      modality: "Governs medicinal intelligence; subtle systems of repair.",
-      distortion: "Obsessive optimization; replacing instead of tending.",
-      practice: "Make one small corrective change, then stop.",
+      key: "Oshun",
+      modality: "Refines value through care; calibrates what is nourished and sustained.",
+      distortion: "Over-attachment to aesthetics; pleasing over truth; perfectionism.",
+      practice: "Make one small refinement that improves function—then stop.",
     },
     planet: {
       key: "Venus",
@@ -142,19 +151,24 @@ export const URA_PHASES: Record<PhaseId, URAPhaseMeta> = {
   6: {
     id: 6,
     title: "Transformation",
-    function: "Release / Death",
-    ecology: "Compost, decay, storms; renewal through removal.",
-    psyche: "Grief, surrender, identity shedding; endings done cleanly.",
+    function: "Release / Death / Rebuild",
+    ecology: "Compost, decay, storms, cutting and reforging; renewal through removal and reconstruction.",
+    psyche: "Grief, surrender, identity shedding; endings done cleanly, then rebuilt with discipline.",
     orisha: {
       key: "Oya",
-      modality: "Clears stagnation; governs radical transition and release.",
-      distortion: "Avoiding endings; chaos without purpose; numbness.",
-      practice: "Let one thing end today—cleanly, consciously.",
+      secondaryKey: "Ogun",
+      dual: true,
+      modality:
+        "Dual mechanism: Oya clears stagnation through endings and liberation; Ogun forges the next form through tools, craft, and disciplined rebuilding.",
+      distortion:
+        "Avoiding endings; chaos without purpose; cutting without rebuilding; rebuilding without releasing what’s over.",
+      practice:
+        "Do it in order: (1) end one thing cleanly (Oya), then (2) build one small replacement system (Ogun).",
     },
     planet: {
       key: "Mars",
-      force: "Severance + action: cutting away what blocks the cycle.",
-      distortion: "Conflict without aim; rage replacing direction.",
+      force: "Severance + action: cutting away what blocks the cycle; initiating necessary change.",
+      distortion: "Conflict without aim; rage replacing direction; heat without repair.",
     },
   },
 
@@ -166,7 +180,7 @@ export const URA_PHASES: Record<PhaseId, URAPhaseMeta> = {
     psyche: "Ego softening; collective awareness; surrender to context.",
     orisha: {
       key: "Olokun",
-      modality: "Governs depth and the unknowable; restores humility.",
+      modality: "Governs depth and the unknowable; restores humility and scale.",
       distortion: "Escapism; synthetic unity; fear of depth.",
       practice: "Widen the frame: one act that reconnects you to scale.",
     },
