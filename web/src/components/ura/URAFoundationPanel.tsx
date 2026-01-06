@@ -2,20 +2,20 @@
 "use client";
 
 import React from "react";
-import { metaForPhase, type URAPhaseMeta, type PhaseId } from "@/lib/ura/ontology";
+import { microcopyForPhase, type PhaseId, type Phase6Aspect } from "@/lib/phaseMicrocopy";
 
 type Props = {
+  // We keep back-compat with existing callers:
+  // - solarPhaseId is what pages already pass (number | null)
+  // - ontology is ignored now (still accepted so nothing breaks)
   solarPhaseId: number | null;
   solarProgress01: number | null;
   sunText: string;
 
-  // Back-compat: some pages may already pass an "ontology" object
   ontology: any | null;
 
-  // Optional: for Phase 6 UI control later (doesn't affect others)
-  phase6Aspect?: "oya" | "ogun";
+  phase6Aspect?: Phase6Aspect;
 
-  // Optional: lets you show "As of 1/5, 10:51 AM" when you have it
   asOfLabel?: string;
 };
 
@@ -24,64 +24,23 @@ function pct(n: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
-/**
- * Normalize "ontology" input:
- * - Prefer the passed-in ontology object if it looks valid
- * - Otherwise fall back to canonical metaForPhase(phaseId)
- */
-function resolveOntology(
-  solarPhaseId: number | null,
-  ontology: any | null
-): URAPhaseMeta | null {
-  // If it already looks like URAPhaseMeta-ish, use it
-  if (
-    ontology &&
-    typeof ontology === "object" &&
-    typeof ontology.id === "number" &&
-    ontology.orisha &&
-    ontology.planet
-  ) {
-    return ontology as URAPhaseMeta;
-  }
-
-  // Fall back to canonical meta
-  return metaForPhase(solarPhaseId ?? null);
-}
-
-function phaseLabel(meta: URAPhaseMeta | null) {
-  if (!meta) return "—";
-  // Example: "WNTR · Phase 7 — Dissolution"
-  // Season isn’t in meta; your microcopy panel already has it.
-  return `Phase ${meta.id} — ${meta.title}`;
-}
-
-function orishaLabel(meta: URAPhaseMeta | null, phase6Aspect?: "oya" | "ogun") {
-  if (!meta?.orisha?.key) return "—";
-
-  // Phase 6 dual handling if your ontology.ts uses secondaryKey/dual
-  const primary = meta.orisha.key;
-  const secondary = (meta.orisha as any).secondaryKey as string | undefined;
-  const isDual = Boolean((meta.orisha as any).dual) || Boolean(secondary);
-
-  if (meta.id === 6 && isDual) {
-    // If the caller specifies a lens, show it; otherwise show dual
-    if (phase6Aspect === "oya") return "Oya (Clear)";
-    if (phase6Aspect === "ogun") return "Ogun (Forge)";
-    return secondary ? `${primary} ⇄ ${secondary}` : `${primary} ⇄ Ogun`;
-  }
-
-  return primary;
+function asPhaseId(n: number | null): PhaseId | null {
+  if (typeof n !== "number" || !Number.isFinite(n)) return null;
+  const x = Math.round(n);
+  if (x < 1 || x > 8) return null;
+  return x as PhaseId;
 }
 
 export default function URAFoundationPanel({
   solarPhaseId,
   solarProgress01,
   sunText,
-  ontology,
+  ontology, // intentionally unused (back-compat)
   phase6Aspect,
   asOfLabel,
 }: Props) {
-  const meta = resolveOntology(solarPhaseId, ontology);
+  const pid = asPhaseId(solarPhaseId);
+  const mc = pid ? microcopyForPhase(pid, pid === 6 ? { phase6Aspect } : undefined) : null;
 
   return (
     <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
@@ -93,7 +52,7 @@ export default function URAFoundationPanel({
 
           <div className="mt-2 text-sm text-[#1F1B16]/90">
             <span className="font-semibold">Solar</span>{" "}
-            {solarPhaseId ? `Phase ${solarPhaseId}` : "—"}{" "}
+            {pid ? `Phase ${pid}` : "—"}{" "}
             <span className="text-[#403A32]/70">• {pct(solarProgress01)}</span>
           </div>
 
@@ -104,7 +63,7 @@ export default function URAFoundationPanel({
 
         {/* Compact identity chip */}
         <div className="rounded-full border border-black/10 bg-[#F4EFE6] px-3 py-1 text-xs text-[#403A32]/80">
-          {phaseLabel(meta)}
+          {mc ? `Phase ${mc.id} — ${mc.orisha}` : "—"}
         </div>
       </div>
 
@@ -112,87 +71,57 @@ export default function URAFoundationPanel({
         <span className="font-semibold text-[#1F1B16]">Sun</span>: {sunText}
       </div>
 
-      {!meta ? (
-        <div className="mt-4 text-sm text-[#403A32]/75">
-          Ontology unavailable.
-        </div>
+      {!mc ? (
+        <div className="mt-4 text-sm text-[#403A32]/75">Foundation unavailable.</div>
       ) : (
         <div className="mt-4 space-y-4">
-          {/* Function */}
-          <div>
-            <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-              Function
-            </div>
-            <div className="mt-1 text-sm font-semibold text-[#1F1B16]">
-              {meta.function}
-            </div>
-          </div>
-
-          {/* Ecology / Psyche */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
-              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                Ecology
-              </div>
-              <div className="mt-2 text-sm text-[#403A32]/85">
-                {meta.ecology}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
-              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                Psyche
-              </div>
-              <div className="mt-2 text-sm text-[#403A32]/85">
-                {meta.psyche}
-              </div>
-            </div>
-          </div>
-
-          {/* Orisha */}
+          {/* Grounded doctrine copy (keeps Orisha name, avoids metaphysical fluff) */}
           <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                Modal Intelligence
-              </div>
-
-              {meta.id === 6 ? (
-                <div className="text-[11px] text-[#403A32]/70">
-                  {phase6Aspect ? "Lens: " + phase6Aspect.toUpperCase() : "Dual"}
-                </div>
-              ) : null}
+            <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+              Phase lens
             </div>
 
             <div className="mt-2 text-sm text-[#1F1B16]/90">
-              <span className="font-semibold">
-                {orishaLabel(meta, phase6Aspect)}
-              </span>{" "}
-              — {meta.orisha?.modality}
+              <span className="font-semibold">{mc.header}</span>
             </div>
 
-            <div className="mt-2 text-xs text-[#403A32]/75">
-              Distortion: {meta.orisha?.distortion}
+            <div className="mt-2 text-sm text-[#403A32]/85">{mc.oneLine}</div>
+
+            <div className="mt-3 text-sm leading-relaxed text-[#403A32]/85">
+              {mc.description}
             </div>
 
-            <div className="mt-2 text-xs text-[#403A32]/85">
-              Practice:{" "}
-              <span className="font-semibold">{meta.orisha?.practice}</span>
-            </div>
+            {mc.actionHint ? (
+              <div className="mt-3 text-sm text-[#403A32]/85">
+                <span className="font-semibold text-[#1F1B16]/90">Action:</span>{" "}
+                <span className="font-semibold">{mc.actionHint}</span>
+              </div>
+            ) : null}
           </div>
 
-          {/* Planet */}
+          {/* Journal prompt */}
           <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
             <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-              Planet Force Overlay
+              Journal
             </div>
+
             <div className="mt-2 text-sm text-[#1F1B16]/90">
-              <span className="font-semibold">{meta.planet?.key}</span> —{" "}
-              {meta.planet?.force}
+              <span className="font-semibold">{mc.journalPrompt}</span>
             </div>
-            <div className="mt-2 text-xs text-[#403A32]/75">
-              Distortion: {meta.planet?.distortion}
-            </div>
+
+            <div className="mt-2 text-xs text-[#403A32]/75">{mc.journalHelper}</div>
+
+            <textarea
+              className="mt-3 w-full rounded-2xl border border-black/10 bg-[#F8F2E8] px-4 py-3 text-sm text-black placeholder:text-black/40"
+              rows={4}
+              placeholder="Write here…"
+              style={{ WebkitTextFillColor: "rgba(0,0,0,0.92)" }}
+            />
           </div>
+
+          {mc.footer ? (
+            <div className="text-xs text-[#403A32]/70">{mc.footer}</div>
+          ) : null}
         </div>
       )}
     </div>
