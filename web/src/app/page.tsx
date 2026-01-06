@@ -1,456 +1,306 @@
 // src/app/page.tsx
-"use client";
-
-import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
-type Star = {
-  x: number;
-  y: number;
-  r: number;
-  vx: number;
-  vy: number;
-  a: number; // alpha
-};
+const NAV = [
+  { href: "/", label: "Home" },
+  { href: "/calendar", label: "Calendar" },
+  { href: "/moon", label: "Moon" },
+  { href: "/profile", label: "Profile" },
+  { href: "/lunation", label: "Lunation" },
+  { href: "/about", label: "About" },
+] as const;
 
-type FreqArr = Parameters<AnalyserNode["getByteFrequencyData"]>[0];
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
-}
-
-export default function Page() {
-  const [audioEnabled, setAudioEnabled] = useState(false);
-
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-
-  const starsRef = useRef<Star[]>([]);
-  const lastTRef = useRef<number>(0);
-
-  // audio refs
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const freqDataRef = useRef<FreqArr | null>(null);
-
-  const audioEnergyRef = useRef<number>(0);
-
-  const starCount = useMemo(() => {
-    if (typeof window === "undefined") return 90;
-    const area = window.innerWidth * window.innerHeight;
-    return clamp(Math.floor(area / 14000), 70, 140);
-  }, []);
-
-  // --- Constellation canvas ---
-  useEffect(() => {
-    const canvas0 = canvasRef.current;
-    if (!canvas0) return;
-
-    const ctx0 = canvas0.getContext("2d");
-    if (!ctx0) return;
-
-    function resize() {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-
-      canvas.width = Math.floor(window.innerWidth * dpr);
-      canvas.height = Math.floor(window.innerHeight * dpr);
-
-      canvas.style.width = `${window.innerWidth}px`;
-      canvas.style.height = `${window.innerHeight}px`;
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    function ensureStars() {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-
-      if (starsRef.current.length > 0) return;
-
-      const next: Star[] = [];
-      for (let i = 0; i < starCount; i++) {
-        const r = Math.random() * 1.35 + 0.35;
-        const baseSpeed = 0.012;
-        next.push({
-          x: Math.random() * w,
-          y: Math.random() * h,
-          r,
-          vx: (Math.random() - 0.5) * baseSpeed,
-          vy: (Math.random() - 0.5) * baseSpeed,
-          a: Math.random() * 0.35 + 0.12,
-        });
-      }
-      starsRef.current = next;
-    }
-
-    function tick(t: number) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-
-      const last = lastTRef.current || t;
-      const dt = Math.min(32, t - last);
-      lastTRef.current = t;
-
-      ensureStars();
-
-      const energy = audioEnergyRef.current;
-
-      ctx.clearRect(0, 0, w, h);
-
-      const stars = starsRef.current;
-
-      for (const s of stars) {
-        s.x += s.vx * dt;
-        s.y += s.vy * dt;
-
-        if (s.x < -20) s.x = w + 20;
-        if (s.x > w + 20) s.x = -20;
-        if (s.y < -20) s.y = h + 20;
-        if (s.y > h + 20) s.y = -20;
-      }
-
-      for (const s of stars) {
-        const a = clamp(s.a + energy * 0.12, 0, 0.55);
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${a})`;
-        ctx.fill();
-      }
-
-      const maxD = 92 + energy * 28;
-      const maxD2 = maxD * maxD;
-
-      for (let i = 0; i < stars.length; i++) {
-        const A = stars[i];
-        for (let j = i + 1; j < stars.length; j++) {
-          const B = stars[j];
-          const dx = A.x - B.x;
-          const dy = A.y - B.y;
-          const d2 = dx * dx + dy * dy;
-
-          if (d2 < maxD2) {
-            const d = Math.sqrt(d2);
-            const alpha = (1 - d / maxD) * (0.07 + energy * 0.08);
-            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(A.x, A.y);
-            ctx.lineTo(B.x, B.y);
-            ctx.stroke();
-          }
-        }
-      }
-
-      rafRef.current = requestAnimationFrame(tick);
-    }
-
-    resize();
-    window.addEventListener("resize", resize);
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      window.removeEventListener("resize", resize);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    };
-  }, [starCount]);
-
-  // --- Audio analyser (off by default) ---
-  useEffect(() => {
-    let stop = false;
-
-    async function startAudio() {
-      try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        const audioCtx: AudioContext = new AudioCtx();
-        audioCtxRef.current = audioCtx;
-
-        // NOTE: mic required only when user enables it
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (stop) return;
-
-        const src = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 1024;
-        analyser.smoothingTimeConstant = 0.85;
-
-        src.connect(analyser);
-        analyserRef.current = analyser;
-
-        // IMPORTANT: match the exact expected parameter type
-        freqDataRef.current = new Uint8Array(analyser.frequencyBinCount) as unknown as FreqArr;
-
-        const loop = () => {
-          const an = analyserRef.current;
-          const arr = freqDataRef.current;
-
-          if (!audioEnabled || stop || !an || !arr) {
-            audioEnergyRef.current = lerp(audioEnergyRef.current, 0, 0.08);
-            requestAnimationFrame(loop);
-            return;
-          }
-
-          // No cast needed now
-          an.getByteFrequencyData(arr);
-
-          // low band energy
-          const raw = arr as unknown as Uint8Array;
-          const n = Math.max(8, Math.floor(raw.length * 0.12));
-          let sum = 0;
-          for (let i = 0; i < n; i++) sum += raw[i];
-
-          const avg = sum / (n * 255);
-          const eased = Math.pow(avg, 1.4);
-
-          audioEnergyRef.current = lerp(audioEnergyRef.current, eased, 0.07);
-
-          requestAnimationFrame(loop);
-        };
-
-        loop();
-      } catch {
-        setAudioEnabled(false);
-      }
-    }
-
-    function stopAudio() {
-      audioEnergyRef.current = 0;
-
-      const audioCtx = audioCtxRef.current;
-      if (audioCtx) {
-        try {
-          audioCtx.close();
-        } catch {}
-      }
-
-      audioCtxRef.current = null;
-      analyserRef.current = null;
-      freqDataRef.current = null;
-    }
-
-    if (audioEnabled) startAudio();
-    else stopAudio();
-
-    return () => {
-      stop = true;
-      stopAudio();
-    };
-  }, [audioEnabled]);
-
+function NavPill({
+  href,
+  label,
+  active,
+}: {
+  href: (typeof NAV)[number]["href"];
+  label: string;
+  active?: boolean;
+}) {
   return (
-    <div className="relative min-h-[100svh] w-full overflow-hidden bg-[#333131] text-white">
-      <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-0" />
+    <Link
+      href={href}
+      className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
+      style={{
+        borderColor: active ? "rgba(31,36,26,0.30)" : "rgba(31,36,26,0.18)",
+        background: active ? "rgba(244,235,221,0.80)" : "rgba(244,235,221,0.62)",
+        color: "rgba(31,36,26,0.88)",
+        boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
+      }}
+    >
+      <span
+        className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
+        }}
+      />
+      <span className="relative flex items-center gap-2">
+        <span
+          className="inline-block h-2 w-2 rounded-full opacity-70"
+          style={{ background: active ? "rgba(31,36,26,0.60)" : "rgba(31,36,26,0.45)" }}
+        />
+        <span className="tracking-wide">{label}</span>
+      </span>
+    </Link>
+  );
+}
 
-      <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_35%,rgba(0,0,0,0.0)_70%)]" />
-      <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.05)_0%,rgba(0,0,0,0.25)_65%,rgba(0,0,0,0.35)_100%)]" />
-
-      <button
-        type="button"
-        onClick={() => setAudioEnabled((v) => !v)}
-        className="absolute right-6 top-6 z-10 rounded-xl border border-white/25 bg-white/5 px-4 py-2 text-[11px] tracking-[0.25em] uppercase text-white/80 hover:bg-white/10"
-      >
-        AUDIO · {audioEnabled ? "ON" : "OFF"}
-      </button>
-
-      <main className="relative z-10 flex min-h-[100svh] items-center justify-center px-6">
-        <div className="w-full max-w-5xl">
-          <div className="mx-auto flex w-full max-w-4xl flex-col items-center text-center">
-            <h1 className="mt-2 text-[46px] leading-none tracking-[0.32em] sm:text-[64px]">
-              URA&nbsp;&nbsp;ASTRO&nbsp;&nbsp;SYSTEM
-            </h1>
-
-            <div className="mt-6 text-[11px] tracking-[0.42em] text-white/55">
-              AN ORIENTATION ENGINE FOR CYCLES, TIMING, AND MEANING
-            </div>
-
-            <div className="mt-14 flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
-              <Link
-                href="/signup"
-                className="rounded-none border border-white/55 bg-transparent px-14 py-4 text-[12px] tracking-[0.38em] text-white/90 hover:bg-white/10"
-              >
-                SIGN&nbsp;&nbsp;UP
-              </Link>
-
-              <Link
-                href="/login"
-                className="rounded-none border border-white/55 bg-transparent px-14 py-4 text-[12px] tracking-[0.38em] text-white/90 hover:bg-white/10"
-              >
-                LOG&nbsp;&nbsp;IN
-              </Link>
-            </div>
-
-            <div className="mt-6">
-              <Link
-                href="/about"
-                className="inline-block rounded-none border border-white/55 bg-transparent px-16 py-4 text-[12px] tracking-[0.38em] text-white/90 hover:bg-white/10"
-              >
-                ABOUT&nbsp;&nbsp;THIS&nbsp;&nbsp;SYSTEM
-              </Link>
-            </div>
-
-            <div className="mt-14">
-              <DynamicSaturn energyRef={audioEnergyRef} />
-            </div>
-
-            <div className="mt-10 text-[10px] tracking-[0.35em] text-white/35">
-              ENTER QUIETLY · OBSERVE PRECISELY
-            </div>
-          </div>
-        </div>
-      </main>
+function CardShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="rounded-3xl border p-6 md:p-8"
+      style={{
+        borderColor: "rgba(31,36,26,0.16)",
+        background: "rgba(244,235,221,0.86)",
+        boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
+      }}
+    >
+      {children}
     </div>
   );
 }
 
-function DynamicSaturn({ energyRef }: { energyRef: React.RefObject<number> }) {
-  const [t, setT] = useState(0);
+function ActionLink({
+  href,
+  title,
+  desc,
+}: {
+  href: string;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group rounded-2xl border px-5 py-4 transition"
+      style={{
+        borderColor: "rgba(31,36,26,0.16)",
+        background: "rgba(248,242,232,0.86)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-semibold" style={{ color: "rgba(31,36,26,0.92)" }}>
+            {title}
+          </div>
+          <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.70)" }}>
+            {desc}
+          </div>
+        </div>
 
-  useEffect(() => {
-    let raf: number;
-    const loop = (now: number) => {
-      setT(now);
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+        <div
+          className="mt-0.5 rounded-full border px-3 py-1 text-xs"
+          style={{
+            borderColor: "rgba(31,36,26,0.16)",
+            color: "rgba(31,36,26,0.70)",
+            background: "rgba(244,235,221,0.62)",
+          }}
+        >
+          Open
+        </div>
+      </div>
+    </Link>
+  );
+}
 
-  const energy = energyRef.current ?? 0;
-
-  const breathe = (Math.sin(t / 2200) + 1) / 2;
-  const scale = 1 + breathe * 0.02 + energy * 0.03;
-  const rot = -10 + breathe * 4 + energy * 8;
+export default function HomePage() {
+  const pageBg =
+    "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
 
   return (
-    <div
-      className="mx-auto"
-      style={{
-        width: 260,
-        height: 260,
-        transform: `scale(${scale}) rotate(${rot}deg)`,
-        transition: "transform 120ms linear",
-      }}
-      aria-hidden="true"
-    >
-      <svg viewBox="0 0 260 260" className="h-full w-full">
-        <defs>
-          <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="1.4" result="blur" />
-            <feColorMatrix
-              in="blur"
-              type="matrix"
-              values="
-                1 0 0 0 0
-                0 1 0 0 0
-                0 0 1 0 0
-                0 0 0 0.55 0"
-              result="glow"
-            />
-            <feMerge>
-              <feMergeNode in="glow" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+    <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+      <div className="mx-auto w-full max-w-5xl">
+        {/* Header */}
+        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-baseline justify-between md:block">
+            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+              URA
+            </div>
+            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
+              Home
+            </div>
+          </div>
 
-        <circle
-          cx="130"
-          cy="140"
-          r="72"
-          fill="none"
-          stroke="rgba(255,255,255,0.65)"
-          strokeWidth="1.6"
-          filter="url(#softGlow)"
-        />
+          <div className="flex flex-wrap items-center gap-2">
+            {NAV.map((n) => (
+              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/"} />
+            ))}
+          </div>
+        </div>
 
-        <ellipse
-          cx="130"
-          cy="145"
-          rx="112"
-          ry="46"
-          fill="none"
-          stroke="rgba(255,255,255,0.70)"
-          strokeWidth="1.6"
-          strokeDasharray="6 10"
-          className="saturnRing saturnRingA"
-          filter="url(#softGlow)"
-        />
+        {/* Hero */}
+        <CardShell>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+            <div>
+              <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+                Temporal–Ecological Orientation
+              </div>
 
-        <ellipse
-          cx="130"
-          cy="145"
-          rx="100"
-          ry="40"
-          fill="none"
-          stroke="rgba(255,255,255,0.35)"
-          strokeWidth="1.1"
-          className="saturnRing saturnRingB"
-        />
+              <div className="mt-2 text-3xl md:text-4xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
+                Truth is knowing what time it is.
+              </div>
 
-        <path
-          d="M 34 145 C 70 112, 190 112, 226 145"
-          fill="none"
-          stroke="rgba(255,255,255,0.85)"
-          strokeWidth="1.8"
-          filter="url(#softGlow)"
-        />
+              <div className="mt-3 text-sm md:text-[15px]" style={{ color: "rgba(31,36,26,0.72)", lineHeight: 1.6 }}>
+                URA is a daily compass. Not prediction. Not personality typing.
+                It restores temporal literacy: recognizing the phase you’re in, and choosing the right mode of engagement.
+              </div>
 
-        <style jsx>{`
-          .saturnRing {
-            transform-origin: 130px 145px;
-            animation-timing-function: linear;
-            animation-iteration-count: infinite;
-          }
-          .saturnRingA {
-            animation-name: ringDriftA;
-            animation-duration: 18s;
-          }
-          .saturnRingB {
-            animation-name: ringDriftB;
-            animation-duration: 26s;
-          }
-          @keyframes ringDriftA {
-            0% {
-              transform: rotate(-28deg);
-              stroke-dashoffset: 0;
-            }
-            100% {
-              transform: rotate(-28deg);
-              stroke-dashoffset: -220;
-            }
-          }
-          @keyframes ringDriftB {
-            0% {
-              transform: rotate(-28deg);
-              opacity: 0.35;
-            }
-            50% {
-              transform: rotate(-28deg);
-              opacity: 0.55;
-            }
-            100% {
-              transform: rotate(-28deg);
-              opacity: 0.35;
-            }
-          }
-        `}</style>
-      </svg>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Link
+                  href="/profile"
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{
+                    borderColor: "rgba(31,36,26,0.20)",
+                    background: "rgba(31,36,26,0.92)",
+                    color: "rgba(244,235,221,0.96)",
+                    boxShadow: "0 12px 34px rgba(31,36,26,0.18)",
+                  }}
+                >
+                  Open my orientation
+                </Link>
+
+                <Link
+                  href="/about"
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{
+                    borderColor: "rgba(31,36,26,0.18)",
+                    background: "rgba(244,235,221,0.62)",
+                    color: "rgba(31,36,26,0.88)",
+                  }}
+                >
+                  Read the doctrine
+                </Link>
+
+                <Link
+                  href="/calendar"
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{
+                    borderColor: "rgba(31,36,26,0.18)",
+                    background: "rgba(244,235,221,0.62)",
+                    color: "rgba(31,36,26,0.88)",
+                  }}
+                >
+                  View the cycle
+                </Link>
+              </div>
+            </div>
+
+            {/* Right column: “Today” snapshot (non-data-dependent, but structured like the app) */}
+            <div className="rounded-3xl border p-5 md:p-6" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.82)" }}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+                    Daily Flow
+                  </div>
+                  <div className="mt-2 text-sm font-semibold" style={{ color: "rgba(31,36,26,0.88)" }}>
+                    Use URA in 3 steps
+                  </div>
+                </div>
+
+                <div
+                  className="rounded-full border px-3 py-1 text-xs"
+                  style={{ borderColor: "rgba(31,36,26,0.16)", color: "rgba(31,36,26,0.70)" }}
+                >
+                  Compass mode
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3 text-sm" style={{ color: "rgba(31,36,26,0.74)" }}>
+                <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "rgba(31,36,26,0.12)", background: "rgba(244,235,221,0.56)" }}>
+                  <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+                    1) Orientation
+                  </div>
+                  <div className="mt-1">
+                    Check your Asc-Year phase (0–360°) and match behavior to timing.
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "rgba(31,36,26,0.12)", background: "rgba(244,235,221,0.56)" }}>
+                  <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+                    2) Micro-cycle
+                  </div>
+                  <div className="mt-1">
+                    Check progressed lunation: your inner season across longer development.
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "rgba(31,36,26,0.12)", background: "rgba(244,235,221,0.56)" }}>
+                  <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+                    3) Witnessing
+                  </div>
+                  <div className="mt-1">
+                    Convert experience into guidance. The output is clarity, not control.
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 text-xs" style={{ color: "rgba(31,36,26,0.60)" }}>
+                URA doesn’t tell you what will happen. It helps you recognize what kind of time you’re in.
+              </div>
+            </div>
+          </div>
+        </CardShell>
+
+        {/* Quick actions */}
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <ActionLink href="/calendar" title="Calendar" desc="View the 8-phase cycle map and daily placement." />
+          <ActionLink href="/profile" title="Profile" desc="Your personal orientation: Asc-Year phase + waveform + foundation." />
+          <ActionLink href="/moon" title="Moon" desc="Lunar context and the emotional weather layer." />
+          <ActionLink href="/lunation" title="Lunation" desc="Progressed lunation: longer-cycle timing for inner development." />
+        </div>
+
+        {/* Doctrine preview */}
+        <div className="mt-5">
+          <CardShell>
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+              <div>
+                <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+                  Doctrine
+                </div>
+                <div className="mt-2 text-xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
+                  A Temporal–Ecological System for Human Orientation
+                </div>
+                <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)", lineHeight: 1.6 }}>
+                  URA is a timing instrument. It treats time as a living process and restores phase-appropriate behavior:
+                  emergence, establishment, differentiation, bonding, assertion, transformation, dissolution, witnessing.
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href="/about"
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{
+                    borderColor: "rgba(31,36,26,0.18)",
+                    background: "rgba(31,36,26,0.92)",
+                    color: "rgba(244,235,221,0.96)",
+                  }}
+                >
+                  Read /about
+                </Link>
+                <Link
+                  href="/seasons"
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{
+                    borderColor: "rgba(31,36,26,0.18)",
+                    background: "rgba(244,235,221,0.62)",
+                    color: "rgba(31,36,26,0.88)",
+                  }}
+                >
+                  View /seasons
+                </Link>
+              </div>
+            </div>
+          </CardShell>
+        </div>
+
+        <div className="mt-6 text-center text-xs" style={{ color: "rgba(31,36,26,0.55)" }}>
+          URA • private daily compass • time-as-process
+        </div>
+      </div>
     </div>
   );
 }
