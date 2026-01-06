@@ -30,7 +30,7 @@ function getLocalDayKey(timezone: string, d = new Date()) {
 
 /**
  * Convert a "wall clock" local time in a timezone into a UTC Date.
- * This avoids the classic bug: treating local birth time as UTC.
+ * Avoids treating local birth time as UTC.
  */
 function zonedLocalToUtcDate(opts: {
   year: number;
@@ -42,19 +42,50 @@ function zonedLocalToUtcDate(opts: {
 }) {
   const { year, month, day, hour, minute, timezone } = opts;
 
-  // 1) A UTC guess for the same wall-clock time
+  // UTC guess for same wall-clock time
   const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
 
-  // 2) Render that guess as if it were in the target timezone (string)
+  // Render that guess as if it were in the target timezone
   const asZonedString = utcGuess.toLocaleString("en-US", { timeZone: timezone });
 
-  // 3) Parse back as Date (server local tz)
+  // Parse back as Date (server local tz)
   const asZonedDate = new Date(asZonedString);
 
-  // 4) Offset correction
+  // Offset correction
   const diffMs = utcGuess.getTime() - asZonedDate.getTime();
-
   return new Date(utcGuess.getTime() + diffMs);
+}
+
+function safeLon(v: any): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (v && typeof v === "object" && typeof v.lon === "number" && Number.isFinite(v.lon)) return v.lon;
+  return null;
+}
+
+function extractNatalAscLon(natal: any): number | null {
+  const asc =
+    natal?.data?.ascendant ??
+    natal?.data?.angles?.asc ??
+    natal?.data?.angles?.ascendant ??
+    natal?.data?.houses?.ascendant ??
+    natal?.ascendant ??
+    natal?.asc ??
+    natal?.angles?.asc ??
+    natal?.angles?.ascendant ??
+    null;
+
+  return safeLon(asc);
+}
+
+function extractAsOfSunLonFromLunation(lunationJson: any): number | null {
+  // your /api/lunation response includes summary.asOf.sun in the sample output
+  const v =
+    lunationJson?.summary?.asOf?.sun ??
+    lunationJson?.asOf?.sun ??
+    lunationJson?.data?.summary?.asOf?.sun ??
+    null;
+
+  return safeLon(v);
 }
 
 async function fetchAstroNatal(birth: BirthPayload) {
@@ -72,14 +103,12 @@ async function fetchAstroNatal(birth: BirthPayload) {
   return r.json();
 }
 
-async function fetchAscYearSafe(payload: unknown) {
-  const base = process.env.APP_BASE_URL;
-  if (!base) {
-    return { ok: false, error: "APP_BASE_URL is missing." };
-  }
-
+/**
+ * NOTE: For daily caches, do not hard-crash SSR if endpoints fail.
+ */
+async function fetchJsonSafe(url: string, payload: unknown) {
   try {
-    const r = await fetch(`${base}/api/asc-year`, {
+    const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -89,50 +118,17 @@ async function fetchAscYearSafe(payload: unknown) {
     if (!r.ok) {
       const text = await r.text().catch(() => "");
       return {
-        ok: false,
-        error: `/api/asc-year failed: ${r.status}`,
+        ok: false as boolean,
+        error: `${url} failed: ${r.status}`,
         status: r.status,
         body: text.slice(0, 300),
       };
     }
 
     const json = await r.json().catch(() => null);
-    return { ok: true, data: json };
+    return { ok: true as boolean, data: json };
   } catch (err: any) {
-    const msg: string = err?.message || "asc-year fetch error";
-    return { ok: false, error: msg };
-  }
-}
-
-async function fetchLunationSafe(payload: unknown) {
-  const base = process.env.APP_BASE_URL;
-  if (!base) {
-    return { ok: false, error: "APP_BASE_URL is missing." };
-  }
-
-  try {
-    const r = await fetch(`${base}/api/lunation`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    });
-
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
-      return {
-        ok: false,
-        error: `/api/lunation failed: ${r.status}`,
-        status: r.status,
-        body: text.slice(0, 300),
-      };
-    }
-
-    const json = await r.json().catch(() => null);
-    return { ok: true, data: json };
-  } catch (err: any) {
-    const msg: string = err?.message || "lunation fetch error";
-    return { ok: false, error: msg };
+    return { ok: false as boolean, error: err?.message || "fetch error" };
   }
 }
 
@@ -175,7 +171,7 @@ export async function ensureProfileCaches(userId: number) {
 
   if (!hasBirth) return profile;
 
-  // ✅ Convert the user's local birth time (tz) into UTC parts for astro-service
+  // ✅ Convert local birth time (tz) -> UTC for astro-service (natal correctness)
   const birthUTC = zonedLocalToUtcDate({
     year: birthYear,
     month: birthMonth,
@@ -185,7 +181,7 @@ export async function ensureProfileCaches(userId: number) {
     timezone: tz,
   });
 
-  const birth: BirthPayload = {
+  const birthForAstro: BirthPayload = {
     year: birthUTC.getUTCFullYear(),
     month: birthUTC.getUTCMonth() + 1,
     day: birthUTC.getUTCDate(),
@@ -206,6 +202,7 @@ export async function ensureProfileCaches(userId: number) {
 
   const needsNatal = !profile.natalChartJson;
 
+  // Prisma JSON typing: avoid passing plain `null`
   let natalChartJson: Prisma.InputJsonValue | undefined =
     (profile.natalChartJson ?? undefined) as unknown as Prisma.InputJsonValue | undefined;
 
@@ -216,48 +213,64 @@ export async function ensureProfileCaches(userId: number) {
     (profile.lunationJson ?? undefined) as unknown as Prisma.InputJsonValue | undefined;
 
   if (needsNatal) {
-    natalChartJson = (await fetchAstroNatal(birth)) as unknown as Prisma.InputJsonValue;
+    natalChartJson = (await fetchAstroNatal(birthForAstro)) as unknown as Prisma.InputJsonValue;
   }
 
   let didDailyUpdate = false;
 
   if (needsDaily) {
-    const payload = {
-      year: birth.year,
-      month: birth.month,
-      day: birth.day,
-      hour: birth.hour,
-      minute: birth.minute,
-
-      // core contract
-      lat: birth.latitude,
-      lon: birth.longitude,
-
-      // compatibility
-      latitude: birth.latitude,
-      longitude: birth.longitude,
-
-      timezone: tz,
-      asOfDate: todayKey,
-    };
-
-    const [ascRes, lunaRes] = await Promise.all([
-      fetchAscYearSafe(payload),
-      fetchLunationSafe(payload),
-    ]);
-
-    if ((ascRes as any).ok) {
-      ascYearJson = (ascRes as any).data as unknown as Prisma.InputJsonValue;
-      didDailyUpdate = true;
+    const base = process.env.APP_BASE_URL;
+    if (!base) {
+      console.warn("[ensureProfileCaches] APP_BASE_URL missing; skipping daily caches");
     } else {
-      console.warn("[ensureProfileCaches] asc-year skipped:", ascRes);
-    }
+      // ✅ natalAscLon extracted from cached natal (authoritative ASC)
+      const natalAscLon = extractNatalAscLon(natalChartJson);
 
-    if ((lunaRes as any).ok) {
-      lunationJson = (lunaRes as any).data as unknown as Prisma.InputJsonValue;
-      didDailyUpdate = true;
-    } else {
-      console.warn("[ensureProfileCaches] lunation skipped:", lunaRes);
+      // Lunation expects your existing payload contract (keep compatibility)
+      const lunationPayload = {
+        birth_datetime: `${birthYear}-${String(birthMonth).padStart(2, "0")}-${String(birthDay).padStart(
+          2,
+          "0"
+        )} ${String(birthHour).padStart(2, "0")}:${String(birthMinute).padStart(2, "0")}`,
+        tz_offset: null, // optional; your lunation route can ignore if it uses timezone
+        as_of_date: todayKey,
+        lat: birthLat,
+        lon: birthLon,
+        timezone: tz,
+      };
+
+      const lunaRes = await fetchJsonSafe(`${base}/api/lunation`, lunationPayload);
+
+      if (lunaRes.ok) {
+        lunationJson = lunaRes.data as unknown as Prisma.InputJsonValue;
+        didDailyUpdate = true;
+      } else {
+        console.warn("[ensureProfileCaches] lunation skipped:", lunaRes);
+      }
+
+      // ✅ Use lunation summary as-of sun for asc-year (authoritative transiting Sun)
+      const transitingSunLon =
+        (lunaRes.ok ? extractAsOfSunLonFromLunation(lunaRes.data) : null) ?? null;
+
+      const ascYearPayload = {
+        natalAscLon,
+        transitingSunLon,
+
+        // keep extra context (harmless)
+        timezone: tz,
+        asOfDate: todayKey,
+        lat: birthLat,
+        lon: birthLon,
+      };
+
+      const ascRes = await fetchJsonSafe(`${base}/api/asc-year`, ascYearPayload);
+
+      if (ascRes.ok) {
+        ascYearJson = ascRes.data as unknown as Prisma.InputJsonValue;
+        didDailyUpdate = true;
+      } else {
+        console.warn("[ensureProfileCaches] asc-year skipped:", ascRes);
+      }
     }
   }
 
