@@ -127,7 +127,6 @@ function getAsOfSunFromLunation(lunation: any) {
 }
 
 function getAscYearCyclePosDeg(ascYearJson: any): number | null {
-  // Your asc-year route returns: { ok: true, ascYear: { cyclePositionDeg: ... } }
   const v =
     ascYearJson?.ascYear?.cyclePositionDeg ??
     ascYearJson?.ascYear?.cyclePosition ??
@@ -168,7 +167,7 @@ export default async function ProfilePage() {
     );
   }
 
-  // 2) If setup is done but caches are missing, rebuild ONCE (safe, avoids CPU melt)
+  // 2) If setup is done but caches are missing, rebuild ONCE
   const needsCacheRebuild =
     !!profile.setupDone &&
     (!profile.natalChartJson || !profile.lunationJson || !profile.ascYearJson);
@@ -178,7 +177,6 @@ export default async function ProfilePage() {
       await ensureProfileCaches(user.id);
       profile = await prisma.profile.findUnique({ where: { userId: user.id } });
     } catch (e) {
-      // do not crash profile render
       console.warn("[/profile] ensureProfileCaches failed:", e);
     }
   }
