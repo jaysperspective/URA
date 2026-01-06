@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroInputForm";
+import { NAV, NavPill } from "@/lib/ui/nav";
 
 const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
@@ -479,7 +480,6 @@ export default function LunationPage() {
   const subWithin = typeof sub?.within === "number" ? sub.within : null;
 
   // A clean progress meter: within the current 45° phase bucket (0..45)
-  // We don’t need perfect math here — it’s a UI “feel” meter.
   const phaseProgress01 = useMemo(() => {
     if (typeof separation !== "number") return 0;
     const within45 = degNorm(separation) % 45;
@@ -530,10 +530,8 @@ export default function LunationPage() {
         {/* Header */}
         <div className={`rounded-2xl border ${theme.shellBorder} ${theme.shellBg} p-6`}>
           <div className="flex items-start justify-between gap-6">
-            <div>
-              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
-                URA • Lunation
-              </div>
+            <div className="min-w-0">
+              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">URA • Lunation</div>
 
               <div className={`mt-2 text-[34px] leading-[1.05] font-semibold ${theme.accent}`}>
                 {lunationLabel ?? "—"}
@@ -541,7 +539,15 @@ export default function LunationPage() {
               </div>
 
               <div className={`mt-2 text-[13px] ${theme.shellSub} max-w-xl`}>
-                Progressed lunation (Sun–Moon separation) — rendered from <span style={theme.panelMono}>/api/core</span>.
+                Progressed lunation (Sun–Moon separation) — rendered from{" "}
+                <span style={theme.panelMono}>/api/core</span>.
+              </div>
+
+              {/* NAV PILLS */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {NAV.map((n) => (
+                  <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/lunation"} />
+                ))}
               </div>
             </div>
 
@@ -627,9 +633,7 @@ export default function LunationPage() {
             </div>
 
             <div className={`rounded-2xl border ${theme.panelBorder} ${theme.panelBg} p-6`}>
-              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
-                Details
-              </div>
+              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Details</div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <MiniCard
@@ -646,30 +650,14 @@ export default function LunationPage() {
 
                 <MiniCard
                   label="Progressed Sun"
-                  value={
-                    typeof progressedSunLon === "number"
-                      ? `${fmtSignLon(progressedSunLon).text}`
-                      : "—"
-                  }
-                  note={
-                    typeof progressedSunLon === "number"
-                      ? `Raw ${fmtSignLon(progressedSunLon).raw}`
-                      : "Zodiac placement of progressed Sun."
-                  }
+                  value={typeof progressedSunLon === "number" ? `${fmtSignLon(progressedSunLon).text}` : "—"}
+                  note={typeof progressedSunLon === "number" ? `Raw ${fmtSignLon(progressedSunLon).raw}` : "Zodiac placement of progressed Sun."}
                 />
 
                 <MiniCard
                   label="Progressed Moon"
-                  value={
-                    typeof progressedMoonLon === "number"
-                      ? `${fmtSignLon(progressedMoonLon).text}`
-                      : "—"
-                  }
-                  note={
-                    typeof progressedMoonLon === "number"
-                      ? `Raw ${fmtSignLon(progressedMoonLon).raw}`
-                      : "Zodiac placement of progressed Moon."
-                  }
+                  value={typeof progressedMoonLon === "number" ? `${fmtSignLon(progressedMoonLon).text}` : "—"}
+                  note={typeof progressedMoonLon === "number" ? `Raw ${fmtSignLon(progressedMoonLon).raw}` : "Zodiac placement of progressed Moon."}
                 />
               </div>
 
@@ -677,18 +665,12 @@ export default function LunationPage() {
                 <Meter
                   value01={subProgress01}
                   label="Sub-phase"
-                  note={
-                    subLabel
-                      ? `Within “${subLabel}” (visual meter).`
-                      : "Sub-phase meter (uses subPhase.within if available)."
-                  }
+                  note={subLabel ? `Within “${subLabel}” (visual meter).` : "Sub-phase meter (uses subPhase.within if available)."}
                 />
 
                 <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
-                      Snapshot
-                    </div>
+                    <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Snapshot</div>
                     <div className="text-[12px] text-[#3a3a44]" style={theme.panelMono}>
                       {summary?.lunationLabel ?? "—"}
                     </div>
@@ -701,14 +683,9 @@ export default function LunationPage() {
               </div>
 
               <div className="mt-7">
-                <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
-                  Cycle boundaries
-                </div>
+                <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Cycle boundaries</div>
                 <div className="mt-3">
-                  <BoundariesList
-                    boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []}
-                    nextNewMoonUTC={lun?.nextNewMoonUTC}
-                  />
+                  <BoundariesList boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []} nextNewMoonUTC={lun?.nextNewMoonUTC} />
                 </div>
               </div>
 
@@ -718,8 +695,8 @@ export default function LunationPage() {
         </div>
 
         <div className="text-[11px] text-[#a9a3a0] px-1">
-          /lunation is a presentation layer over <span className="text-[#e9e6e1]">/api/core</span>.
-          Saved payload key: <span className="text-[#e9e6e1]">{LS_PAYLOAD_KEY}</span>
+          /lunation is a presentation layer over <span className="text-[#e9e6e1]">/api/core</span>. Saved payload key:{" "}
+          <span className="text-[#e9e6e1]">{LS_PAYLOAD_KEY}</span>
         </div>
       </div>
     </div>
