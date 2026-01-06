@@ -45,17 +45,18 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
     id: 2,
     season: "SPRG",
     orisha: "Obatala",
-    header: "SPRG · Phase 2 — Stabilization (Obatala)",
+    header: "SPRG · Phase 2 — Establishment (Obatala)",
     oneLine: "Structure forms so the beginning can hold.",
     description:
-      "45°–90°. Energy strengthens and structure forms. This is commitment and orientation: you test your direction against reality by shaping habits, boundaries, and pace. The goal is stability—not perfection—so what started can actually last.",
+      "45°–90°. Energy strengthens and structure forms. This is the season of establishment: commitment, orientation, and testing your direction against reality. Posture, habits, boundaries, and pace take shape so what has begun can actually last.",
     actionHint: "Strengthen one core structure. Remove one unstable element.",
     journalPrompt: "What structure would protect the truth of this beginning?",
     journalHelper:
-      "Name one boundary or rule you will keep for the next 45°—and why it matters.",
+      "Name one boundary, rule, or rhythm you will keep for the next 45°.",
     footer: "You are here in the cycle.",
   },
 
+  
   3: {
     id: 3,
     season: "SUMR",
