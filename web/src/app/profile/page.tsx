@@ -5,44 +5,83 @@ import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 import ProfileClient from "./ui/ProfileClient";
 import { logoutAction } from "./actions";
 
+// ---------- Calendar-style nav ----------
+const NAV = [
+  { href: "/calendar", label: "Calendar" },
+  { href: "/moon", label: "Moon" },
+  { href: "/profile", label: "Profile" },
+  { href: "/lunation", label: "Lunation" },
+] as const;
+
+function NavPill({
+  href,
+  label,
+  active,
+}: {
+  href: (typeof NAV)[number]["href"];
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
+      style={{
+        borderColor: active ? "rgba(31,36,26,0.30)" : "rgba(31,36,26,0.18)",
+        background: active ? "rgba(244,235,221,0.80)" : "rgba(244,235,221,0.62)",
+        color: "rgba(31,36,26,0.88)",
+        boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
+      }}
+    >
+      <span
+        className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
+        }}
+      />
+      <span className="relative flex items-center gap-2">
+        <span
+          className="inline-block h-2 w-2 rounded-full opacity-70"
+          style={{ background: active ? "rgba(31,36,26,0.60)" : "rgba(31,36,26,0.45)" }}
+        />
+        <span className="tracking-wide">{label}</span>
+      </span>
+    </Link>
+  );
+}
+
+function ActionPill({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
+      style={{
+        borderColor: "rgba(31,36,26,0.18)",
+        background: "rgba(244,235,221,0.62)",
+        color: "rgba(31,36,26,0.88)",
+        boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
+      }}
+    >
+      <span
+        className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
+        }}
+      />
+      <span className="relative">{children}</span>
+    </span>
+  );
+}
+
 // ---------- helpers ----------
 function safeNum(v: any): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
-}
-
-function norm360(d: number) {
-  let x = d % 360;
-  if (x < 0) x += 360;
-  return x;
-}
-
-const SIGNS = [
-  "Ari",
-  "Tau",
-  "Gem",
-  "Can",
-  "Leo",
-  "Vir",
-  "Lib",
-  "Sco",
-  "Sag",
-  "Cap",
-  "Aqu",
-  "Pis",
-] as const;
-
-function signFromLon(lon: number) {
-  const idx = Math.floor(norm360(lon) / 30) % 12;
-  return SIGNS[idx];
-}
-
-function fmtLon(lon: number) {
-  const x = norm360(lon);
-  const degInSign = x % 30;
-  const d = Math.floor(degInSign);
-  const m = Math.floor((degInSign - d) * 60);
-  return `${d}° ${String(m).padStart(2, "0")}'`;
 }
 
 function pickName(user: any, profile: any) {
@@ -63,11 +102,26 @@ export default async function ProfilePage() {
   const user = await requireUser();
   const profile = await ensureProfileCaches(user.id);
 
+  // Calendar background (parity)
+  const pageBg =
+    "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
+
   if (!profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)" }}>
-        <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-          No profile found.
+      <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+        <div className="mx-auto w-full max-w-5xl">
+          <div
+            className="rounded-3xl border p-6"
+            style={{
+              borderColor: "rgba(31,36,26,0.16)",
+              background: "rgba(244,235,221,0.78)",
+              boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
+            }}
+          >
+            <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+              No profile found.
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -75,25 +129,58 @@ export default async function ProfilePage() {
 
   if (!profile.setupDone) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)" }}>
-        <div className="w-full max-w-lg rounded-3xl border p-6" style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.88)" }}>
-          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
-            Setup
+      <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+        <div className="mx-auto w-full max-w-5xl">
+          {/* Header */}
+          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-baseline justify-between md:block">
+              <div
+                className="text-xs tracking-[0.28em] uppercase"
+                style={{ color: "rgba(31,36,26,0.55)" }}
+              >
+                URA
+              </div>
+              <div
+                className="mt-1 text-lg font-semibold tracking-tight"
+                style={{ color: "rgba(31,36,26,0.90)" }}
+              >
+                Profile
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {NAV.map((n) => (
+                <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
+              ))}
+            </div>
           </div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "#1F241A" }}>
-            Finish your profile
-          </div>
-          <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-            Add birth details and location so URA can generate your live cycle.
-          </div>
-          <div className="mt-6">
-            <Link
-              href="/profile/setup"
-              className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
-              style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.78)", color: "#1F241A" }}
+
+          <div
+            className="w-full rounded-3xl border p-6"
+            style={{
+              borderColor: "rgba(31,36,26,0.16)",
+              background: "rgba(244,235,221,0.86)",
+              boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
+            }}
+          >
+            <div
+              className="text-[11px] tracking-[0.18em] uppercase"
+              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
             >
-              Continue
-            </Link>
+              Setup
+            </div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
+              Finish your profile
+            </div>
+            <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+              Add birth details and location so URA can generate your live cycle.
+            </div>
+
+            <div className="mt-6">
+              <Link href="/profile/setup" className="inline-block">
+                <ActionPill>Continue</ActionPill>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -135,40 +222,44 @@ export default async function ProfilePage() {
   const name = pickName(user, profile);
 
   return (
-    <div
-      className="min-h-screen"
-      style={{
-        background:
-          "radial-gradient(1200px 700px at 50% -10%, rgba(213,192,165,0.95) 0%, rgba(185,176,123,0.55) 55%, rgba(113,116,79,0.45) 120%)",
-      }}
-    >
-      <div className="relative mx-auto w-full max-w-7xl px-6 py-10">
-        <div className="flex items-center justify-between gap-4">
-          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
-            URA • Profile
+    <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+      <div className="mx-auto w-full max-w-5xl">
+        {/* Header (Calendar parity) */}
+        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-baseline justify-between md:block">
+            <div
+              className="text-xs tracking-[0.28em] uppercase"
+              style={{ color: "rgba(31,36,26,0.55)" }}
+            >
+              URA
+            </div>
+            <div
+              className="mt-1 text-lg font-semibold tracking-tight"
+              style={{ color: "rgba(31,36,26,0.90)" }}
+            >
+              Profile
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link
-              href="/profile/setup"
-              className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
-              style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.78)", color: "#1F241A" }}
-            >
-              Edit
+          <div className="flex flex-wrap items-center gap-2">
+            {NAV.map((n) => (
+              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
+            ))}
+
+            {/* Actions (styled like nav pills) */}
+            <Link href="/profile/setup" aria-label="Edit profile">
+              <ActionPill>Edit</ActionPill>
             </Link>
 
             <form action={logoutAction}>
-              <button
-                type="submit"
-                className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm hover:opacity-95"
-                style={{ borderColor: "rgba(31,36,26,0.16)", background: "rgba(244,235,221,0.78)", color: "#1F241A" }}
-              >
-                Log out
+              <button type="submit" aria-label="Log out">
+                <ActionPill>Log out</ActionPill>
               </button>
             </form>
           </div>
         </div>
 
+        {/* Client UI (kept as-is; we’re matching page chrome + nav parity here) */}
         <ProfileClient
           name={name}
           locationLine={locationLine}
@@ -185,3 +276,4 @@ export default async function ProfilePage() {
     </div>
   );
 }
+
