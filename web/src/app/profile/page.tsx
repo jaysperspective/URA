@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/requireUser";
 import { prisma } from "@/lib/prisma";
+import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 import ProfileClient from "./ui/ProfileClient";
 import { logoutAction } from "./actions";
 
@@ -122,18 +123,26 @@ function getProgressedFromLunation(lunation: any) {
 }
 
 function getAsOfSunFromLunation(lunation: any) {
-  return (
-    safeLon(lunation?.summary?.asOf?.sun) ??
-    safeLon(lunation?.data?.summary?.asOf?.sun) ??
-    null
-  );
+  return safeLon(lunation?.summary?.asOf?.sun) ?? safeLon(lunation?.data?.summary?.asOf?.sun) ?? null;
+}
+
+function getAscYearCyclePosDeg(ascYearJson: any): number | null {
+  // Your asc-year route returns: { ok: true, ascYear: { cyclePositionDeg: ... } }
+  const v =
+    ascYearJson?.ascYear?.cyclePositionDeg ??
+    ascYearJson?.ascYear?.cyclePosition ??
+    ascYearJson?.cyclePositionDeg ??
+    ascYearJson?.cyclePosition ??
+    null;
+
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 export default async function ProfilePage() {
   const user = await requireUser();
 
-  // ✅ DO NOT compute caches here (prevents CPU spikes).
-  const profile = await prisma.profile.findUnique({ where: { userId: user.id } });
+  // 1) load profile
+  let profile = await prisma.profile.findUnique({ where: { userId: user.id } });
 
   const pageBg =
     "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
@@ -159,6 +168,43 @@ export default async function ProfilePage() {
     );
   }
 
+  // 2) If setup is done but caches are missing, rebuild ONCE (safe, avoids CPU melt)
+  const needsCacheRebuild =
+    !!profile.setupDone &&
+    (!profile.natalChartJson || !profile.lunationJson || !profile.ascYearJson);
+
+  if (needsCacheRebuild) {
+    try {
+      await ensureProfileCaches(user.id);
+      profile = await prisma.profile.findUnique({ where: { userId: user.id } });
+    } catch (e) {
+      // do not crash profile render
+      console.warn("[/profile] ensureProfileCaches failed:", e);
+    }
+  }
+
+  if (!profile) {
+    return (
+      <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+        <div className="mx-auto w-full max-w-5xl">
+          <div
+            className="rounded-3xl border p-6"
+            style={{
+              borderColor: "rgba(31,36,26,0.16)",
+              background: "rgba(244,235,221,0.78)",
+              boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
+            }}
+          >
+            <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+              No profile found.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // setup gate
   if (!profile.setupDone) {
     return (
       <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
@@ -210,7 +256,8 @@ export default async function ProfilePage() {
   }
 
   const tz = profile.timezone ?? "America/New_York";
-  const locationLine = profile.birthPlace?.trim() || [profile.city, profile.state].filter(Boolean).join(", ") || tz;
+  const locationLine =
+    profile.birthPlace?.trim() || [profile.city, profile.state].filter(Boolean).join(", ") || tz;
 
   const natal = profile.natalChartJson as any;
   const ascYear = profile.ascYearJson as any;
@@ -225,35 +272,12 @@ export default async function ProfilePage() {
   const { progressedSunLon, progressedMoonLon } = getProgressedFromLunation(lunation);
   const currentSunLon = getAsOfSunFromLunation(lunation);
 
-  const ascYearCyclePosDeg =
-    typeof ascYear?.ascYear?.cyclePositionDeg === "number"
-      ? ascYear.ascYear.cyclePositionDeg
-      : typeof ascYear?.ascYear?.cyclePosition === "number"
-      ? ascYear.ascYear.cyclePosition
-      : typeof ascYear?.cyclePositionDeg === "number"
-      ? ascYear.cyclePositionDeg
-      : typeof ascYear?.cyclePosition === "number"
-      ? ascYear.cyclePosition
-      : typeof ascYear?.ascYear?.cyclePositionDeg === "number"
-      ? ascYear.ascYear.cyclePositionDeg
-      : null;
+  const ascYearCyclePosDeg = getAscYearCyclePosDeg(ascYear);
 
-  const ascYearSeason =
-    (ascYear?.ascYear?.season as string | undefined) ??
-    (ascYear?.season as string | undefined) ??
-    null;
-
-  const ascYearModality =
-    (ascYear?.ascYear?.modality as string | undefined) ??
-    (ascYear?.modality as string | undefined) ??
-    null;
-
+  const ascYearSeason = (ascYear?.ascYear?.season as string | undefined) ?? null;
+  const ascYearModality = (ascYear?.ascYear?.modality as string | undefined) ?? null;
   const ascYearDegreesIntoModality =
-    typeof ascYear?.ascYear?.degreesIntoModality === "number"
-      ? ascYear.ascYear.degreesIntoModality
-      : typeof ascYear?.degreesIntoModality === "number"
-      ? ascYear.degreesIntoModality
-      : null;
+    typeof ascYear?.ascYear?.degreesIntoModality === "number" ? ascYear.ascYear.degreesIntoModality : null;
 
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
   const name = pickName(user, profile);
