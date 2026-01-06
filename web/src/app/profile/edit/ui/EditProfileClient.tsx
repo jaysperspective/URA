@@ -6,13 +6,18 @@ import { saveProfileEditAction } from "../actions";
 
 type Initial = {
   username: string;
+  bio: string; // ✅ added
   timezone: string;
+
+  // location
+  birthPlace: string; // ✅ added (preferred label for geocode)
   city: string;
   state: string;
   locationLine: string;
   lat: number | null;
   lon: number | null;
 
+  // birth data
   birthYear: number | null;
   birthMonth: number | null;
   birthDay: number | null;
@@ -25,13 +30,21 @@ type Initial = {
 const inputStyle: React.CSSProperties = {
   borderColor: "rgba(31,36,26,0.18)",
   background: "rgba(248,242,232,0.85)",
-  color: "rgba(15,15,15,0.92)",
-  WebkitTextFillColor: "rgba(15,15,15,0.92)", // Safari fix
+  color: "#000", // ✅ force black
+  caretColor: "#000",
+  WebkitTextFillColor: "#000", // ✅ Safari text color fix
+};
+
+const inputShellStyle: React.CSSProperties = {
+  borderColor: "rgba(31,36,26,0.18)",
+  background: "rgba(248,242,232,0.85)",
 };
 
 export default function EditProfileClient({ initial }: { initial: Initial }) {
   const [city, setCity] = useState(initial.city);
   const [state, setState] = useState(initial.state);
+  const [birthPlace, setBirthPlace] = useState(initial.birthPlace);
+  const [bio, setBio] = useState(initial.bio);
 
   const [lat, setLat] = useState<number | null>(initial.lat);
   const [lon, setLon] = useState<number | null>(initial.lon);
@@ -40,10 +53,14 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [geoError, setGeoError] = useState<string | null>(null);
 
+  // Prefer birthPlace if user provided it; fallback to city/state
   const q = useMemo(() => {
+    const bp = birthPlace.trim();
+    if (bp) return bp;
+
     const parts = [city.trim(), state.trim()].filter(Boolean);
     return parts.join(", ");
-  }, [city, state]);
+  }, [birthPlace, city, state]);
 
   async function resolveLocation() {
     setGeoError(null);
@@ -52,7 +69,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
     const query = q.trim();
     if (!query) {
       setGeoStatus("error");
-      setGeoError("Enter a city and state first.");
+      setGeoError("Enter a Birth Place or City + State first.");
       return;
     }
 
@@ -72,10 +89,18 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         return;
       }
 
-      setLat(Number(json.lat));
-      setLon(Number(json.lon));
+      const nextLat = Number(json.lat);
+      const nextLon = Number(json.lon);
+
+      setLat(Number.isFinite(nextLat) ? nextLat : null);
+      setLon(Number.isFinite(nextLon) ? nextLon : null);
       setGeoLabel(String(json.display_name || query));
       setGeoStatus("ok");
+
+      // If user was using city/state, keep birthPlace synced to the resolved label
+      if (!birthPlace.trim()) {
+        setBirthPlace(String(json.display_name || query));
+      }
     } catch (e: any) {
       setGeoStatus("error");
       setGeoError(e?.message || "Geocode failed.");
@@ -91,6 +116,21 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
       }}
     >
+      {/* Autofill hard-fix (Safari/Chrome) */}
+      <style>{`
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        textarea:-webkit-autofill,
+        textarea:-webkit-autofill:hover,
+        textarea:-webkit-autofill:focus {
+          -webkit-text-fill-color: #000 !important;
+          caret-color: #000 !important;
+          box-shadow: 0 0 0px 1000px rgba(248,242,232,0.92) inset !important;
+          transition: background-color 9999s ease-in-out 0s !important;
+        }
+      `}</style>
+
       <div
         className="text-[11px] tracking-[0.18em] uppercase"
         style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
@@ -111,6 +151,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
               className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
               style={inputStyle}
               placeholder="your name"
+              autoComplete="name"
             />
           </div>
 
@@ -124,8 +165,26 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
               className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
               style={inputStyle}
               placeholder="America/New_York"
+              autoComplete="off"
             />
           </div>
+        </div>
+
+        {/* --- Bio --- */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+            Bio (optional)
+          </label>
+          <input
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
+            style={inputStyle}
+            placeholder=""
+            autoComplete="off"
+          />
+          {/* authoritative submit value */}
+          <input type="hidden" name="bio" value={bio} />
         </div>
 
         {/* --- Location + Geocode --- */}
@@ -139,10 +198,10 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
                 className="text-[11px] tracking-[0.18em] uppercase"
                 style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
               >
-                Location
+                Birth Location
               </div>
               <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-                We resolve lat/lon via Nominatim (required for Asc-Year / ASC).
+                Resolve lat/lon via Nominatim (required for Asc-Year / ASC).
               </div>
             </div>
 
@@ -160,10 +219,24 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             </button>
           </div>
 
+          <div className="mt-4">
+            <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+              Birth Place (recommended)
+            </label>
+            <input
+              value={birthPlace}
+              onChange={(e) => setBirthPlace(e.target.value)}
+              className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
+              style={inputStyle}
+              placeholder="Danville, Virginia, United States"
+            />
+            <input type="hidden" name="birthPlace" value={birthPlace} />
+          </div>
+
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
-                City
+                City (optional)
               </label>
               <input
                 value={city}
@@ -177,7 +250,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
 
             <div>
               <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
-                State
+                State (optional)
               </label>
               <input
                 value={state}
@@ -194,6 +267,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             Query: <span className="font-mono">{q || "—"}</span>
           </div>
 
+          {/* hidden authoritative coords for server action */}
           <input type="hidden" name="lat" value={lat ?? ""} />
           <input type="hidden" name="lon" value={lon ?? ""} />
 
@@ -246,6 +320,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
                   defaultValue={val ?? ""}
                   className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
                   style={inputStyle}
+                  inputMode="numeric"
                 />
               </div>
             ))}
@@ -264,7 +339,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             Profile image (optional)
           </div>
           <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-            We can wire upload next (R2/S3). For now this preserves existing URL if you already have one.
+            Upload wiring next (R2/S3). For now we preserve existing URL if present.
           </div>
           <input type="hidden" name="avatarUrl" value={initial.avatarUrl ?? ""} />
         </div>
