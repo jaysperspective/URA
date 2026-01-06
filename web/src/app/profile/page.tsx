@@ -1,11 +1,10 @@
 // src/app/profile/page.tsx
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/requireUser";
-import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
+import { prisma } from "@/lib/prisma";
 import ProfileClient from "./ui/ProfileClient";
 import { logoutAction } from "./actions";
 
-// ---------- Calendar-style nav ----------
 const NAV = [
   { href: "/calendar", label: "Calendar" },
   { href: "/moon", label: "Moon" },
@@ -75,12 +74,6 @@ function ActionPill({ children }: { children: React.ReactNode }) {
 }
 
 // ---------- helpers ----------
-function safeNum(v: any): number | null {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-// ✅ handles number OR { lon: number }
 function safeLon(v: any): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (v && typeof v === "object" && typeof v.lon === "number" && Number.isFinite(v.lon)) return v.lon;
@@ -96,7 +89,7 @@ function pickName(user: any, profile: any) {
 }
 
 function getNatalSources(natal: any) {
-  const planets = natal?.data?.planets ?? natal?.planets ?? natal?.data?.bodies ?? natal?.bodies ?? null;
+  const planets = natal?.data?.planets ?? natal?.planets ?? null;
 
   const asc =
     natal?.data?.ascendant ??
@@ -112,47 +105,35 @@ function getNatalSources(natal: any) {
   return { planets, asc };
 }
 
-// ✅ NEW lunation wrapper structure:
-// profile.lunationJson = { ok, text, summary, lunation, input }
-function getFromLunationWrapper(lunWrap: any) {
-  const summary = lunWrap?.summary ?? null;
-  const lun = lunWrap?.lunation ?? null;
+function getProgressedFromLunation(lunation: any) {
+  const pSun =
+    safeLon(lunation?.lunation?.progressedSunLon) ??
+    safeLon(lunation?.progressedSunLon) ??
+    safeLon(lunation?.data?.lunation?.progressedSunLon) ??
+    null;
 
-  const progressedSunLon = safeLon(lun?.progressedSunLon);
-  const progressedMoonLon = safeLon(lun?.progressedMoonLon);
+  const pMoon =
+    safeLon(lunation?.lunation?.progressedMoonLon) ??
+    safeLon(lunation?.progressedMoonLon) ??
+    safeLon(lunation?.data?.lunation?.progressedMoonLon) ??
+    null;
 
-  // Current Sun should come from summary.asOf.sun (core derived summary)
-  const currentSunLon = safeLon(summary?.asOf?.sun);
+  return { progressedSunLon: pSun, progressedMoonLon: pMoon };
+}
 
-  // Asc-Year values from summary (preferred)
-  const ascYearCyclePosDeg = safeNum(summary?.ascYearCyclePos);
-  const ascYearDegreesIntoModality = safeNum(summary?.ascYearDegreesInto);
-
-  // Split "Spring · Mutable" into season/modality
-  let ascYearSeason: string | null = null;
-  let ascYearModality: string | null = null;
-
-  const label = typeof summary?.ascYearLabel === "string" ? summary.ascYearLabel : "";
-  if (label.includes("·")) {
-    const parts = label.split("·").map((x: string) => x.trim());
-    ascYearSeason = parts[0] || null;
-    ascYearModality = parts[1] || null;
-  }
-
-  return {
-    progressedSunLon,
-    progressedMoonLon,
-    currentSunLon,
-    ascYearCyclePosDeg,
-    ascYearSeason,
-    ascYearModality,
-    ascYearDegreesIntoModality,
-  };
+function getAsOfSunFromLunation(lunation: any) {
+  return (
+    safeLon(lunation?.summary?.asOf?.sun) ??
+    safeLon(lunation?.data?.summary?.asOf?.sun) ??
+    null
+  );
 }
 
 export default async function ProfilePage() {
   const user = await requireUser();
-  const profile = await ensureProfileCaches(user.id);
+
+  // ✅ DO NOT compute caches here (prevents CPU spikes).
+  const profile = await prisma.profile.findUnique({ where: { userId: user.id } });
 
   const pageBg =
     "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
@@ -207,10 +188,7 @@ export default async function ProfilePage() {
               boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
             }}
           >
-            <div
-              className="text-[11px] tracking-[0.18em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-            >
+            <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
               Setup
             </div>
             <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
@@ -221,7 +199,7 @@ export default async function ProfilePage() {
             </div>
 
             <div className="mt-6">
-              <Link href="/profile/setup" className="inline-block">
+              <Link href="/profile/edit" className="inline-block">
                 <ActionPill>Continue</ActionPill>
               </Link>
             </div>
@@ -232,15 +210,11 @@ export default async function ProfilePage() {
   }
 
   const tz = profile.timezone ?? "America/New_York";
-
-  // Prefer birthPlace; fallback to city/state; fallback to timezone
-  const locationLine =
-    profile.birthPlace?.trim() ||
-    [profile.city, profile.state].filter(Boolean).join(", ") ||
-    tz;
+  const locationLine = profile.birthPlace?.trim() || [profile.city, profile.state].filter(Boolean).join(", ") || tz;
 
   const natal = profile.natalChartJson as any;
-  const lunWrap = profile.lunationJson as any;
+  const ascYear = profile.ascYearJson as any;
+  const lunation = profile.lunationJson as any;
 
   const { planets, asc } = getNatalSources(natal);
 
@@ -248,16 +222,38 @@ export default async function ProfilePage() {
   const natalMoonLon = safeLon(planets?.moon?.lon ?? planets?.moon);
   const natalAscLon = safeLon(asc);
 
-  // ✅ Pull everything else from lunation wrapper (core-derived summary)
-  const {
-    progressedSunLon,
-    progressedMoonLon,
-    currentSunLon,
-    ascYearCyclePosDeg,
-    ascYearSeason,
-    ascYearModality,
-    ascYearDegreesIntoModality,
-  } = getFromLunationWrapper(lunWrap);
+  const { progressedSunLon, progressedMoonLon } = getProgressedFromLunation(lunation);
+  const currentSunLon = getAsOfSunFromLunation(lunation);
+
+  const ascYearCyclePosDeg =
+    typeof ascYear?.ascYear?.cyclePositionDeg === "number"
+      ? ascYear.ascYear.cyclePositionDeg
+      : typeof ascYear?.ascYear?.cyclePosition === "number"
+      ? ascYear.ascYear.cyclePosition
+      : typeof ascYear?.cyclePositionDeg === "number"
+      ? ascYear.cyclePositionDeg
+      : typeof ascYear?.cyclePosition === "number"
+      ? ascYear.cyclePosition
+      : typeof ascYear?.ascYear?.cyclePositionDeg === "number"
+      ? ascYear.ascYear.cyclePositionDeg
+      : null;
+
+  const ascYearSeason =
+    (ascYear?.ascYear?.season as string | undefined) ??
+    (ascYear?.season as string | undefined) ??
+    null;
+
+  const ascYearModality =
+    (ascYear?.ascYear?.modality as string | undefined) ??
+    (ascYear?.modality as string | undefined) ??
+    null;
+
+  const ascYearDegreesIntoModality =
+    typeof ascYear?.ascYear?.degreesIntoModality === "number"
+      ? ascYear.ascYear.degreesIntoModality
+      : typeof ascYear?.degreesIntoModality === "number"
+      ? ascYear.degreesIntoModality
+      : null;
 
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
   const name = pickName(user, profile);
