@@ -1,6 +1,5 @@
 // src/app/moon/page.tsx
 import MoonClient from "./ui/MoonClient";
-import MoonCalendarControl from "./ui/MoonCalendarControl";
 import { NAV, NavPill } from "@/lib/ui/nav";
 
 export default function MoonPage() {
@@ -31,16 +30,8 @@ export default function MoonPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* NEW: icon button -> opens monthly moon calendar modal */}
-            <MoonCalendarControl />
-
             {NAV.map((n) => (
-              <NavPill
-                key={n.href}
-                href={n.href}
-                label={n.label}
-                active={n.href === "/moon"}
-              />
+              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/moon"} />
             ))}
           </div>
         </div>
