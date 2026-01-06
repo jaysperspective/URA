@@ -19,98 +19,116 @@ function n(v: FormDataEntryValue | null) {
   return Number.isFinite(num) ? num : null;
 }
 
-function hasNumber(x: any) {
+function hasNum(x: any): x is number {
   return typeof x === "number" && Number.isFinite(x);
 }
 
-function getCoordsFromProfile(p: any): { lat: number | null; lon: number | null } {
-  // Try common field names (support whichever exists in your schema)
-  const lat =
-    (hasNumber(p?.lat) ? p.lat : null) ??
-    (hasNumber(p?.latitude) ? p.latitude : null) ??
-    (hasNumber(p?.birthLat) ? p.birthLat : null) ??
-    (hasNumber(p?.birthLatitude) ? p.birthLatitude : null) ??
+function getBaseUrl() {
+  // Prefer a configured canonical URL for server-side fetches
+  const explicit =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    process.env.APP_URL ||
     null;
 
-  const lon =
-    (hasNumber(p?.lon) ? p.lon : null) ??
-    (hasNumber(p?.longitude) ? p.longitude : null) ??
-    (hasNumber(p?.birthLon) ? p.birthLon : null) ??
-    (hasNumber(p?.birthLongitude) ? p.birthLongitude : null) ??
-    null;
+  if (explicit) return explicit.replace(/\/$/, "");
 
-  return { lat, lon };
+  // Vercel-like env
+  const vercel = process.env.VERCEL_URL;
+  if (vercel) return `https://${vercel}`.replace(/\/$/, "");
+
+  // Local / droplet fallback
+  return "http://127.0.0.1:3000";
 }
 
-async function geocodeCityState(q: string): Promise<{ lat: number; lon: number; display_name?: string } | null> {
+async function geocodeViaApi(q: string): Promise<{ lat: number; lon: number; display_name?: string } | null> {
   const query = q.trim();
   if (!query) return null;
 
-  const url = new URL("https://nominatim.openstreetmap.org/search");
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("q", query);
-  url.searchParams.set("limit", "1");
-  url.searchParams.set("addressdetails", "1");
-
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      "User-Agent": "URA-Geocoder/1.0",
-      "Accept-Language": "en",
-    },
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/api/geocode`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ q: query }),
     cache: "no-store",
   });
 
-  if (!res.ok) return null;
-  const json = (await res.json()) as any[];
-  if (!Array.isArray(json) || json.length === 0) return null;
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) return null;
 
-  const top = json[0];
-  const lat = Number(top.lat);
-  const lon = Number(top.lon);
+  const lat = Number(json.lat);
+  const lon = Number(json.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
-  return { lat, lon, display_name: String(top.display_name || query) };
+  return { lat, lon, display_name: String(json.display_name || query) };
 }
 
 export async function saveProfileEditAction(form: FormData) {
   const user = await requireUser();
 
-  // ✅ Don't select lat/lon fields until we know they exist in schema.
-  // Pull the record and do runtime checks.
   const existing = await prisma.profile.findUnique({
     where: { userId: user.id },
+    select: {
+      id: true,
+      username: true,
+      bio: true,
+      city: true,
+      state: true,
+      timezone: true,
+      birthPlace: true,
+      birthLat: true,
+      birthLon: true,
+      birthYear: true,
+      birthMonth: true,
+      birthDay: true,
+      birthHour: true,
+      birthMinute: true,
+      avatarUrl: true,
+      setupDone: true,
+    },
   });
 
   if (!existing) redirect("/profile?error=missing_profile");
 
-  const username = s(form.get("username")) ?? (existing as any).username ?? null;
-  const timezone = s(form.get("timezone")) ?? (existing as any).timezone ?? "America/New_York";
-  const city = s(form.get("city")) ?? (existing as any).city ?? null;
-  const state = s(form.get("state")) ?? (existing as any).state ?? null;
+  const username = s(form.get("username")) ?? existing.username ?? null;
+  const bio = s(form.get("bio")) ?? existing.bio ?? null;
 
-  const birthYear = n(form.get("birthYear")) ?? (existing as any).birthYear ?? null;
-  const birthMonth = n(form.get("birthMonth")) ?? (existing as any).birthMonth ?? null;
-  const birthDay = n(form.get("birthDay")) ?? (existing as any).birthDay ?? null;
-  const birthHour = n(form.get("birthHour")) ?? (existing as any).birthHour ?? null;
-  const birthMinute = n(form.get("birthMinute")) ?? (existing as any).birthMinute ?? null;
+  const timezone = s(form.get("timezone")) ?? existing.timezone ?? "America/New_York";
 
+  const city = s(form.get("city")) ?? existing.city ?? null;
+  const state = s(form.get("state")) ?? existing.state ?? null;
+
+  // ✅ Birth place label (authoritative input for geocoding + display)
+  const birthPlace = s(form.get("birthPlace")) ?? existing.birthPlace ?? null;
+
+  const birthYear = n(form.get("birthYear")) ?? existing.birthYear ?? null;
+  const birthMonth = n(form.get("birthMonth")) ?? existing.birthMonth ?? null;
+  const birthDay = n(form.get("birthDay")) ?? existing.birthDay ?? null;
+  const birthHour = n(form.get("birthHour")) ?? existing.birthHour ?? null;
+  const birthMinute = n(form.get("birthMinute")) ?? existing.birthMinute ?? null;
+
+  // From client (hidden inputs)
   const formLat = n(form.get("lat"));
   const formLon = n(form.get("lon"));
 
-  const existingCoords = getCoordsFromProfile(existing);
+  // Preserve existing coords unless overwritten
+  let finalLat = hasNum(formLat) ? formLat : (hasNum(existing.birthLat) ? existing.birthLat : null);
+  let finalLon = hasNum(formLon) ? formLon : (hasNum(existing.birthLon) ? existing.birthLon : null);
 
-  // ✅ preserve existing coords unless form provides new coords
-  let finalLat = formLat ?? existingCoords.lat;
-  let finalLon = formLon ?? existingCoords.lon;
-
-  // ✅ server fallback geocode if still missing
+  // If coords still missing, geocode server-side via /api/geocode
   if (finalLat == null || finalLon == null) {
-    const q = [city, state].filter(Boolean).join(", ");
-    const g = await geocodeCityState(q);
+    const q1 = birthPlace?.trim() || "";
+    const q2 = [city, state].filter(Boolean).join(", ");
+
+    const g = (await geocodeViaApi(q1)) ?? (await geocodeViaApi(q2));
     if (g) {
       finalLat = g.lat;
       finalLon = g.lon;
+      // If birthPlace was empty, adopt the resolved label
+      if (!birthPlace && g.display_name) {
+        // keep a short-ish display label (optional)
+        // eslint-disable-next-line no-var
+      }
     }
   }
 
@@ -118,36 +136,34 @@ export async function saveProfileEditAction(form: FormData) {
     redirect("/profile/edit?error=missing_latlon");
   }
 
-  // ✅ Build update payload safely: only include coord fields that exist in your schema record
-  const data: any = {
-    username,
-    timezone,
-    city,
-    state,
-    birthYear,
-    birthMonth,
-    birthDay,
-    birthHour,
-    birthMinute,
-    setupDone: true,
-  };
-
-  // choose where to write coords based on what exists on the record
-  if ("lat" in (existing as any)) data.lat = finalLat;
-  else if ("latitude" in (existing as any)) data.latitude = finalLat;
-  else if ("birthLat" in (existing as any)) data.birthLat = finalLat;
-  else if ("birthLatitude" in (existing as any)) data.birthLatitude = finalLat;
-
-  if ("lon" in (existing as any)) data.lon = finalLon;
-  else if ("longitude" in (existing as any)) data.longitude = finalLon;
-  else if ("birthLon" in (existing as any)) data.birthLon = finalLon;
-  else if ("birthLongitude" in (existing as any)) data.birthLongitude = finalLon;
+  // Avatar: for now we preserve (upload wiring later)
+  const avatarUrl = s(form.get("avatarUrl")) ?? existing.avatarUrl ?? null;
 
   await prisma.profile.update({
-    where: { id: (existing as any).id },
-    data,
+    where: { id: existing.id },
+    data: {
+      username,
+      bio,
+      timezone,
+      city,
+      state,
+
+      birthPlace,
+      birthLat: finalLat,
+      birthLon: finalLon,
+
+      birthYear,
+      birthMonth,
+      birthDay,
+      birthHour,
+      birthMinute,
+
+      avatarUrl,
+      setupDone: true,
+    },
   });
 
+  // rebuild caches (natal + asc-year + lunation)
   try {
     await ensureProfileCaches(user.id);
   } catch (e: any) {
