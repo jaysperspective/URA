@@ -50,6 +50,26 @@ function fmtSignPos(lon: number | null) {
 }
 
 // ------------------------------
+// Asc-Year helpers (0–90 Spring, 90–180 Summer, 180–270 Fall, 270–360 Winter)
+// plus modality segments inside season (0–30 Cardinal, 30–60 Fixed, 60–90 Mutable)
+// ------------------------------
+function seasonFromCyclePos(pos: number) {
+  const p = norm360(pos);
+  if (p < 90) return "Spring";
+  if (p < 180) return "Summer";
+  if (p < 270) return "Fall";
+  return "Winter";
+}
+
+function modalityFromCyclePos(pos: number) {
+  const p = norm360(pos);
+  const withinSeason = p % 90;
+  const idx = Math.floor(withinSeason / 30);
+  const mods = ["Cardinal", "Fixed", "Mutable"] as const;
+  return mods[idx] ?? "Cardinal";
+}
+
+// ------------------------------
 // UI building blocks
 // ------------------------------
 function ProgressBar({
@@ -276,9 +296,7 @@ export default function ProfileClient(props: Props) {
   const progressedMoon = fmtSignPos(progressedMoonLon);
 
   const currentZodiac = useMemo(() => {
-    // “Current Zodiac” should represent the as-of (transiting) Sun if we have it.
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
-    // fallback: progressed Sun is still meaningful if current isn’t available
     if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
     return "—";
   }, [currentSunLon, progressedSunLon]);
@@ -300,32 +318,40 @@ export default function ProfileClient(props: Props) {
   // ------------------------------
   const orientation = useMemo(() => {
     const ok = typeof ascYearCyclePosDeg === "number" && Number.isFinite(ascYearCyclePosDeg);
-
     const cyclePos = ok ? norm360(ascYearCyclePosDeg!) : null;
 
-    // 0–90 Spring / 90–180 Summer / 180–270 Fall / 270–360 Winter
+    // Prefer cached strings, but compute if missing
     const seasonText =
-      typeof ascYearSeason === "string" ? ascYearSeason : ok ? "—" : "—";
+      typeof ascYearSeason === "string" && ascYearSeason
+        ? ascYearSeason
+        : ok && cyclePos != null
+        ? seasonFromCyclePos(cyclePos)
+        : "—";
 
     const modalityText =
-      typeof ascYearModality === "string" ? ascYearModality : ok ? "—" : "—";
+      typeof ascYearModality === "string" && ascYearModality
+        ? ascYearModality
+        : ok && cyclePos != null
+        ? modalityFromCyclePos(cyclePos)
+        : "—";
 
     // 90° season arc progress
-    const withinSeason = ok ? (cyclePos! % 90) : null;
+    const withinSeason = ok && cyclePos != null ? cyclePos % 90 : null;
     const seasonProgress01 = withinSeason != null ? withinSeason / 90 : 0;
 
     // 30° modality segment within season
-    const withinModality = typeof ascYearDegreesIntoModality === "number"
-      ? ascYearDegreesIntoModality
-      : withinSeason != null
-      ? withinSeason % 30
-      : null;
+    const withinModality =
+      typeof ascYearDegreesIntoModality === "number" && Number.isFinite(ascYearDegreesIntoModality)
+        ? ascYearDegreesIntoModality
+        : withinSeason != null
+        ? withinSeason % 30
+        : null;
 
     const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
 
-    // URA 8-phase (45°) derived from Asc-Year cycle position (for microcopy + foundation)
-    const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : (1 as PhaseId);
-    const uraDegIntoPhase = ok ? (cyclePos! % 45) : null;
+    // URA 8-phase (45°) derived from Asc-Year cycle position
+    const uraPhaseId = ok && cyclePos != null ? phaseIdFromCyclePos45(cyclePos) : (1 as PhaseId);
+    const uraDegIntoPhase = ok && cyclePos != null ? cyclePos % 45 : null;
     const uraProgress01 = uraDegIntoPhase != null ? uraDegIntoPhase / 45 : null;
 
     return {
@@ -343,17 +369,17 @@ export default function ProfileClient(props: Props) {
     };
   }, [ascYearCyclePosDeg, ascYearSeason, ascYearModality, ascYearDegreesIntoModality]);
 
-  // Orisha microcopy follows the derived URA phase (from Asc-Year cycle position)
+  // Orisha microcopy follows derived URA phase
   const phaseCopy = useMemo(() => microcopyForPhase(orientation.uraPhaseId), [orientation.uraPhaseId]);
 
-  // Foundation panel “Sun” line should use current as-of Sun (preferred)
+  // Foundation "Sun" line: prefer as-of Sun
   const sunTextForFoundation = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
     if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
     return "—";
   }, [currentSunLon, progressedSunLon]);
 
-  // Sanity check: cyclePos should equal wrap360(asOfSun - natalAsc) like /api/core
+  // Sanity check: cyclePos should be wrap360(asOfSun - natalAsc)
   const ascMathCheck = useMemo(() => {
     if (
       typeof natalAscLon !== "number" ||
@@ -366,11 +392,7 @@ export default function ProfileClient(props: Props) {
     const got = norm360(orientation.cyclePos);
     const diff = Math.abs(expected - got);
     const diffWrapped = Math.min(diff, 360 - diff);
-    return {
-      expected,
-      got,
-      diff: diffWrapped,
-    };
+    return { expected, got, diff: diffWrapped };
   }, [natalAscLon, currentSunLon, orientation.cyclePos]);
 
   return (
@@ -427,8 +449,8 @@ export default function ProfileClient(props: Props) {
 
               {ascMathCheck ? (
                 <div className="mt-2 text-xs text-[#403A32]/70">
-                  ASC math check: expected {ascMathCheck.expected.toFixed(2)}° • got {ascMathCheck.got.toFixed(2)}° • Δ{" "}
-                  {ascMathCheck.diff.toFixed(4)}°
+                  ASC math check: expected {ascMathCheck.expected.toFixed(2)}° • got{" "}
+                  {ascMathCheck.got.toFixed(2)}° • Δ {ascMathCheck.diff.toFixed(4)}°
                 </div>
               ) : null}
             </div>
@@ -452,9 +474,7 @@ export default function ProfileClient(props: Props) {
               </SubCard>
 
               <SubCard title="URA Phase (45° lens)">
-                <div className="text-sm font-semibold text-[#1F1B16]">
-                  Phase {orientation.uraPhaseId}
-                </div>
+                <div className="text-sm font-semibold text-[#1F1B16]">Phase {orientation.uraPhaseId}</div>
                 <div className="mt-1 text-sm text-[#403A32]/75">
                   Derived from Asc-Year cycle position (8×45°).
                 </div>
@@ -522,7 +542,6 @@ export default function ProfileClient(props: Props) {
                 solarProgress01={orientation.uraProgress01}
                 sunText={sunTextForFoundation}
                 ontology={null}
-                asOfLabel={asOfISO ? new Date(asOfISO).toLocaleString() : undefined}
               />
             </div>
 
