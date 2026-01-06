@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
@@ -100,18 +100,10 @@ function CardShell({
   );
 }
 
-function SubCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function SubCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-        {title}
-      </div>
+      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">{title}</div>
       <div className="mt-2">{children}</div>
     </div>
   );
@@ -120,9 +112,7 @@ function SubCard({
 function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="min-w-[92px]">
-      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/70">
-        {k}
-      </div>
+      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/70">{k}</div>
       <div className="mt-1 text-sm text-[#F4EFE6] font-medium">{v}</div>
     </div>
   );
@@ -239,18 +229,12 @@ type Props = {
   movingMoonLon: number | null;
 
   cyclePosDeg: number | null; // Sun-from-ASC (0..360)
-};
 
-type UraContext = {
-  ok: boolean;
-  asOfUTC?: string;
-  astro?: { sunLon: number; moonLon: number };
-  solar?: {
-    phaseId: number;
-    degIntoPhase: number;
-    progress01: number;
-  };
-  ontology?: any;
+  // ✅ Calendar parity props (from /api/calendar via server page)
+  solarPhaseId?: number | null;
+  solarProgress01?: number | null;
+  sunText?: string | null;     // ex: "19° Cap 14'"
+  asOfLabel?: string | null;   // ex: "01/05/2026, 8:14 PM"
 };
 
 export default function ProfileClient(props: Props) {
@@ -265,18 +249,11 @@ export default function ProfileClient(props: Props) {
     movingSunLon,
     movingMoonLon,
     cyclePosDeg,
+    solarPhaseId: solarPhaseIdProp,
+    solarProgress01: solarProgress01Prop,
+    sunText,
+    asOfLabel,
   } = props;
-
-  // ---- URA Foundation context (degree-true Solar Phase + ontology) ----
-  const [uraCtx, setUraCtx] = useState<UraContext | null>(null);
-
-  useEffect(() => {
-    const qs = asOfISO ? `?asOf=${encodeURIComponent(asOfISO)}` : "";
-    fetch(`/api/ura/context${qs}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setUraCtx(j?.ok ? j : null))
-      .catch(() => setUraCtx(null));
-  }, [asOfISO]);
 
   // ---- Existing Asc-Year derived orientation (kept as-is) ----
   const derivedAsc = useMemo(() => {
@@ -353,15 +330,19 @@ export default function ProfileClient(props: Props) {
     };
   }, [cyclePosDeg, asOfISO]);
 
-  // ---- Solar phase (authoritative for ontology) ----
-  const solarPhaseId = uraCtx?.solar?.phaseId ?? null;
-  const solarProgress01 = typeof uraCtx?.solar?.progress01 === "number" ? uraCtx!.solar!.progress01 : null;
+  // ---- Solar phase (authoritative for ontology + foundation) ----
+  const solarPhaseId =
+    typeof solarPhaseIdProp === "number" && solarPhaseIdProp >= 1 && solarPhaseIdProp <= 8
+      ? solarPhaseIdProp
+      : null;
 
-  const solarSunLon = typeof uraCtx?.astro?.sunLon === "number" ? uraCtx!.astro!.sunLon : null;
-  const solarSunText =
-    solarSunLon != null ? `${signFromLon(solarSunLon)} ${fmtLon(solarSunLon)}` : "—";
+  const solarProgress01 =
+    typeof solarProgress01Prop === "number" ? solarProgress01Prop : null;
 
-  // Orisha microcopy should follow SOLAR phase when available, else fall back to Asc-Year phase.
+  // Calendar provides the already-formatted sun string (e.g. "19° Cap 14'")
+  const solarSunText = sunText ?? "—";
+
+  // Orisha microcopy follows SOLAR phase when available, else fall back to Asc-Year phase.
   const phaseCopy = useMemo(() => {
     const p = typeof solarPhaseId === "number" ? solarPhaseId : derivedAsc.phaseIndex;
     if (typeof p === "number" && p >= 1 && p <= 8) return microcopyForPhase(p as PhaseId);
@@ -369,6 +350,9 @@ export default function ProfileClient(props: Props) {
   }, [solarPhaseId, derivedAsc.phaseIndex]);
 
   const asOfLine = useMemo(() => {
+    // Prefer the calendar’s local timestamp label when available (parity with /calendar)
+    if (asOfLabel) return `${timezone} • ${asOfLabel}`;
+
     if (!asOfISO) return timezone;
     const d = new Date(asOfISO);
     return `${timezone} • ${d.toLocaleString(undefined, {
@@ -378,7 +362,7 @@ export default function ProfileClient(props: Props) {
       hour: "2-digit",
       minute: "2-digit",
     })}`;
-  }, [asOfISO, timezone]);
+  }, [asOfISO, timezone, asOfLabel]);
 
   const natalAsc = natalAscLon != null ? `${signFromLon(natalAscLon)} ${fmtLon(natalAscLon)}` : "—";
   const natalSun = natalSunLon != null ? `${signFromLon(natalSunLon)} ${fmtLon(natalSunLon)}` : "—";
@@ -387,8 +371,8 @@ export default function ProfileClient(props: Props) {
   const movingSun = movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
   const movingMoon = movingMoonLon != null ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}` : "—";
 
-  // “Current Zodiac” should be the Solar Sun when available (authoritative).
-  const currentZodiac = solarSunLon != null ? `${signFromLon(solarSunLon)} ${fmtLon(solarSunLon)}` : movingSun;
+  // “Current Zodiac” should mirror Calendar: use sunText (from /api/calendar) when available.
+  const currentZodiac = (sunText && sunText !== "—") ? sunText : movingSun;
 
   const phaseBrief = useMemo(() => {
     const p = typeof solarPhaseId === "number" ? solarPhaseId : derivedAsc.phaseIndex;
@@ -405,16 +389,8 @@ export default function ProfileClient(props: Props) {
 
     const seasonShort = derivedAsc.seasonShort;
     const phase = p;
-    const phaseDeg = typeof uraCtx?.solar?.degIntoPhase === "number"
-      ? uraCtx!.solar!.degIntoPhase
-      : derivedAsc.phaseDeg ?? 0;
-
-    const remaining = derivedAsc.remainingDeg ?? 0;
-    const day = derivedAsc.seasonDay ?? 1;
 
     const frame = `You are in ${seasonShort} — Phase ${phase}.`;
-    const mechanics = `Degrees into phase: ${phaseDeg.toFixed(2)}° / 45°`;
-    const seasonArc = `Season arc: Day ${day}/90 (${(derivedAsc.seasonDeg ?? 0).toFixed(2)}° / 90°).`;
     const zodiac = `Current Zodiac (Sun): ${currentZodiac}.`;
 
     const intent =
@@ -430,14 +406,14 @@ export default function ProfileClient(props: Props) {
       "LLM Prompt (server):",
       `Return a concise interpretation for ${seasonShort} Phase ${phase} using URA ontology.`,
       `Include: (1) Orientation, (2) Focus, (3) Watch-outs, (4) One practical next step.`,
-      `Use numeric context: solarPhase=${solarPhaseId ?? "—"}, ascCyclePosDeg=${cyclePosDeg?.toFixed(2) ?? "—"}, phaseDeg=${phaseDeg.toFixed(2)}, seasonDay=${day}, currentZodiac="${currentZodiac}".`,
+      `Use numeric context: solarPhase=${solarPhaseId ?? "—"}, ascCyclePosDeg=${cyclePosDeg?.toFixed(2) ?? "—"}, currentZodiac="${currentZodiac}".`,
     ];
 
     return {
       title: "Phase Brief (Ontology + LLM-ready)",
-      lines: [frame, mechanics, seasonArc, zodiac, intent, "", ...prompts],
+      lines: [frame, zodiac, intent, "", ...prompts],
     };
-  }, [derivedAsc, currentZodiac, cyclePosDeg, solarPhaseId, uraCtx, solarPhaseId]);
+  }, [derivedAsc, currentZodiac, cyclePosDeg, solarPhaseId]);
 
   return (
     <div className="mt-8">
@@ -492,8 +468,8 @@ export default function ProfileClient(props: Props) {
               </div>
 
               <div className="mt-2 text-sm text-[#403A32]/75">
-                {typeof uraCtx?.solar?.degIntoPhase === "number"
-                  ? `Degrees into phase: ${uraCtx.solar.degIntoPhase.toFixed(2)}° / 45° (Solar)`
+                {typeof solarProgress01 === "number"
+                  ? `Solar phase progress: ${(solarProgress01 * 100).toFixed(0)}% (45° segment)`
                   : derivedAsc.ok && derivedAsc.phaseDeg != null
                   ? `Degrees into phase: ${derivedAsc.phaseDeg.toFixed(2)}° / 45° (Asc-Year)`
                   : "Cycle position unavailable."}
@@ -504,9 +480,7 @@ export default function ProfileClient(props: Props) {
             <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac">
                 <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
-                <div className="mt-1 text-sm text-[#403A32]/75">
-                  Uses Solar Sun when available (degree-true).
-                </div>
+                <div className="mt-1 text-sm text-[#403A32]/75">Matches the Calendar Sun position when available.</div>
               </SubCard>
 
               <SubCard title="Shift">
@@ -561,16 +535,10 @@ export default function ProfileClient(props: Props) {
                 <ProgressBar
                   value={derivedAsc.ok ? 1 - derivedAsc.phaseProgress : 0}
                   labelLeft={
-                    derivedAsc.ok && derivedAsc.remainingDeg != null
-                      ? `${derivedAsc.remainingDeg.toFixed(2)}°`
-                      : "—"
+                    derivedAsc.ok && derivedAsc.remainingDeg != null ? `${derivedAsc.remainingDeg.toFixed(2)}°` : "—"
                   }
                   labelRight="0°"
-                  meta={
-                    derivedAsc.ok && derivedAsc.daysToBoundary != null
-                      ? `~${derivedAsc.daysToBoundary.toFixed(1)} days`
-                      : "—"
-                  }
+                  meta={derivedAsc.ok && derivedAsc.daysToBoundary != null ? `~${derivedAsc.daysToBoundary.toFixed(1)} days` : "—"}
                 />
               </div>
             </div>
@@ -586,17 +554,18 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* NEW: URA FOUNDATION PANEL (Solar Phase → Orisha → Planet) */}
+            {/* ✅ CALENDAR-PARITY: URA FOUNDATION PANEL */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={solarPhaseId}
                 solarProgress01={solarProgress01}
                 sunText={solarSunText}
-                ontology={uraCtx?.ontology ?? null}
+                ontology={null}
+                asOfLabel={asOfLabel ?? undefined}
               />
             </div>
 
-            {/* ORISHA PHASE MODULE (kept) — now keyed to Solar Phase when available */}
+            {/* ✅ CALENDAR-PARITY: ORISHA PHASE MODULE (Solar URA) */}
             <div className="mt-4">
               <PhaseMicrocopyCard
                 copy={phaseCopy}
@@ -649,4 +618,3 @@ export default function ProfileClient(props: Props) {
     </div>
   );
 }
-
