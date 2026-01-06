@@ -75,7 +75,7 @@ async function fetchAstroNatal(birth: BirthPayload) {
 async function fetchAscYearSafe(payload: unknown) {
   const base = process.env.APP_BASE_URL;
   if (!base) {
-    return { ok: false, error: "APP_BASE_URL is missing." as const };
+    return { ok: false, error: "APP_BASE_URL is missing." };
   }
 
   try {
@@ -90,7 +90,7 @@ async function fetchAscYearSafe(payload: unknown) {
       const text = await r.text().catch(() => "");
       return {
         ok: false,
-        error: `/api/asc-year failed: ${r.status}` as const,
+        error: `/api/asc-year failed: ${r.status}`,
         status: r.status,
         body: text.slice(0, 300),
       };
@@ -99,14 +99,15 @@ async function fetchAscYearSafe(payload: unknown) {
     const json = await r.json().catch(() => null);
     return { ok: true, data: json };
   } catch (err: any) {
-    return { ok: false, error: (err?.message || "asc-year fetch error") as const };
+    const msg: string = err?.message || "asc-year fetch error";
+    return { ok: false, error: msg };
   }
 }
 
 async function fetchLunationSafe(payload: unknown) {
   const base = process.env.APP_BASE_URL;
   if (!base) {
-    return { ok: false, error: "APP_BASE_URL is missing." as const };
+    return { ok: false, error: "APP_BASE_URL is missing." };
   }
 
   try {
@@ -121,7 +122,7 @@ async function fetchLunationSafe(payload: unknown) {
       const text = await r.text().catch(() => "");
       return {
         ok: false,
-        error: `/api/lunation failed: ${r.status}` as const,
+        error: `/api/lunation failed: ${r.status}`,
         status: r.status,
         body: text.slice(0, 300),
       };
@@ -130,7 +131,8 @@ async function fetchLunationSafe(payload: unknown) {
     const json = await r.json().catch(() => null);
     return { ok: true, data: json };
   } catch (err: any) {
-    return { ok: false, error: (err?.message || "lunation fetch error") as const };
+    const msg: string = err?.message || "lunation fetch error";
+    return { ok: false, error: msg };
   }
 }
 
@@ -239,17 +241,20 @@ export async function ensureProfileCaches(userId: number) {
       asOfDate: todayKey,
     };
 
-    const [ascRes, lunaRes] = await Promise.all([fetchAscYearSafe(payload), fetchLunationSafe(payload)]);
+    const [ascRes, lunaRes] = await Promise.all([
+      fetchAscYearSafe(payload),
+      fetchLunationSafe(payload),
+    ]);
 
-    if (ascRes.ok) {
-      ascYearJson = ascRes.data as unknown as Prisma.InputJsonValue;
+    if ((ascRes as any).ok) {
+      ascYearJson = (ascRes as any).data as unknown as Prisma.InputJsonValue;
       didDailyUpdate = true;
     } else {
       console.warn("[ensureProfileCaches] asc-year skipped:", ascRes);
     }
 
-    if (lunaRes.ok) {
-      lunationJson = lunaRes.data as unknown as Prisma.InputJsonValue;
+    if ((lunaRes as any).ok) {
+      lunationJson = (lunaRes as any).data as unknown as Prisma.InputJsonValue;
       didDailyUpdate = true;
     } else {
       console.warn("[ensureProfileCaches] lunation skipped:", lunaRes);
