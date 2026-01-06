@@ -4,7 +4,8 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/requireUser";
 import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
-import { prisma } from "@/lib/db/prisma";
+import { prisma } from "@/lib/prisma";
+
 
 function n(v: FormDataEntryValue | null) {
   if (v == null) return null;
