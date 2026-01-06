@@ -80,7 +80,7 @@ function safeNum(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// ✅ handles number OR { lon: number }
+// handles number OR { lon: number }
 function safeLon(v: any): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (v && typeof v === "object" && typeof v.lon === "number" && Number.isFinite(v.lon)) return v.lon;
@@ -98,7 +98,6 @@ function pickName(user: any, profile: any) {
 function getNatalSources(natal: any) {
   const planets = natal?.data?.planets ?? natal?.planets ?? null;
 
-  // ✅ broaden ASC extraction (sometimes stored as object)
   const asc =
     natal?.data?.ascendant ??
     natal?.data?.angles?.asc ??
@@ -113,35 +112,104 @@ function getNatalSources(natal: any) {
   return { planets, asc };
 }
 
-// ✅ robust progressed lon extraction from lunation json (multiple fallbacks)
-function getProgressedFromLunation(lunation: any) {
+// REAL lunation contract (from your successful curl):
+// {
+//   ok: true,
+//   summary: { asOf: { sun: 285.66 }, ... },
+//   lunation: { progressedSunLon, progressedMoonLon, ... }
+// }
+function getProgressedFromLunationJson(lunationJson: any) {
   const pSun =
-    safeLon(lunation?.sep?.progressedSunLon) ??
-    safeLon(lunation?.sep?.sunLon) ??
-    safeLon(lunation?.secondaryProgressions?.sunLon) ??
-    safeLon(lunation?.secondaryProgressions?.progressedSunLon) ??
-    safeLon(lunation?.progressed?.sunLon) ??
-    safeLon(lunation?.progressedSunLon) ??
-    safeLon(lunation?.data?.sep?.progressedSunLon) ??
-    safeLon(lunation?.data?.sep?.sunLon) ??
-    safeLon(lunation?.data?.secondaryProgressions?.sunLon) ??
-    safeLon(lunation?.data?.progressed?.sunLon) ??
+    safeLon(lunationJson?.lunation?.progressedSunLon) ??
+    safeLon(lunationJson?.lunation?.progressed?.sunLon) ??
     null;
 
   const pMoon =
-    safeLon(lunation?.sep?.progressedMoonLon) ??
-    safeLon(lunation?.sep?.moonLon) ??
-    safeLon(lunation?.secondaryProgressions?.moonLon) ??
-    safeLon(lunation?.secondaryProgressions?.progressedMoonLon) ??
-    safeLon(lunation?.progressed?.moonLon) ??
-    safeLon(lunation?.progressedMoonLon) ??
-    safeLon(lunation?.data?.sep?.progressedMoonLon) ??
-    safeLon(lunation?.data?.sep?.moonLon) ??
-    safeLon(lunation?.data?.secondaryProgressions?.moonLon) ??
-    safeLon(lunation?.data?.progressed?.moonLon) ??
+    safeLon(lunationJson?.lunation?.progressedMoonLon) ??
+    safeLon(lunationJson?.lunation?.progressed?.moonLon) ??
     null;
 
   return { progressedSunLon: pSun, progressedMoonLon: pMoon };
+}
+
+function getCurrentSunFromSummary(lunationJson: any) {
+  return safeNum(lunationJson?.summary?.asOf?.sun);
+}
+
+// Asc-Year extraction (prefer ascYearJson; fallback to lunationJson.summary)
+function getAscYearFromCaches(ascYearJson: any, lunationJson: any) {
+  // candidate objects that might contain asc-year fields
+  const candidates = [
+    ascYearJson?.derived?.ascYear,
+    ascYearJson?.ascYear,
+    ascYearJson,
+    lunationJson?.core?.derived?.ascYear,
+    lunationJson?.summary, // has ascYearLabel, ascYearCyclePos, ascYearDegreesInto
+  ].filter(Boolean);
+
+  // cycle position
+  const cyclePos =
+    safeNum(ascYearJson?.derived?.ascYear?.cyclePosition) ??
+    safeNum(ascYearJson?.ascYear?.cyclePosition) ??
+    safeNum(ascYearJson?.cyclePosition) ??
+    safeNum(ascYearJson?.ascYear?.cyclePositionDeg) ??
+    safeNum(ascYearJson?.cyclePositionDeg) ??
+    safeNum(lunationJson?.summary?.ascYearCyclePos) ??
+    null;
+
+  // degrees into modality (0..30)
+  const degIntoModality =
+    safeNum(ascYearJson?.derived?.ascYear?.degreesIntoModality) ??
+    safeNum(ascYearJson?.ascYear?.degreesIntoModality) ??
+    safeNum(ascYearJson?.degreesIntoModality) ??
+    safeNum(lunationJson?.summary?.ascYearDegreesInto) ??
+    null;
+
+  // season + modality
+  // If ascYearJson has explicit fields, use those; else parse summary.ascYearLabel = "Spring · Mutable"
+  let season: string | null =
+    (typeof ascYearJson?.derived?.ascYear?.season === "string" ? ascYearJson.derived.ascYear.season : null) ??
+    (typeof ascYearJson?.ascYear?.season === "string" ? ascYearJson.ascYear.season : null) ??
+    (typeof ascYearJson?.season === "string" ? ascYearJson.season : null) ??
+    null;
+
+  let modality: string | null =
+    (typeof ascYearJson?.derived?.ascYear?.modality === "string" ? ascYearJson.derived.ascYear.modality : null) ??
+    (typeof ascYearJson?.ascYear?.modality === "string" ? ascYearJson.ascYear.modality : null) ??
+    (typeof ascYearJson?.modality === "string" ? ascYearJson.modality : null) ??
+    null;
+
+  const label = typeof lunationJson?.summary?.ascYearLabel === "string" ? lunationJson.summary.ascYearLabel : null;
+  if ((!season || !modality) && label && label.includes("·")) {
+    const parts = label.split("·").map((s: string) => s.trim());
+    if (!season && parts[0]) season = parts[0];
+    if (!modality && parts[1]) modality = parts[1];
+  }
+
+  // last resort: attempt from candidates
+  if (!season) {
+    for (const c of candidates) {
+      if (typeof c?.season === "string") {
+        season = c.season;
+        break;
+      }
+    }
+  }
+  if (!modality) {
+    for (const c of candidates) {
+      if (typeof c?.modality === "string") {
+        modality = c.modality;
+        break;
+      }
+    }
+  }
+
+  return {
+    ascYearCyclePosDeg: cyclePos,
+    ascYearSeason: season,
+    ascYearModality: modality,
+    ascYearDegreesIntoModality: degIntoModality,
+  };
 }
 
 export default async function ProfilePage() {
@@ -201,7 +269,10 @@ export default async function ProfilePage() {
               boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
             }}
           >
-            <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+            <div
+              className="text-[11px] tracking-[0.18em] uppercase"
+              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+            >
               Setup
             </div>
             <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
@@ -226,8 +297,8 @@ export default async function ProfilePage() {
   const locationLine = [profile.city, profile.state].filter(Boolean).join(", ") || tz;
 
   const natal = profile.natalChartJson as any;
-  const ascYear = profile.ascYearJson as any;
-  const lunation = profile.lunationJson as any;
+  const ascYearJson = profile.ascYearJson as any;
+  const lunationJson = profile.lunationJson as any;
 
   const { planets, asc } = getNatalSources(natal);
 
@@ -235,15 +306,15 @@ export default async function ProfilePage() {
   const natalMoonLon = safeLon(planets?.moon?.lon ?? planets?.moon);
   const natalAscLon = safeLon(asc);
 
-  // Asc-Year cycle position (authoritative for orientation)
-  const cyclePos =
-    safeNum(ascYear?.ascYear?.cyclePositionDeg) ??
-    safeNum(ascYear?.ascYear?.cyclePosition) ??
-    safeNum(ascYear?.cyclePositionDeg) ??
-    safeNum(ascYear?.cyclePosition);
+  // Current Sun for "Current Zodiac" (use summary.asOf.sun, from your proven response)
+  const currentSunLon = getCurrentSunFromSummary(lunationJson);
 
-  // ✅ Progressed Sun/Moon should drive the “moving” slots on Profile
-  const { progressedSunLon, progressedMoonLon } = getProgressedFromLunation(lunation);
+  // Progressed Sun/Moon for the progressed chips
+  const { progressedSunLon, progressedMoonLon } = getProgressedFromLunationJson(lunationJson);
+
+  // Asc-Year (authoritative orientation)
+  const { ascYearCyclePosDeg, ascYearSeason, ascYearModality, ascYearDegreesIntoModality } =
+    getAscYearFromCaches(ascYearJson, lunationJson);
 
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
   const name = pickName(user, profile);
@@ -286,10 +357,13 @@ export default async function ProfilePage() {
           natalAscLon={natalAscLon}
           natalSunLon={natalSunLon}
           natalMoonLon={natalMoonLon}
-          // ✅ feed progressed as the “moving” values
-          movingSunLon={progressedSunLon}
-          movingMoonLon={progressedMoonLon}
-          cyclePosDeg={cyclePos}
+          currentSunLon={currentSunLon}
+          progressedSunLon={progressedSunLon}
+          progressedMoonLon={progressedMoonLon}
+          ascYearCyclePosDeg={ascYearCyclePosDeg}
+          ascYearSeason={ascYearSeason}
+          ascYearModality={ascYearModality}
+          ascYearDegreesIntoModality={ascYearDegreesIntoModality}
         />
       </div>
     </div>
