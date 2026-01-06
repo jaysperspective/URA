@@ -3,6 +3,7 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth/requireUser";
 import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 
@@ -60,26 +61,6 @@ async function geocodeViaApi(q: string): Promise<{ lat: number; lon: number; dis
   return { lat, lon, display_name: String(json.display_name || query) };
 }
 
-function isSetupComplete(p: {
-  birthYear: number | null;
-  birthMonth: number | null;
-  birthDay: number | null;
-  birthHour: number | null;
-  birthMinute: number | null;
-  birthLat: number | null;
-  birthLon: number | null;
-}) {
-  return (
-    typeof p.birthYear === "number" &&
-    typeof p.birthMonth === "number" &&
-    typeof p.birthDay === "number" &&
-    typeof p.birthHour === "number" &&
-    typeof p.birthMinute === "number" &&
-    typeof p.birthLat === "number" &&
-    typeof p.birthLon === "number"
-  );
-}
-
 export async function saveProfileEditAction(form: FormData) {
   const user = await requireUser();
 
@@ -92,17 +73,14 @@ export async function saveProfileEditAction(form: FormData) {
       city: true,
       state: true,
       timezone: true,
-
       birthPlace: true,
       birthLat: true,
       birthLon: true,
-
       birthYear: true,
       birthMonth: true,
       birthDay: true,
       birthHour: true,
       birthMinute: true,
-
       avatarUrl: true,
       setupDone: true,
     },
@@ -112,13 +90,12 @@ export async function saveProfileEditAction(form: FormData) {
 
   const username = s(form.get("username")) ?? existing.username ?? null;
   const bio = s(form.get("bio")) ?? existing.bio ?? null;
-
   const timezone = s(form.get("timezone")) ?? existing.timezone ?? "America/New_York";
 
   const city = s(form.get("city")) ?? existing.city ?? null;
   const state = s(form.get("state")) ?? existing.state ?? null;
 
-  // ✅ Birth place label (authoritative input for geocoding + display)
+  // ✅ birthPlace is the display label AND the best geocode query
   let birthPlace = s(form.get("birthPlace")) ?? existing.birthPlace ?? null;
 
   const birthYear = n(form.get("birthYear")) ?? existing.birthYear ?? null;
@@ -127,15 +104,13 @@ export async function saveProfileEditAction(form: FormData) {
   const birthHour = n(form.get("birthHour")) ?? existing.birthHour ?? null;
   const birthMinute = n(form.get("birthMinute")) ?? existing.birthMinute ?? null;
 
-  // From client (hidden inputs)
   const formLat = n(form.get("lat"));
   const formLon = n(form.get("lon"));
 
-  // Preserve existing coords unless overwritten
-  let finalLat = hasNum(formLat) ? formLat : hasNum(existing.birthLat) ? existing.birthLat : null;
-  let finalLon = hasNum(formLon) ? formLon : hasNum(existing.birthLon) ? existing.birthLon : null;
+  let finalLat = hasNum(formLat) ? formLat : (hasNum(existing.birthLat) ? existing.birthLat : null);
+  let finalLon = hasNum(formLon) ? formLon : (hasNum(existing.birthLon) ? existing.birthLon : null);
 
-  // If coords still missing, geocode server-side via /api/geocode
+  // If coords missing, geocode server-side
   if (finalLat == null || finalLon == null) {
     const q1 = birthPlace?.trim() || "";
     const q2 = [city, state].filter(Boolean).join(", ");
@@ -144,30 +119,22 @@ export async function saveProfileEditAction(form: FormData) {
     if (g) {
       finalLat = g.lat;
       finalLon = g.lon;
-
-      // ✅ adopt display label if birthPlace was empty
       if (!birthPlace && g.display_name) birthPlace = g.display_name;
     }
   }
 
-  // If still missing, bounce back to edit
-  if (finalLat == null || finalLon == null) {
-    redirect("/profile/edit?error=missing_latlon");
-  }
-
-  // Avatar: preserve for now (upload wiring later)
+  // Avatar: preserve for now (upload later)
   const avatarUrl = s(form.get("avatarUrl")) ?? existing.avatarUrl ?? null;
 
-  // ✅ only set setupDone when we actually have everything needed
-  const nextSetupDone = isSetupComplete({
-    birthYear,
-    birthMonth,
-    birthDay,
-    birthHour,
-    birthMinute,
-    birthLat: finalLat,
-    birthLon: finalLon,
-  });
+  // Decide setupDone: only true when the full birth payload exists
+  const nextSetupDone =
+    typeof birthYear === "number" &&
+    typeof birthMonth === "number" &&
+    typeof birthDay === "number" &&
+    typeof birthHour === "number" &&
+    typeof birthMinute === "number" &&
+    typeof finalLat === "number" &&
+    typeof finalLon === "number";
 
   await prisma.profile.update({
     where: { id: existing.id },
@@ -177,10 +144,10 @@ export async function saveProfileEditAction(form: FormData) {
       timezone,
       city,
       state,
-
       birthPlace,
-      birthLat: finalLat,
-      birthLon: finalLon,
+
+      birthLat: finalLat ?? null,
+      birthLon: finalLon ?? null,
 
       birthYear,
       birthMonth,
@@ -189,11 +156,20 @@ export async function saveProfileEditAction(form: FormData) {
       birthMinute,
 
       avatarUrl,
+
+      // ✅ Clear caches so the corrected UTC natal rebuilds
+      natalChartJson: Prisma.DbNull,
+      ascYearJson: Prisma.DbNull,
+      lunationJson: Prisma.DbNull,
+      asOfDate: null,
+      dailyUpdatedAt: null,
+      natalUpdatedAt: null,
+
       setupDone: nextSetupDone,
     },
   });
 
-  // rebuild caches (natal + asc-year + lunation)
+  // Rebuild caches (will now compute natal correctly)
   try {
     await ensureProfileCaches(user.id);
   } catch (e: any) {
