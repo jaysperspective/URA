@@ -64,7 +64,7 @@ function ActionPill({ children }: { children: React.ReactNode }) {
         className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
         style={{
           background:
-            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
+            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
         }}
       />
       <span className="relative">{children}</span>
@@ -72,11 +72,7 @@ function ActionPill({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default async function ProfileEditPage({
-  searchParams,
-}: {
-  searchParams?: { error?: string };
-}) {
+export default async function EditProfilePage() {
   const user = await requireUser();
   const profile = await ensureProfileCaches(user.id);
 
@@ -86,7 +82,7 @@ export default async function ProfileEditPage({
   if (!profile) {
     return (
       <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto w-full max-w-5xl">
           <div
             className="rounded-3xl border p-6"
             style={{
@@ -98,25 +94,23 @@ export default async function ProfileEditPage({
             <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
               No profile found.
             </div>
-            <div className="mt-5">
-              <Link href="/calendar">
-                <ActionPill>Back to Calendar</ActionPill>
-              </Link>
-            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  const tz = profile.timezone ?? "America/New_York";
-  const locationLine = [profile.city, profile.state].filter(Boolean).join(", ") || tz;
-
-  const err = searchParams?.error ? decodeURIComponent(String(searchParams.error)) : null;
+  // Prefer the explicit birthPlace label if it exists (it’s what you want to geocode from).
+  const locationLine =
+    profile.birthPlace?.trim() ||
+    [profile.city, profile.state].filter(Boolean).join(", ") ||
+    profile.timezone ||
+    "America/New_York";
 
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
       <div className="mx-auto w-full max-w-5xl">
+        {/* Header + Nav (Calendar-style) */}
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-baseline justify-between md:block">
             <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
@@ -131,34 +125,29 @@ export default async function ProfileEditPage({
             {NAV.map((n) => (
               <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
             ))}
-            <Link href="/profile">
+
+            <Link href="/profile" aria-label="Back to profile">
               <ActionPill>Back</ActionPill>
             </Link>
           </div>
         </div>
 
-        {err ? (
-          <div
-            className="mb-4 rounded-2xl border px-5 py-3 text-sm"
-            style={{
-              borderColor: "rgba(120,20,20,0.25)",
-              background: "rgba(255,235,235,0.65)",
-              color: "rgba(120,20,20,0.85)",
-            }}
-          >
-            {err}
-          </div>
-        ) : null}
-
+        {/* Client Form */}
         <EditProfileClient
           initial={{
             username: profile.username ?? "",
-            timezone: tz,
+            bio: profile.bio ?? "",
+            timezone: profile.timezone ?? "America/New_York",
+
+            // display/edit helpers
             city: profile.city ?? "",
             state: profile.state ?? "",
+            birthPlace: profile.birthPlace ?? locationLine,
             locationLine,
-            lat: profile.lat ?? null,
-            lon: profile.lon ?? null,
+
+            // ✅ schema fields
+            lat: profile.birthLat ?? null,
+            lon: profile.birthLon ?? null,
 
             birthYear: profile.birthYear ?? null,
             birthMonth: profile.birthMonth ?? null,
@@ -166,7 +155,7 @@ export default async function ProfileEditPage({
             birthHour: profile.birthHour ?? null,
             birthMinute: profile.birthMinute ?? null,
 
-            avatarUrl: (profile as any).avatarUrl ?? null,
+            avatarUrl: profile.avatarUrl ?? null,
           }}
         />
       </div>
