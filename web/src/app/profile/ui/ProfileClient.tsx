@@ -100,10 +100,18 @@ function CardShell({
   );
 }
 
-function SubCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SubCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">{title}</div>
+      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+        {title}
+      </div>
       <div className="mt-2">{children}</div>
     </div>
   );
@@ -112,7 +120,9 @@ function SubCard({ title, children }: { title: string; children: React.ReactNode
 function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="min-w-[92px]">
-      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/70">{k}</div>
+      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/70">
+        {k}
+      </div>
       <div className="mt-1 text-sm text-[#F4EFE6] font-medium">{v}</div>
     </div>
   );
@@ -136,9 +146,11 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const pos = norm360(cyclePosDeg);
   const t = (pos / 360) * Math.PI * 2;
 
+  // Sideways ∞ curve
   const a = 290; // x radius
   const b = 95; // y radius
 
+  // Curve: x = sin(t), y = sin(2t)  (scaled)
   const X = (tt: number) => cx + a * Math.sin(tt);
   const Y = (tt: number) => cy - b * Math.sin(2 * tt);
 
@@ -162,6 +174,7 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
     fontWeight: 700,
   };
 
+  // Fixed label positions (not on the curve)
   const labelFixed = [
     { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
     { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
@@ -181,8 +194,22 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
 
         <div className="mt-4 overflow-x-auto">
           <svg width={size} height={H} className="block">
-            <line x1={0} y1={cy} x2={size} y2={cy} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
-            <line x1={cx} y1={0} x2={cx} y2={H} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
+            <line
+              x1={0}
+              y1={cy}
+              x2={size}
+              y2={cy}
+              stroke="rgba(0,0,0,0.10)"
+              strokeWidth="1"
+            />
+            <line
+              x1={cx}
+              y1={0}
+              x2={cx}
+              y2={H}
+              stroke="rgba(0,0,0,0.10)"
+              strokeWidth="1"
+            />
 
             <path
               d={pathD}
@@ -197,7 +224,13 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
             <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
 
             {labelFixed.map((l) => (
-              <text key={l.txt} x={l.x} y={l.y} textAnchor={l.anchor} style={labelStyle}>
+              <text
+                key={l.txt}
+                x={l.x}
+                y={l.y}
+                textAnchor={l.anchor}
+                style={labelStyle}
+              >
                 {l.txt}
               </text>
             ))}
@@ -222,10 +255,12 @@ type Props = {
   natalSunLon: number | null;
   natalMoonLon: number | null;
 
+  // ✅ These now represent PROGRESSED Sun/Moon (fed by page.tsx)
   movingSunLon: number | null;
   movingMoonLon: number | null;
 
-  cyclePosDeg: number | null; // Asc-Year (0..360)
+  // Asc-Year (0..360)
+  cyclePosDeg: number | null;
 };
 
 export default function ProfileClient(props: Props) {
@@ -237,8 +272,8 @@ export default function ProfileClient(props: Props) {
     natalAscLon,
     natalSunLon,
     natalMoonLon,
-    movingSunLon,
-    movingMoonLon,
+    movingSunLon, // progressed sun
+    movingMoonLon, // progressed moon
     cyclePosDeg,
   } = props;
 
@@ -279,7 +314,10 @@ export default function ProfileClient(props: Props) {
     const seasonDeg = cycle - seasonStart;
     const seasonProgress = seasonDeg / 90;
 
-    const seasonDay = Math.max(1, Math.min(90, Math.floor(seasonProgress * 90) + 1));
+    const seasonDay = Math.max(
+      1,
+      Math.min(90, Math.floor(seasonProgress * 90) + 1)
+    );
 
     const nextPhaseId = phaseId === 8 ? 1 : phaseId + 1;
     const nextSeason = SEASONS[Math.floor((nextPhaseId - 1) / 2)];
@@ -293,7 +331,9 @@ export default function ProfileClient(props: Props) {
     const asOf = asOfISO ? new Date(asOfISO) : new Date();
     const shiftAt = new Date(asOf.getTime() + daysToBoundary * 86400000);
 
-    const shiftText = `~${daysToBoundary.toFixed(1)} days • ${shiftAt.toLocaleString(undefined, {
+    const shiftText = `~${daysToBoundary.toFixed(
+      1
+    )} days • ${shiftAt.toLocaleString(undefined, {
       month: "2-digit",
       day: "2-digit",
       year: "numeric",
@@ -338,20 +378,25 @@ export default function ProfileClient(props: Props) {
     })}`;
   }, [asOfISO, timezone]);
 
-  const natalAsc = natalAscLon != null ? `${signFromLon(natalAscLon)} ${fmtLon(natalAscLon)}` : "—";
-  const natalSun = natalSunLon != null ? `${signFromLon(natalSunLon)} ${fmtLon(natalSunLon)}` : "—";
-  const natalMoon = natalMoonLon != null ? `${signFromLon(natalMoonLon)} ${fmtLon(natalMoonLon)}` : "—";
+  const natalAsc =
+    natalAscLon != null ? `${signFromLon(natalAscLon)} ${fmtLon(natalAscLon)}` : "—";
+  const natalSun =
+    natalSunLon != null ? `${signFromLon(natalSunLon)} ${fmtLon(natalSunLon)}` : "—";
+  const natalMoon =
+    natalMoonLon != null ? `${signFromLon(natalMoonLon)} ${fmtLon(natalMoonLon)}` : "—";
 
-  const movingSun = movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
-  const movingMoon = movingMoonLon != null ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}` : "—";
+  const progressedSun =
+    movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
+  const progressedMoon =
+    movingMoonLon != null ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}` : "—";
 
-  // For Profile, “Current Zodiac” should be Asc-Year’s moving sun (if present), else fallback.
-  const currentZodiac = movingSun;
+  // ✅ “Current Zodiac” for Profile = Progressed Sun
+  const currentZodiac = progressedSun;
 
-  // URAFoundationPanel should be fed Asc-Year values
+  // URAFoundationPanel should be fed Asc-Year values, and Sun text should show progressed Sun.
   const foundationPhaseId = asc.phaseId;
   const foundationProgress01 = asc.ok ? asc.phaseProgress : null;
-  const foundationSunText = movingSun;
+  const foundationSunText = progressedSun;
 
   const phaseBrief = useMemo(() => {
     const p = asc.phaseId;
@@ -371,7 +416,7 @@ export default function ProfileClient(props: Props) {
     const seasonArc = `Season arc: Day ${asc.seasonDay ?? "—"}/90 (${(asc.seasonDeg ?? 0).toFixed(
       2
     )}° / 90°).`;
-    const zodiac = `Current Zodiac (Sun moving): ${currentZodiac}.`;
+    const zodiac = `Current Zodiac (Progressed Sun): ${currentZodiac}.`;
 
     const intent =
       p <= 2
@@ -388,7 +433,7 @@ export default function ProfileClient(props: Props) {
       `Include: (1) Orientation, (2) Focus, (3) Watch-outs, (4) One practical next step.`,
       `Use numeric context: ascCyclePosDeg=${cyclePosDeg?.toFixed(2) ?? "—"}, phaseDeg=${(
         asc.phaseDeg ?? 0
-      ).toFixed(2)}, seasonDay=${asc.seasonDay ?? "—"}, currentZodiac="${currentZodiac}".`,
+      ).toFixed(2)}, seasonDay=${asc.seasonDay ?? "—"}, progressedSun="${currentZodiac}".`,
     ];
 
     return {
@@ -409,7 +454,9 @@ export default function ProfileClient(props: Props) {
 
             <div>
               <div className="text-[#F4EFE6]/80 text-sm">Profile</div>
-              <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">{name}</div>
+              <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">
+                {name}
+              </div>
               <div className="text-[#F4EFE6]/65 text-sm">{locationLine}</div>
             </div>
           </div>
@@ -418,8 +465,8 @@ export default function ProfileClient(props: Props) {
             <Chip k="ASC (Natal)" v={natalAsc} />
             <Chip k="Sun (Natal)" v={natalSun} />
             <Chip k="Moon (Natal)" v={natalMoon} />
-            <Chip k="Sun (Moving)" v={movingSun} />
-            <Chip k="Moon (Moving)" v={movingMoon} />
+            <Chip k="Sun (Progressed)" v={progressedSun} />
+            <Chip k="Moon (Progressed)" v={progressedMoon} />
             <Chip k="Timezone" v={timezone} />
           </div>
         </div>
@@ -453,9 +500,11 @@ export default function ProfileClient(props: Props) {
             {/* TOP ROW */}
             <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac">
-                <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
+                <div className="text-sm font-semibold text-[#1F1B16]">
+                  {currentZodiac}
+                </div>
                 <div className="mt-1 text-sm text-[#403A32]/75">
-                  Uses Asc-Year moving Sun (authoritative for Profile).
+                  Uses Progressed Sun (authoritative for Profile).
                 </div>
               </SubCard>
 
@@ -510,9 +559,13 @@ export default function ProfileClient(props: Props) {
 
                 <ProgressBar
                   value={asc.ok ? 1 - asc.phaseProgress : 0}
-                  labelLeft={asc.ok && asc.remainingDeg != null ? `${asc.remainingDeg.toFixed(2)}°` : "—"}
+                  labelLeft={
+                    asc.ok && asc.remainingDeg != null ? `${asc.remainingDeg.toFixed(2)}°` : "—"
+                  }
                   labelRight="0°"
-                  meta={asc.ok && asc.daysToBoundary != null ? `~${asc.daysToBoundary.toFixed(1)} days` : "—"}
+                  meta={
+                    asc.ok && asc.daysToBoundary != null ? `~${asc.daysToBoundary.toFixed(1)} days` : "—"
+                  }
                 />
               </div>
             </div>
@@ -528,7 +581,7 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* URA FOUNDATION (now fed by Asc-Year values) */}
+            {/* URA FOUNDATION (fed by Asc-Year phase + progressed Sun text) */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={foundationPhaseId}
