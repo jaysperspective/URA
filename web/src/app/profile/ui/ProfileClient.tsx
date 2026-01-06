@@ -223,6 +223,26 @@ function modalityFromWithinSeason(withinSeasonDeg: number) {
     | "Mutable";
 }
 
+function fmtAsOfLabel(asOfISO: string | null, tz: string) {
+  if (!asOfISO) return undefined;
+  const d = new Date(asOfISO);
+  if (!Number.isFinite(d.getTime())) return undefined;
+
+  try {
+    // ✅ timezone-aware label
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      month: "numeric",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(d);
+  } catch {
+    return d.toLocaleString();
+  }
+}
+
 export default function ProfileClient(props: Props) {
   const {
     name,
@@ -298,7 +318,11 @@ export default function ProfileClient(props: Props) {
       ok && withinSeason != null ? modalityFromWithinSeason(withinSeason) : (ascYearModality || "—");
 
     const withinModality =
-      ok && withinSeason != null ? withinSeason % 30 : typeof ascYearDegreesIntoModality === "number" ? ascYearDegreesIntoModality : null;
+      ok && withinSeason != null
+        ? withinSeason % 30
+        : typeof ascYearDegreesIntoModality === "number"
+        ? ascYearDegreesIntoModality
+        : null;
 
     const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
 
@@ -328,6 +352,11 @@ export default function ProfileClient(props: Props) {
     if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
     return "—";
   }, [currentSunLon, progressedSunLon]);
+
+  const asOfLabelForFoundation = useMemo(
+    () => fmtAsOfLabel(asOfISO, timezone),
+    [asOfISO, timezone]
+  );
 
   // now this check should be ~0 when we have both natalAscLon + currentSunLon
   const ascMathCheck = useMemo(() => {
@@ -474,20 +503,26 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* FOUNDATION PANEL */}
+            {/* ✅ PHASE PANEL (Orisha microcopy) */}
+            <div className="mt-4">
+              <PhaseMicrocopyCard
+                copy={phaseCopy}
+                tone="linen"
+                defaultExpanded={false}
+                showJournal={true}
+                showActionHint={true}
+              />
+            </div>
+
+            {/* ✅ URA FOUNDATION MOVED UNDER THE PHASE PANEL */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
                 solarProgress01={orientation.uraProgress01}
                 sunText={sunTextForFoundation}
                 ontology={null}
-                asOfLabel={asOfISO ? new Date(asOfISO).toLocaleString() : undefined}
+                asOfLabel={asOfLabelForFoundation}
               />
-            </div>
-
-            {/* ORISHA */}
-            <div className="mt-4">
-              <PhaseMicrocopyCard copy={phaseCopy} tone="linen" defaultExpanded={false} showJournal={true} showActionHint={true} />
             </div>
 
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
