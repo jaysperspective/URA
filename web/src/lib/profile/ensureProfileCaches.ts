@@ -2,7 +2,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
-type BirthPayload = {
+type BirthPayloadUTC = {
   year: number;
   month: number;
   day: number;
@@ -12,9 +12,9 @@ type BirthPayload = {
   longitude: number;
 };
 
-type SafeOk<T> = { ok: true; data: T };
+type SafeOk = { ok: true; data: any };
 type SafeErr = { ok: false; error: string; status?: number; body?: string };
-type SafeRes<T> = SafeOk<T> | SafeErr;
+type SafeResult = SafeOk | SafeErr;
 
 function getLocalDayKey(timezone: string, d = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -29,12 +29,12 @@ function getLocalDayKey(timezone: string, d = new Date()) {
   const day = parts.find((p) => p.type === "day")?.value;
 
   if (!y || !m || !day) throw new Error("Could not compute local day key.");
-  return `${y}-${m}-${day}`;
+  return `${y}-${m}-${day}`; // e.g. 2026-01-06
 }
 
 /**
  * Convert a "wall clock" local time in a timezone into a UTC Date.
- * This avoids the classic bug: treating local birth time as UTC.
+ * This avoids treating local birth time as UTC.
  */
 function zonedLocalToUtcDate(opts: {
   year: number;
@@ -49,7 +49,7 @@ function zonedLocalToUtcDate(opts: {
   // 1) A UTC guess for the same wall-clock time
   const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
 
-  // 2) Render that guess as if it were in the target timezone (string)
+  // 2) Render that guess "as if" in the target timezone
   const asZonedString = utcGuess.toLocaleString("en-US", { timeZone: timezone });
 
   // 3) Parse back as Date (server local tz)
@@ -57,51 +57,49 @@ function zonedLocalToUtcDate(opts: {
 
   // 4) Offset correction
   const diffMs = utcGuess.getTime() - asZonedDate.getTime();
-
   return new Date(utcGuess.getTime() + diffMs);
 }
 
-function getBaseUrl() {
-  const explicit =
+function getAppBaseUrl() {
+  const base =
     process.env.APP_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.NEXTAUTH_URL ||
     process.env.APP_URL ||
-    null;
+    "";
 
-  if (explicit) return String(explicit).replace(/\/$/, "");
-
-  const vercel = process.env.VERCEL_URL;
-  if (vercel) return `https://${vercel}`.replace(/\/$/, "");
-
-  // droplet/local fallback
+  if (base) return base.replace(/\/$/, "");
   return "http://127.0.0.1:3000";
 }
 
-async function fetchAstroNatal(birth: BirthPayload) {
+async function fetchAstroNatalUTC(birthUTC: BirthPayloadUTC) {
   const base = process.env.ASTRO_SERVICE_URL;
   if (!base) throw new Error("ASTRO_SERVICE_URL is missing.");
 
   const r = await fetch(`${base}/chart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(birth),
+    body: JSON.stringify(birthUTC),
     cache: "no-store",
   });
 
-  if (!r.ok) throw new Error(`astro-service /chart failed: ${r.status}`);
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    throw new Error(`astro-service /chart failed: ${r.status} ${txt.slice(0, 200)}`);
+  }
+
   return r.json();
 }
 
 /**
- * NOTE: For daily caches, we do not want to hard-crash SSR if an endpoint is down
- * or returns non-OK. We return { ok:false } instead and let the caller decide.
+ * NOTE: Daily caches should NOT crash SSR if endpoints are down.
+ * We return ok:false and keep old blobs.
  */
-async function fetchAscYearSafe(payload: unknown): Promise<SafeRes<any>> {
-  const base = getBaseUrl();
+async function postJsonSafe(path: string, payload: unknown): Promise<SafeResult> {
+  const base = getAppBaseUrl();
 
   try {
-    const r = await fetch(`${base}/api/asc-year`, {
+    const r = await fetch(`${base}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -112,7 +110,7 @@ async function fetchAscYearSafe(payload: unknown): Promise<SafeRes<any>> {
       const text = await r.text().catch(() => "");
       return {
         ok: false,
-        error: `/api/asc-year failed: ${r.status}`,
+        error: `${path} failed: ${r.status}`,
         status: r.status,
         body: text.slice(0, 300),
       };
@@ -121,40 +119,14 @@ async function fetchAscYearSafe(payload: unknown): Promise<SafeRes<any>> {
     const json = await r.json().catch(() => null);
     return { ok: true, data: json };
   } catch (err: any) {
-    return { ok: false, error: err?.message || "asc-year fetch error" };
-  }
-}
-
-async function fetchLunationSafe(payload: unknown): Promise<SafeRes<any>> {
-  const base = getBaseUrl();
-
-  try {
-    const r = await fetch(`${base}/api/lunation`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    });
-
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
-      return {
-        ok: false,
-        error: `/api/lunation failed: ${r.status}`,
-        status: r.status,
-        body: text.slice(0, 300),
-      };
-    }
-
-    const json = await r.json().catch(() => null);
-    return { ok: true, data: json };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "lunation fetch error" };
+    return { ok: false, error: err?.message || `${path} fetch error` };
   }
 }
 
 /**
  * Ensures the user's cached natal + daily outputs exist and are current.
+ * - Natal: computed once (until birth data changes; edit should rebuild)
+ * - Daily: recomputed once per local day (timezone-aware)
  */
 export async function ensureProfileCaches(userId: number) {
   const profile = await prisma.profile.findUnique({ where: { userId } });
@@ -190,9 +162,14 @@ export async function ensureProfileCaches(userId: number) {
     typeof birthLat === "number" &&
     typeof birthLon === "number";
 
+  // If incomplete, don't compute.
   if (!hasBirth) return profile;
 
-  // ✅ Convert the user's local birth time (tz) into UTC parts for astro-service
+  /**
+   * ✅ IMPORTANT FIX:
+   * - astro-service wants UTC parts
+   * - app routes (/api/asc-year, /api/lunation) want LOCAL birth parts + timezone
+   */
   const birthUTC = zonedLocalToUtcDate({
     year: birthYear,
     month: birthMonth,
@@ -202,7 +179,7 @@ export async function ensureProfileCaches(userId: number) {
     timezone: tz,
   });
 
-  const birth: BirthPayload = {
+  const birthPayloadUTC: BirthPayloadUTC = {
     year: birthUTC.getUTCFullYear(),
     month: birthUTC.getUTCMonth() + 1,
     day: birthUTC.getUTCDate(),
@@ -223,6 +200,7 @@ export async function ensureProfileCaches(userId: number) {
 
   const needsNatal = !profile.natalChartJson;
 
+  // Prisma JSON typing: avoid passing plain null
   let natalChartJson: Prisma.InputJsonValue | undefined =
     (profile.natalChartJson ?? undefined) as unknown as Prisma.InputJsonValue | undefined;
 
@@ -233,31 +211,36 @@ export async function ensureProfileCaches(userId: number) {
     (profile.lunationJson ?? undefined) as unknown as Prisma.InputJsonValue | undefined;
 
   if (needsNatal) {
-    natalChartJson = (await fetchAstroNatal(birth)) as unknown as Prisma.InputJsonValue;
+    natalChartJson = (await fetchAstroNatalUTC(birthPayloadUTC)) as unknown as Prisma.InputJsonValue;
   }
 
   let didDailyUpdate = false;
 
   if (needsDaily) {
-    // ✅ Send BOTH conventions.
-    const payload = {
-      year: birth.year,
-      month: birth.month,
-      day: birth.day,
-      hour: birth.hour,
-      minute: birth.minute,
+    // ✅ Send LOCAL birth inputs to your app routes (they do their own tz→UTC)
+    const payloadLocal = {
+      year: birthYear,
+      month: birthMonth,
+      day: birthDay,
+      hour: birthHour,
+      minute: birthMinute,
 
-      lat: birth.latitude,
-      lon: birth.longitude,
+      // core contract
+      lat: birthLat,
+      lon: birthLon,
 
-      latitude: birth.latitude,
-      longitude: birth.longitude,
+      // compatibility
+      latitude: birthLat,
+      longitude: birthLon,
 
       timezone: tz,
-      asOfDate: todayKey,
+      asOfDate: todayKey, // (optional) lets APIs compute stable "as-of" for that local day
     };
 
-    const [ascRes, lunaRes] = await Promise.all([fetchAscYearSafe(payload), fetchLunationSafe(payload)]);
+    const [ascRes, lunaRes] = await Promise.all([
+      postJsonSafe("/api/asc-year", payloadLocal),
+      postJsonSafe("/api/lunation", payloadLocal),
+    ]);
 
     if (ascRes.ok) {
       ascYearJson = ascRes.data as unknown as Prisma.InputJsonValue;
