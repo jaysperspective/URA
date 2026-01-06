@@ -100,7 +100,6 @@ export default async function EditProfilePage() {
     );
   }
 
-  // Prefer explicit birthPlace label if it exists (best geocode input).
   const locationLine =
     profile.birthPlace?.trim() ||
     [profile.city, profile.state].filter(Boolean).join(", ") ||
@@ -110,32 +109,20 @@ export default async function EditProfilePage() {
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
       <div className="mx-auto w-full max-w-5xl">
-        {/* Header + Nav (Calendar-style) */}
+        {/* Header + Nav */}
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-baseline justify-between md:block">
-            <div
-              className="text-xs tracking-[0.28em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)" }}
-            >
+            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
               URA
             </div>
-            <div
-              className="mt-1 text-lg font-semibold tracking-tight"
-              style={{ color: "rgba(31,36,26,0.90)" }}
-            >
+            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
               Edit Profile
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {NAV.map((n) => (
-              <NavPill
-                key={n.href}
-                href={n.href}
-                label={n.label}
-                // when on /profile/edit, keep Profile pill active
-                active={n.href === "/profile"}
-              />
+              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
             ))}
 
             <Link href="/profile" aria-label="Back to profile">
@@ -144,20 +131,18 @@ export default async function EditProfilePage() {
           </div>
         </div>
 
-        {/* Client Form */}
         <EditProfileClient
           initial={{
             username: profile.username ?? "",
             bio: profile.bio ?? "",
             timezone: profile.timezone ?? "America/New_York",
 
-            // display/edit helpers
             city: profile.city ?? "",
             state: profile.state ?? "",
+
             birthPlace: profile.birthPlace ?? locationLine,
             locationLine,
 
-            // ✅ schema fields
             lat: profile.birthLat ?? null,
             lon: profile.birthLon ?? null,
 
