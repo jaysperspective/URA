@@ -1,130 +1,234 @@
 // src/app/api/asc-year/route.ts
 import { NextResponse } from "next/server";
 
-function norm360(v: number) {
+function normDeg(v: number) {
   const x = v % 360;
   return x < 0 ? x + 360 : x;
 }
 
-function safeNum(v: any): number | null {
-  const n = typeof v === "number" ? v : Number(v);
+function num(v: any): number | null {
+  const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-function degDeltaForward(fromLon: number, toLon: number) {
-  const a = norm360(fromLon);
-  const b = norm360(toLon);
-  const d = b - a;
-  return d >= 0 ? d : d + 360;
+function getLocalDayKey(timezone: string, d = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+
+  if (!y || !m || !day) throw new Error("Could not compute local day key.");
+  return `${y}-${m}-${day}`;
 }
 
-function estimateDaysUntil(deltaDeg: number) {
-  // avg Sun speed ~0.9856°/day
-  return deltaDeg / 0.9856;
+/**
+ * Convert a "wall clock" local time in a timezone into a UTC Date.
+ */
+function zonedLocalToUtcDate(opts: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  timezone: string;
+}) {
+  const { year, month, day, hour, minute, timezone } = opts;
+
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const asZonedString = utcGuess.toLocaleString("en-US", { timeZone: timezone });
+  const asZonedDate = new Date(asZonedString);
+  const diffMs = utcGuess.getTime() - asZonedDate.getTime();
+
+  return new Date(utcGuess.getTime() + diffMs);
 }
 
-const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
-const MODALITIES = ["Cardinal", "Fixed", "Mutable"] as const;
+async function fetchChart(payload: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  latitude: number;
+  longitude: number;
+}) {
+  const base = process.env.ASTRO_SERVICE_URL;
+  if (!base) throw new Error("ASTRO_SERVICE_URL is missing.");
 
-// 8 phases, 45° each
-function phaseIndexFromCyclePos45(cyclePosDeg: number) {
-  const idx = Math.floor(norm360(cyclePosDeg) / 45); // 0..7
-  return Math.max(0, Math.min(7, idx));
+  const r = await fetch(`${base}/chart`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    throw new Error(`astro-service /chart failed: ${r.status} ${txt.slice(0, 200)}`);
+  }
+
+  return r.json();
+}
+
+function getAscLon(natalJson: any): number | null {
+  return (
+    num(natalJson?.data?.ascendant) ??
+    num(natalJson?.data?.angles?.asc) ??
+    num(natalJson?.data?.angles?.ascendant) ??
+    num(natalJson?.data?.houses?.ascendant) ??
+    num(natalJson?.ascendant) ??
+    num(natalJson?.angles?.asc) ??
+    null
+  );
+}
+
+function getSunLon(chartJson: any): number | null {
+  return (
+    num(chartJson?.data?.planets?.sun?.lon) ??
+    num(chartJson?.data?.planets?.sun) ??
+    num(chartJson?.planets?.sun?.lon) ??
+    num(chartJson?.planets?.sun) ??
+    null
+  );
+}
+
+function seasonFromCyclePos(cyclePos: number) {
+  const p = normDeg(cyclePos);
+  if (p < 90) return "Spring";
+  if (p < 180) return "Summer";
+  if (p < 270) return "Fall";
+  return "Winter";
+}
+
+// 0–30 cardinal, 30–60 fixed, 60–90 mutable, repeating each season
+function modalityFromWithinSeason(degIntoSeason0to90: number) {
+  const x = degIntoSeason0to90 % 90;
+  if (x < 30) return "Cardinal";
+  if (x < 60) return "Fixed";
+  return "Mutable";
+}
+
+function phaseIndex45(cyclePos: number) {
+  return Math.floor(normDeg(cyclePos) / 45); // 0..7
 }
 
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => null)) as any;
-    if (!body) {
-      return NextResponse.json({ ok: false, error: "Missing JSON body." }, { status: 400 });
-    }
 
-    // ✅ Prefer authoritative inputs from caches:
-    // - natalAscLon should come from cached natal chart (correct, Scorpio ~13° in your case)
-    // - transitingSunLon should come from lunation summary (as-of Sun lon)
-    const natalAscLon = safeNum(body?.natalAscLon);
-    const transitingSunLon =
-      safeNum(body?.transitingSunLon) ??
-      safeNum(body?.asOfSunLon) ??
-      safeNum(body?.sunLon) ??
-      safeNum(body?.transitSunLon);
+    const timezone = typeof body?.timezone === "string" ? body.timezone : "America/New_York";
 
-    if (natalAscLon == null || transitingSunLon == null) {
+    const year = num(body?.year);
+    const month = num(body?.month);
+    const day = num(body?.day);
+    const hour = num(body?.hour);
+    const minute = num(body?.minute);
+
+    const lat = num(body?.lat ?? body?.latitude);
+    const lon = num(body?.lon ?? body?.longitude);
+
+    if (
+      year == null ||
+      month == null ||
+      day == null ||
+      hour == null ||
+      minute == null ||
+      lat == null ||
+      lon == null
+    ) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "asc-year missing natalAscLon/transitingSunLon",
-          got: { natalAscLon, transitingSunLon },
-        },
+        { ok: false, error: "Missing required fields: year,month,day,hour,minute, lat/lon, timezone" },
         { status: 400 }
       );
     }
 
-    // ✅ core math (this is the “truth” for Asc-Year orientation)
-    const cyclePositionDeg = norm360(transitingSunLon - natalAscLon);
+    // Birth time is entered as local wall-clock; convert to UTC for astro-service.
+    const birthUTC = zonedLocalToUtcDate({
+      year,
+      month,
+      day,
+      hour,
+      minute,
+      timezone,
+    });
 
-    // ---- Phase 45° model ----
-    const phaseIndex = phaseIndexFromCyclePos45(cyclePositionDeg); // 0..7
-    const phaseId = phaseIndex + 1; // 1..8
-    const phaseLabel = `Phase ${phaseId}`;
-    const phaseDegInto = cyclePositionDeg - phaseIndex * 45; // 0..45
-    const phaseProgress01 = phaseDegInto / 45;
+    const birthPayloadUTC = {
+      year: birthUTC.getUTCFullYear(),
+      month: birthUTC.getUTCMonth() + 1,
+      day: birthUTC.getUTCDate(),
+      hour: birthUTC.getUTCHours(),
+      minute: birthUTC.getUTCMinutes(),
+      latitude: lat,
+      longitude: lon,
+    };
 
-    const nextPhaseIndex = (phaseIndex + 1) % 8;
-    const nextPhaseId = nextPhaseIndex + 1;
-    const nextPhaseLabel = `Phase ${nextPhaseId}`;
+    // as-of = now; daily cache will keep it to once/day
+    const nowUTC = new Date();
+    const asOfPayloadUTC = {
+      year: nowUTC.getUTCFullYear(),
+      month: nowUTC.getUTCMonth() + 1,
+      day: nowUTC.getUTCDate(),
+      hour: nowUTC.getUTCHours(),
+      minute: nowUTC.getUTCMinutes(),
+      latitude: lat,
+      longitude: lon,
+    };
 
-    // next boundary in cycle space: (nextPhaseIndex * 45)
-    const nextBoundaryCycleDeg = nextPhaseIndex * 45; // 0..315
-    const nextPhaseBoundaryLon = norm360(natalAscLon + nextBoundaryCycleDeg);
+    const [natal, asof] = await Promise.all([
+      fetchChart(birthPayloadUTC),
+      fetchChart(asOfPayloadUTC),
+    ]);
 
-    const deltaToNext = degDeltaForward(transitingSunLon, nextPhaseBoundaryLon);
-    const daysUntilNextPhase = estimateDaysUntil(deltaToNext);
+    const natalAscLon = getAscLon(natal);
+    const transitingSunLon = getSunLon(asof);
 
-    // ---- Season + Modality (12 segments: 4 seasons * 3 modalities) ----
-    // Seasons: 0–90 Spring, 90–180 Summer, 180–270 Fall, 270–360 Winter
-    const seasonIndex = Math.floor(cyclePositionDeg / 90); // 0..3
-    const season = SEASONS[Math.max(0, Math.min(3, seasonIndex))];
+    if (natalAscLon == null || transitingSunLon == null) {
+      return NextResponse.json(
+        { ok: false, error: "Could not derive natalAscLon/transitingSunLon" },
+        { status: 502 }
+      );
+    }
 
-    const withinSeasonDeg = cyclePositionDeg % 90; // 0..90
-    const seasonProgress01 = withinSeasonDeg / 90;
+    // Core: cyclePos = asOfSun - natalAsc
+    const cyclePositionDeg = normDeg(transitingSunLon - natalAscLon);
 
-    // Modality segments within each 90° season: 0–30 Cardinal, 30–60 Fixed, 60–90 Mutable
-    const modalityIndex = Math.floor(withinSeasonDeg / 30); // 0..2
-    const modality = MODALITIES[Math.max(0, Math.min(2, modalityIndex))];
+    const season = seasonFromCyclePos(cyclePositionDeg);
+    const degIntoSeason = normDeg(cyclePositionDeg) % 90;
+    const modality = modalityFromWithinSeason(degIntoSeason);
+    const degreesIntoModality = degIntoSeason % 30;
 
-    const withinModalityDeg = withinSeasonDeg % 30; // 0..30
-    const modalityProgress01 = withinModalityDeg / 30;
+    const p45 = phaseIndex45(cyclePositionDeg); // 0..7
 
     return NextResponse.json({
       ok: true,
       ascYear: {
+        timezone,
+        asOfDayKey: getLocalDayKey(timezone),
+
         natalAscLon,
         transitingSunLon,
-
         cyclePositionDeg,
 
-        // 8×45°
-        phaseIndex, // 0..7
-        phaseId, // 1..8
-        phaseLabel,
-        phaseDegInto,
-        phaseProgress01,
-        nextPhaseLabel,
-        nextPhaseBoundaryLon,
-        daysUntilNextPhase,
-
-        // 4×90 + 3×30
         season,
-        seasonDegInto: withinSeasonDeg,
-        seasonProgress01,
-
         modality,
-        degreesIntoModality: withinModalityDeg,
-        modalityProgress01,
+        degreesIntoModality,
+
+        // 8×45 lens
+        phaseIndex45: p45,
+        phaseId45: p45 + 1,
+        degIntoPhase45: cyclePositionDeg % 45,
+        phaseProgress01: (cyclePositionDeg % 45) / 45,
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message || "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }
