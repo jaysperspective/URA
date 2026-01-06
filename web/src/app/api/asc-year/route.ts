@@ -117,12 +117,21 @@ function phaseIndex45(cyclePos: number) {
   return Math.floor(normDeg(cyclePos) / 45); // 0..7
 }
 
+function parseAsOfDateKey(s: any) {
+  if (typeof s !== "string") return null;
+  const t = s.trim();
+  // YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return t;
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => null)) as any;
 
     const timezone = typeof body?.timezone === "string" ? body.timezone : "America/New_York";
 
+    // LOCAL birth fields (source of truth)
     const year = num(body?.year);
     const month = num(body?.month);
     const day = num(body?.day);
@@ -147,7 +156,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Birth time is entered as local wall-clock; convert to UTC for astro-service.
+    // Birth time: local → UTC for astro-service
     const birthUTC = zonedLocalToUtcDate({
       year,
       month,
@@ -167,14 +176,26 @@ export async function POST(req: Request) {
       longitude: lon,
     };
 
-    // as-of = now; daily cache will keep it to once/day
-    const nowUTC = new Date();
+    // as-of: stable daily moment
+    const asOfKey = parseAsOfDateKey(body?.asOfDate) ?? getLocalDayKey(timezone);
+    const [Y, M, D] = asOfKey.split("-").map((x) => Number(x));
+
+    // choose local noon to avoid boundary jitter
+    const asOfUTC = zonedLocalToUtcDate({
+      year: Y,
+      month: M,
+      day: D,
+      hour: 12,
+      minute: 0,
+      timezone,
+    });
+
     const asOfPayloadUTC = {
-      year: nowUTC.getUTCFullYear(),
-      month: nowUTC.getUTCMonth() + 1,
-      day: nowUTC.getUTCDate(),
-      hour: nowUTC.getUTCHours(),
-      minute: nowUTC.getUTCMinutes(),
+      year: asOfUTC.getUTCFullYear(),
+      month: asOfUTC.getUTCMonth() + 1,
+      day: asOfUTC.getUTCDate(),
+      hour: asOfUTC.getUTCHours(),
+      minute: asOfUTC.getUTCMinutes(),
       latitude: lat,
       longitude: lon,
     };
@@ -194,7 +215,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Core: cyclePos = asOfSun - natalAsc
+    // Core
     const cyclePositionDeg = normDeg(transitingSunLon - natalAscLon);
 
     const season = seasonFromCyclePos(cyclePositionDeg);
@@ -208,7 +229,7 @@ export async function POST(req: Request) {
       ok: true,
       ascYear: {
         timezone,
-        asOfDayKey: getLocalDayKey(timezone),
+        asOfDayKey: asOfKey,
 
         natalAscLon,
         transitingSunLon,
