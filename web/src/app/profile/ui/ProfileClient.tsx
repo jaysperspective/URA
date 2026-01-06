@@ -49,7 +49,7 @@ const SEASON_SHORT: Record<(typeof SEASONS)[number], string> = {
   Winter: "Winter",
 };
 
-// mean solar motion (deg/day) used for estimating shift timing
+// mean solar motion (deg/day) used for estimating shift timing (Asc-Year only)
 const MEAN_SOLAR_RATE = 0.985647;
 
 function ProgressBar({
@@ -136,11 +136,9 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const pos = norm360(cyclePosDeg);
   const t = (pos / 360) * Math.PI * 2;
 
-  // Sideways ∞ curve
-  const a = 290; // x radius
-  const b = 95; // y radius
+  const a = 290;
+  const b = 95;
 
-  // Curve: x = sin(t), y = sin(2t)  (scaled)
   const X = (tt: number) => cx + a * Math.sin(tt);
   const Y = (tt: number) => cy - b * Math.sin(2 * tt);
 
@@ -164,7 +162,6 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
     fontWeight: 700,
   };
 
-  // Fixed label positions (not on the curve)
   const labelFixed = [
     { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
     { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
@@ -230,12 +227,21 @@ type Props = {
 
   cyclePosDeg: number | null; // Sun-from-ASC (0..360)
 
-  // ✅ Calendar parity props (from /api/calendar via server page)
-  solarPhaseId?: number | null;
-  solarProgress01?: number | null;
-  sunText?: string | null;     // ex: "19° Cap 14'"
-  asOfLabel?: string | null;   // ex: "01/05/2026, 8:14 PM"
+  // Calendar parity props (from /api/calendar via server page)
+  solarPhaseId?: number | null;    // 1..8
+  solarProgress01?: number | null; // 0..1 across 45-day segment (or interphase)
+  sunText?: string | null;         // ex: "19° Cap 14'"
+  asOfLabel?: string | null;       // ex: "01/05/2026, 8:14 PM"
 };
+
+function seasonFromPhaseId(phaseId: number | null): (typeof SEASONS)[number] | null {
+  if (typeof phaseId !== "number") return null;
+  if (phaseId === 1 || phaseId === 2) return "Spring";
+  if (phaseId === 3 || phaseId === 4) return "Summer";
+  if (phaseId === 5 || phaseId === 6) return "Fall";
+  if (phaseId === 7 || phaseId === 8) return "Winter";
+  return null;
+}
 
 export default function ProfileClient(props: Props) {
   const {
@@ -255,7 +261,7 @@ export default function ProfileClient(props: Props) {
     asOfLabel,
   } = props;
 
-  // ---- Existing Asc-Year derived orientation (kept as-is) ----
+  // ---- Asc-Year derived orientation (kept for waveform + its own progress bars) ----
   const derivedAsc = useMemo(() => {
     const cycle = cyclePosDeg != null ? norm360(cyclePosDeg) : null;
 
@@ -330,19 +336,54 @@ export default function ProfileClient(props: Props) {
     };
   }, [cyclePosDeg, asOfISO]);
 
-  // ---- Solar phase (authoritative for ontology + foundation) ----
+  // ---- Solar (Calendar) phase: authoritative for Phase + Season label ----
   const solarPhaseId =
     typeof solarPhaseIdProp === "number" && solarPhaseIdProp >= 1 && solarPhaseIdProp <= 8
       ? solarPhaseIdProp
       : null;
 
+  const solarSeason = seasonFromPhaseId(solarPhaseId);
+  const solarSeasonShort = solarSeason ? SEASON_SHORT[solarSeason] : "—";
+
   const solarProgress01 =
     typeof solarProgress01Prop === "number" ? solarProgress01Prop : null;
 
-  // Calendar provides the already-formatted sun string (e.g. "19° Cap 14'")
+  // Calendar provides formatted sun string (e.g. "15° Cap 21'")
   const solarSunText = sunText ?? "—";
 
-  // Orisha microcopy follows SOLAR phase when available, else fall back to Asc-Year phase.
+  // Current Zodiac: mirror Calendar when possible
+  const currentZodiac = (sunText && sunText !== "—") ? sunText : (movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—");
+
+  // Solar-based next + shift (prevents “Spring · Phase 7” type mismatch)
+  const solarNext = useMemo(() => {
+    if (solarPhaseId == null) return { nextLabel: null as string | null, shiftText: null as string | null };
+
+    const nextPhase = (solarPhaseId % 8) + 1;
+    const nextSeason = seasonFromPhaseId(nextPhase);
+    const nextSeasonShort = nextSeason ? SEASON_SHORT[nextSeason] : "—";
+    const nextLabel = `${nextSeasonShort} · Phase ${nextPhase}`;
+
+    // Estimate shift using remaining days in the 45-day segment when progress is available
+    if (typeof solarProgress01 !== "number" || solarProgress01 < 0 || solarProgress01 > 1) {
+      return { nextLabel, shiftText: null };
+    }
+
+    const remainingDays = Math.max(0, (1 - solarProgress01) * 45);
+    const asOf = asOfISO ? new Date(asOfISO) : new Date();
+    const shiftAt = new Date(asOf.getTime() + remainingDays * 86400000);
+
+    const shiftText = `~${remainingDays.toFixed(1)} days • ${shiftAt.toLocaleString(undefined, {
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+
+    return { nextLabel, shiftText };
+  }, [solarPhaseId, solarProgress01, asOfISO]);
+
+  // Orisha microcopy should follow SOLAR phase when available, else fall back to Asc-Year phase.
   const phaseCopy = useMemo(() => {
     const p = typeof solarPhaseId === "number" ? solarPhaseId : derivedAsc.phaseIndex;
     if (typeof p === "number" && p >= 1 && p <= 8) return microcopyForPhase(p as PhaseId);
@@ -350,9 +391,7 @@ export default function ProfileClient(props: Props) {
   }, [solarPhaseId, derivedAsc.phaseIndex]);
 
   const asOfLine = useMemo(() => {
-    // Prefer the calendar’s local timestamp label when available (parity with /calendar)
     if (asOfLabel) return `${timezone} • ${asOfLabel}`;
-
     if (!asOfISO) return timezone;
     const d = new Date(asOfISO);
     return `${timezone} • ${d.toLocaleString(undefined, {
@@ -371,23 +410,20 @@ export default function ProfileClient(props: Props) {
   const movingSun = movingSunLon != null ? `${signFromLon(movingSunLon)} ${fmtLon(movingSunLon)}` : "—";
   const movingMoon = movingMoonLon != null ? `${signFromLon(movingMoonLon)} ${fmtLon(movingMoonLon)}` : "—";
 
-  // “Current Zodiac” should mirror Calendar: use sunText (from /api/calendar) when available.
-  const currentZodiac = (sunText && sunText !== "—") ? sunText : movingSun;
-
   const phaseBrief = useMemo(() => {
     const p = typeof solarPhaseId === "number" ? solarPhaseId : derivedAsc.phaseIndex;
 
-    if (!derivedAsc.ok || p == null) {
+    if (p == null) {
       return {
         title: "Phase Brief (Ontology + LLM-ready)",
         lines: [
-          "Cycle position unavailable.",
+          "Phase unavailable.",
           "Once the server LLM is connected, this panel will render an interpretation grounded in URA ontology.",
         ],
       };
     }
 
-    const seasonShort = derivedAsc.seasonShort;
+    const seasonShort = solarSeason ? solarSeasonShort : derivedAsc.seasonShort;
     const phase = p;
 
     const frame = `You are in ${seasonShort} — Phase ${phase}.`;
@@ -413,7 +449,23 @@ export default function ProfileClient(props: Props) {
       title: "Phase Brief (Ontology + LLM-ready)",
       lines: [frame, zodiac, intent, "", ...prompts],
     };
-  }, [derivedAsc, currentZodiac, cyclePosDeg, solarPhaseId]);
+  }, [derivedAsc, currentZodiac, cyclePosDeg, solarPhaseId, solarSeason, solarSeasonShort]);
+
+  // Primary header values (Solar when available)
+  const headerSeason = solarSeason ? solarSeasonShort : (derivedAsc.ok ? derivedAsc.seasonShort : "—");
+  const headerPhaseText =
+    typeof solarPhaseId === "number"
+      ? `Phase ${solarPhaseId}`
+      : derivedAsc.ok && derivedAsc.phaseIndex != null
+      ? `Phase ${derivedAsc.phaseIndex}`
+      : "—";
+
+  // Cards: Shift + Next should use Solar if available, otherwise Asc-Year
+  const shiftDisplay =
+    solarNext.shiftText ?? (derivedAsc.ok ? derivedAsc.shiftText : "—");
+
+  const nextDisplay =
+    solarNext.nextLabel ?? (derivedAsc.ok ? derivedAsc.nextLabel : "—");
 
   return (
     <div className="mt-8">
@@ -449,21 +501,15 @@ export default function ProfileClient(props: Props) {
           <div className="px-8 pt-10 pb-8">
             <div className="text-center">
               <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                Orientation
+                ORIENTATION
               </div>
 
               <div className="mt-2 text-3xl font-semibold tracking-tight text-[#1F1B16] leading-tight">
                 <div className="flex justify-center">
-                  <div>{derivedAsc.ok ? derivedAsc.seasonShort : "—"}</div>
+                  <div>{headerSeason}</div>
                 </div>
                 <div className="flex justify-center">
-                  <div>
-                    {typeof solarPhaseId === "number"
-                      ? `Phase ${solarPhaseId}`
-                      : derivedAsc.ok && derivedAsc.phaseIndex != null
-                      ? `Phase ${derivedAsc.phaseIndex}`
-                      : "—"}
-                  </div>
+                  <div>{headerPhaseText}</div>
                 </div>
               </div>
 
@@ -480,36 +526,34 @@ export default function ProfileClient(props: Props) {
             <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac">
                 <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
-                <div className="mt-1 text-sm text-[#403A32]/75">Matches the Calendar Sun position when available.</div>
+                <div className="mt-1 text-sm text-[#403A32]/75">
+                  Matches the Calendar Sun position when available.
+                </div>
               </SubCard>
 
               <SubCard title="Shift">
-                <div className="text-sm font-semibold text-[#1F1B16]">
-                  {derivedAsc.ok ? derivedAsc.shiftText : "—"}
-                </div>
+                <div className="text-sm font-semibold text-[#1F1B16]">{shiftDisplay}</div>
                 <div className="mt-1 text-sm text-[#403A32]/75">
-                  Estimated Asc-Year phase boundary crossing (mean solar rate).
+                  Solar uses remaining days in the 45-day segment; fallback is Asc-Year estimate.
                 </div>
               </SubCard>
 
               <SubCard title="Next">
-                <div className="text-sm font-semibold text-[#1F1B16]">
-                  {derivedAsc.ok ? derivedAsc.nextLabel : "—"}
-                </div>
+                <div className="text-sm font-semibold text-[#1F1B16]">{nextDisplay}</div>
                 <div className="mt-1 text-sm text-[#403A32]/75">
-                  Next 45° segment (Asc-Year boundary).
+                  Solar next phase when available; fallback is Asc-Year boundary.
                 </div>
               </SubCard>
             </div>
 
-            {/* PROGRESS */}
+            {/* ASC-YEAR PROGRESS (kept, but it’s explicitly Asc-Year) */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
                 <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                  90° Season Arc
+                  90° Season Arc (Asc-Year)
                 </div>
                 <div className="mt-2 text-sm text-[#403A32]/75">
-                  Progress within the current season (0–90°).
+                  Progress within the current Asc-Year season (0–90°).
                 </div>
 
                 <ProgressBar
@@ -526,24 +570,30 @@ export default function ProfileClient(props: Props) {
 
               <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
                 <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                  Phase Boundary
+                  Phase Boundary (Asc-Year)
                 </div>
                 <div className="mt-2 text-sm text-[#403A32]/75">
-                  Remaining to next 45° boundary.
+                  Remaining to next Asc-Year 45° boundary.
                 </div>
 
                 <ProgressBar
                   value={derivedAsc.ok ? 1 - derivedAsc.phaseProgress : 0}
                   labelLeft={
-                    derivedAsc.ok && derivedAsc.remainingDeg != null ? `${derivedAsc.remainingDeg.toFixed(2)}°` : "—"
+                    derivedAsc.ok && derivedAsc.remainingDeg != null
+                      ? `${derivedAsc.remainingDeg.toFixed(2)}°`
+                      : "—"
                   }
                   labelRight="0°"
-                  meta={derivedAsc.ok && derivedAsc.daysToBoundary != null ? `~${derivedAsc.daysToBoundary.toFixed(1)} days` : "—"}
+                  meta={
+                    derivedAsc.ok && derivedAsc.daysToBoundary != null
+                      ? `~${derivedAsc.daysToBoundary.toFixed(1)} days`
+                      : "—"
+                  }
                 />
               </div>
             </div>
 
-            {/* FIGURE-8 */}
+            {/* FIGURE-8 (Asc-Year visual aid) */}
             <div className="mt-8">
               {cyclePosDeg != null ? (
                 <AscYearFigure8 cyclePosDeg={cyclePosDeg} />
@@ -565,7 +615,7 @@ export default function ProfileClient(props: Props) {
               />
             </div>
 
-            {/* ✅ CALENDAR-PARITY: ORISHA PHASE MODULE (Solar URA) */}
+            {/* ✅ CALENDAR-PARITY: ORISHA PHASE MODULE */}
             <div className="mt-4">
               <PhaseMicrocopyCard
                 copy={phaseCopy}
