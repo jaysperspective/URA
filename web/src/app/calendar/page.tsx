@@ -1,49 +1,6 @@
 // src/app/calendar/page.tsx
-import Link from "next/link";
 import CalendarClient from "./ui/CalendarClient";
-
-const NAV = [
-  { href: "/calendar", label: "Calendar" },
-  { href: "/moon", label: "Moon" },
-  { href: "/profile", label: "Profile" },
-  { href: "/lunation", label: "Lunation" },
-] as const;
-
-function NavPill({
-  href,
-  label,
-}: {
-  href: (typeof NAV)[number]["href"];
-  label: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
-      style={{
-        borderColor: "rgba(31,36,26,0.18)",
-        background: "rgba(244,235,221,0.62)",
-        color: "rgba(31,36,26,0.88)",
-        boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
-      }}
-    >
-      <span
-        className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
-        }}
-      />
-      <span className="relative flex items-center gap-2">
-        <span
-          className="inline-block h-2 w-2 rounded-full opacity-70"
-          style={{ background: "rgba(31,36,26,0.45)" }}
-        />
-        <span className="tracking-wide">{label}</span>
-      </span>
-    </Link>
-  );
-}
+import { NAV, NavPill } from "@/lib/ui/nav";
 
 export default function CalendarPage() {
   return (
@@ -74,7 +31,7 @@ export default function CalendarPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             {NAV.map((n) => (
-              <NavPill key={n.href} href={n.href} label={n.label} />
+              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/calendar"} />
             ))}
           </div>
         </div>
