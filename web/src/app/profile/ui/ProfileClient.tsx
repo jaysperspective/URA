@@ -314,8 +314,8 @@ export default function ProfileClient(props: Props) {
           : null;
 
     const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
-
-    const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : (1 as PhaseId);
+  
+    const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : null;
     const uraDegIntoPhase = ok ? (cyclePos! % 45) : null;
     const uraProgress01 = uraDegIntoPhase != null ? uraDegIntoPhase / 45 : null;
 
@@ -333,8 +333,11 @@ export default function ProfileClient(props: Props) {
       uraProgress01,
     };
   }, [ascYearCyclePosDeg, ascYearSeason, ascYearModality, ascYearDegreesIntoModality]);
-
-  const phaseCopy = useMemo(() => microcopyForPhase(orientation.uraPhaseId), [orientation.uraPhaseId]);
+ 
+  const phaseCopy = useMemo(() => {
+    if (!orientation.uraPhaseId) return null;
+    return microcopyForPhase(orientation.uraPhaseId);
+  }, [orientation.uraPhaseId]);
 
   const sunTextForFoundation = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
