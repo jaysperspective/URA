@@ -49,9 +49,20 @@ function moonSignFromLon(lon: number) {
   return SIGNS[idx];
 }
 
-// Must match your astro-service chart endpoint (same one /api/lunation uses)
-const ASTRO_SERVICE_URL =
-  process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002/chart";
+/**
+ * IMPORTANT:
+ * - Set ASTRO_SERVICE_URL to the BASE (no /chart), e.g. "http://127.0.0.1:3002"
+ * - OR keep your existing value; this code will normalize it.
+ */
+function getAstroServiceChartUrl() {
+  const raw =
+    process.env.ASTRO_SERVICE_URL ||
+    "http://127.0.0.1:3002"; // base default (NOT /chart)
+
+  // If someone set it to ".../chart", strip it to base then append cleanly.
+  const base = raw.replace(/\/+$/, "").replace(/\/chart$/, "");
+  return `${base}/chart`;
+}
 
 export async function GET(req: Request) {
   try {
@@ -70,6 +81,7 @@ export async function GET(req: Request) {
       );
     }
 
+    const chartUrl = getAstroServiceChartUrl();
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
     const rows: DayRow[] = [];
 
@@ -78,7 +90,7 @@ export async function GET(req: Request) {
     const localMinute = 0;
 
     for (let d = 1; d <= daysInMonth; d++) {
-      // construct "local time" then shift to UTC using tzOffsetMin
+      // Construct local time then shift to UTC using tzOffsetMin
       const localAsUTC = Date.UTC(year, month - 1, d, localHour, localMinute, 0);
       const utcMs = localAsUTC - tzOffsetMin * 60_000;
       const utcDate = new Date(utcMs);
@@ -93,7 +105,7 @@ export async function GET(req: Request) {
         longitude,
       };
 
-      const r = await fetch(ASTRO_SERVICE_URL, {
+      const r = await fetch(chartUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -102,7 +114,9 @@ export async function GET(req: Request) {
 
       if (!r.ok) {
         const t = await r.text();
-        throw new Error(`astro-service error (${r.status}): ${t.slice(0, 200)}`);
+        throw new Error(
+          `astro-service error (${r.status}) at ${chartUrl}: ${t.slice(0, 160)}`
+        );
       }
 
       const json = await r.json();
@@ -117,10 +131,7 @@ export async function GET(req: Request) {
       const illum = illuminationFromPhaseAngle(phaseAngleDeg);
       const sign = moonSignFromLon(moonLon);
 
-      const dateISO = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(
-        2,
-        "0"
-      )}`;
+      const dateISO = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
       rows.push({
         dateISO,
