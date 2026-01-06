@@ -1,5 +1,6 @@
 // src/app/profile/page.tsx
 import Link from "next/link";
+import { headers } from "next/headers";
 import { requireUser } from "@/lib/auth/requireUser";
 import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 import ProfileClient from "./ui/ProfileClient";
@@ -51,11 +52,7 @@ function NavPill({
   );
 }
 
-function ActionPill({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function ActionPill({ children }: { children: React.ReactNode }) {
   return (
     <span
       className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
@@ -98,6 +95,59 @@ function getNatalSources(natal: any) {
   return { planets, asc };
 }
 
+function ymdFromDateUTC(d: Date) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+type CalendarAPI = {
+  ok: boolean;
+  tz: string;
+  gregorian?: { ymd: string; asOfLocal: string };
+  solar?: {
+    kind?: "PHASE" | "INTERPHASE";
+    phase?: number;
+    dayInPhase?: number;
+    interphaseDay?: number;
+    interphaseTotal?: number;
+  };
+  astro?: {
+    sunPos?: string; // ex: "19° Cap 14'"
+  };
+};
+
+async function fetchCalendarForProfile(asOfISO?: string | null) {
+  // Build absolute URL (works behind nginx / on droplet)
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  if (!host) return null;
+
+  const base = `${proto}://${host}`;
+
+  // If profile has an asOfDate, pin calendar to that day (ymd). Otherwise, calendar "today".
+  let url = `${base}/api/calendar`;
+  if (asOfISO) {
+    const d = new Date(asOfISO);
+    if (!Number.isNaN(d.getTime())) {
+      const ymd = ymdFromDateUTC(d);
+      url = `${base}/api/calendar?ymd=${encodeURIComponent(ymd)}`;
+    }
+  }
+
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const json = (await res.json()) as CalendarAPI;
+    if (!json?.ok) return null;
+    return json;
+  } catch {
+    return null;
+  }
+}
+
 export default async function ProfilePage() {
   const user = await requireUser();
   const profile = await ensureProfileCaches(user.id);
@@ -134,16 +184,10 @@ export default async function ProfilePage() {
           {/* Header */}
           <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-baseline justify-between md:block">
-              <div
-                className="text-xs tracking-[0.28em] uppercase"
-                style={{ color: "rgba(31,36,26,0.55)" }}
-              >
+              <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
                 URA
               </div>
-              <div
-                className="mt-1 text-lg font-semibold tracking-tight"
-                style={{ color: "rgba(31,36,26,0.90)" }}
-              >
+              <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
                 Profile
               </div>
             </div>
@@ -163,10 +207,7 @@ export default async function ProfilePage() {
               boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
             }}
           >
-            <div
-              className="text-[11px] tracking-[0.18em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-            >
+            <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
               Setup
             </div>
             <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
@@ -221,22 +262,38 @@ export default async function ProfilePage() {
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
   const name = pickName(user, profile);
 
+  // ✅ Calendar parity payload (server-side)
+  const cal = await fetchCalendarForProfile(asOfISO);
+
+  const solarPhaseId =
+    typeof cal?.solar?.phase === "number" && cal.solar.phase >= 1 && cal.solar.phase <= 8
+      ? cal.solar.phase
+      : null;
+
+  const solarProgress01 =
+    cal?.solar?.kind === "INTERPHASE"
+      ? typeof cal?.solar?.interphaseDay === "number" &&
+        typeof cal?.solar?.interphaseTotal === "number" &&
+        cal.solar.interphaseTotal > 0
+        ? cal.solar.interphaseDay / cal.solar.interphaseTotal
+        : null
+      : typeof cal?.solar?.dayInPhase === "number"
+      ? (cal.solar.dayInPhase - 1) / 45
+      : null;
+
+  const sunText = cal?.astro?.sunPos ?? null;
+  const asOfLabel = cal?.gregorian?.asOfLocal ?? null;
+
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
       <div className="mx-auto w-full max-w-5xl">
         {/* Header (Calendar parity) */}
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-baseline justify-between md:block">
-            <div
-              className="text-xs tracking-[0.28em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)" }}
-            >
+            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
               URA
             </div>
-            <div
-              className="mt-1 text-lg font-semibold tracking-tight"
-              style={{ color: "rgba(31,36,26,0.90)" }}
-            >
+            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
               Profile
             </div>
           </div>
@@ -246,7 +303,6 @@ export default async function ProfilePage() {
               <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
             ))}
 
-            {/* Actions (styled like nav pills) */}
             <Link href="/profile/setup" aria-label="Edit profile">
               <ActionPill>Edit</ActionPill>
             </Link>
@@ -259,7 +315,6 @@ export default async function ProfilePage() {
           </div>
         </div>
 
-        {/* Client UI (kept as-is; we’re matching page chrome + nav parity here) */}
         <ProfileClient
           name={name}
           locationLine={locationLine}
@@ -271,9 +326,13 @@ export default async function ProfilePage() {
           movingSunLon={movingSunLon}
           movingMoonLon={movingMoonLon}
           cyclePosDeg={cyclePos}
+          // ✅ new: calendar parity props
+          solarPhaseId={solarPhaseId}
+          solarProgress01={solarProgress01}
+          sunText={sunText}
+          asOfLabel={asOfLabel}
         />
       </div>
     </div>
   );
 }
-
