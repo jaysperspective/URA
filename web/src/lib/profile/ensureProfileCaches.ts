@@ -25,7 +25,36 @@ function getLocalDayKey(timezone: string, d = new Date()) {
   const day = parts.find((p) => p.type === "day")?.value;
 
   if (!y || !m || !day) throw new Error("Could not compute local day key.");
-  return `${y}-${m}-${day}`; // e.g. 2025-12-27
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Convert a "wall clock" local time in a timezone into a UTC Date.
+ * This avoids the classic bug: treating local birth time as UTC.
+ */
+function zonedLocalToUtcDate(opts: {
+  year: number;
+  month: number; // 1-12
+  day: number;
+  hour: number;
+  minute: number;
+  timezone: string;
+}) {
+  const { year, month, day, hour, minute, timezone } = opts;
+
+  // 1) A UTC guess for the same wall-clock time
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+
+  // 2) Render that guess as if it were in the target timezone (string)
+  const asZonedString = utcGuess.toLocaleString("en-US", { timeZone: timezone });
+
+  // 3) Parse back as Date (server local tz)
+  const asZonedDate = new Date(asZonedString);
+
+  // 4) Offset correction
+  const diffMs = utcGuess.getTime() - asZonedDate.getTime();
+
+  return new Date(utcGuess.getTime() + diffMs);
 }
 
 async function fetchAstroNatal(birth: BirthPayload) {
@@ -43,10 +72,6 @@ async function fetchAstroNatal(birth: BirthPayload) {
   return r.json();
 }
 
-/**
- * NOTE: For daily caches, we do not want to hard-crash SSR if an endpoint is down
- * or returns non-OK. We return { ok:false } instead and let the caller decide.
- */
 async function fetchAscYearSafe(payload: unknown) {
   const base = process.env.APP_BASE_URL;
   if (!base) {
@@ -74,7 +99,7 @@ async function fetchAscYearSafe(payload: unknown) {
     const json = await r.json().catch(() => null);
     return { ok: true, data: json };
   } catch (err: any) {
-    return { ok: false, error: err?.message || "asc-year fetch error" as const };
+    return { ok: false, error: (err?.message || "asc-year fetch error") as const };
   }
 }
 
@@ -105,25 +130,20 @@ async function fetchLunationSafe(payload: unknown) {
     const json = await r.json().catch(() => null);
     return { ok: true, data: json };
   } catch (err: any) {
-    return { ok: false, error: err?.message || "lunation fetch error" as const };
+    return { ok: false, error: (err?.message || "lunation fetch error") as const };
   }
 }
 
 /**
  * Ensures the user's cached natal + daily outputs exist and are current.
- * - Natal: computed once (until birth data changes; setup action clears caches)
- * - Daily: recomputed once per local day (timezone-aware)
  */
 export async function ensureProfileCaches(userId: number) {
   const profile = await prisma.profile.findUnique({ where: { userId } });
   if (!profile) return null;
 
   const tz = profile.timezone || "America/New_York";
-
-  // If profile isn't set up, don't compute anything
   if (!profile.setupDone) return profile;
 
-  // Validate birth inputs (nullable in schema until setupDone is true)
   const {
     birthYear,
     birthMonth,
@@ -142,8 +162,6 @@ export async function ensureProfileCaches(userId: number) {
     birthLon: number | null;
   };
 
-  // ✅ Option A gate: if ANY birth fields are missing, do not compute caches here.
-  // Let /profile redirect to /profile/setup.
   const hasBirth =
     typeof birthYear === "number" &&
     typeof birthMonth === "number" &&
@@ -155,17 +173,26 @@ export async function ensureProfileCaches(userId: number) {
 
   if (!hasBirth) return profile;
 
-  const birth: BirthPayload = {
+  // ✅ Convert the user's local birth time (tz) into UTC parts for astro-service
+  const birthUTC = zonedLocalToUtcDate({
     year: birthYear,
     month: birthMonth,
     day: birthDay,
     hour: birthHour,
     minute: birthMinute,
+    timezone: tz,
+  });
+
+  const birth: BirthPayload = {
+    year: birthUTC.getUTCFullYear(),
+    month: birthUTC.getUTCMonth() + 1,
+    day: birthUTC.getUTCDate(),
+    hour: birthUTC.getUTCHours(),
+    minute: birthUTC.getUTCMinutes(),
     latitude: birthLat,
     longitude: birthLon,
   };
 
-  // Determine if “today” changed since last cache (timezone-aware)
   const todayKey = getLocalDayKey(tz, new Date());
   const cachedKey = profile.asOfDate ? getLocalDayKey(tz, profile.asOfDate) : null;
 
@@ -177,7 +204,6 @@ export async function ensureProfileCaches(userId: number) {
 
   const needsNatal = !profile.natalChartJson;
 
-  // Prisma JSON typing: avoid passing plain `null` to JSON inputs
   let natalChartJson: Prisma.InputJsonValue | undefined =
     (profile.natalChartJson ?? undefined) as unknown as Prisma.InputJsonValue | undefined;
 
@@ -194,8 +220,6 @@ export async function ensureProfileCaches(userId: number) {
   let didDailyUpdate = false;
 
   if (needsDaily) {
-    // ✅ IMPORTANT: core expects lat/lon, not latitude/longitude.
-    // We send BOTH (lat/lon as canonical; latitude/longitude for compatibility).
     const payload = {
       year: birth.year,
       month: birth.month,
@@ -207,24 +231,20 @@ export async function ensureProfileCaches(userId: number) {
       lat: birth.latitude,
       lon: birth.longitude,
 
-      // compatibility (harmless if ignored)
+      // compatibility
       latitude: birth.latitude,
       longitude: birth.longitude,
 
       timezone: tz,
-      asOfDate: todayKey, // your APIs can ignore if not used
+      asOfDate: todayKey,
     };
 
-    const [ascRes, lunaRes] = await Promise.all([
-      fetchAscYearSafe(payload),
-      fetchLunationSafe(payload),
-    ]);
+    const [ascRes, lunaRes] = await Promise.all([fetchAscYearSafe(payload), fetchLunationSafe(payload)]);
 
     if (ascRes.ok) {
       ascYearJson = ascRes.data as unknown as Prisma.InputJsonValue;
       didDailyUpdate = true;
     } else {
-      // ✅ don't crash SSR — just log and keep previous ascYearJson if present
       console.warn("[ensureProfileCaches] asc-year skipped:", ascRes);
     }
 
@@ -240,14 +260,12 @@ export async function ensureProfileCaches(userId: number) {
     return await prisma.profile.update({
       where: { userId },
       data: {
-        // If somehow undefined, use DbNull instead of null
         natalChartJson: (natalChartJson ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
         natalUpdatedAt: needsNatal ? new Date() : profile.natalUpdatedAt,
 
         ascYearJson: (ascYearJson ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
         lunationJson: (lunationJson ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
 
-        // Only move the asOfDate forward if we successfully updated at least one daily blob
         asOfDate: didDailyUpdate ? new Date() : profile.asOfDate,
         dailyUpdatedAt: didDailyUpdate ? new Date() : profile.dailyUpdatedAt,
       },
