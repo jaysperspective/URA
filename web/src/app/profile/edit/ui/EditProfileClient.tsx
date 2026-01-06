@@ -11,7 +11,6 @@ type Initial = {
 
   city: string;
   state: string;
-
   birthPlace: string;
   locationLine: string;
 
@@ -31,13 +30,13 @@ const inputStyle: React.CSSProperties = {
   borderColor: "rgba(31,36,26,0.18)",
   background: "rgba(248,242,232,0.85)",
   color: "rgba(15,15,15,0.92)",
-  WebkitTextFillColor: "rgba(15,15,15,0.92)", // Safari fix
+  WebkitTextFillColor: "rgba(15,15,15,0.92)",
 };
 
 export default function EditProfileClient({ initial }: { initial: Initial }) {
-  const [birthPlace, setBirthPlace] = useState(initial.birthPlace);
   const [city, setCity] = useState(initial.city);
   const [state, setState] = useState(initial.state);
+  const [birthPlace, setBirthPlace] = useState(initial.birthPlace);
 
   const [lat, setLat] = useState<number | null>(initial.lat);
   const [lon, setLon] = useState<number | null>(initial.lon);
@@ -46,16 +45,14 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [geoError, setGeoError] = useState<string | null>(null);
 
-  const fallbackQuery = useMemo(() => {
-    const parts = [city.trim(), state.trim()].filter(Boolean);
-    return parts.join(", ");
-  }, [city, state]);
-
   const query = useMemo(() => {
+    // Prefer explicit birthPlace label if present; else City, State
     const bp = birthPlace.trim();
     if (bp) return bp;
-    return fallbackQuery;
-  }, [birthPlace, fallbackQuery]);
+
+    const parts = [city.trim(), state.trim()].filter(Boolean);
+    return parts.join(", ");
+  }, [birthPlace, city, state]);
 
   async function resolveLocation() {
     setGeoError(null);
@@ -64,7 +61,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
     const q = query.trim();
     if (!q) {
       setGeoStatus("error");
-      setGeoError("Enter a birth place (recommended) or city/state first.");
+      setGeoError("Enter a birth place or city/state first.");
       return;
     }
 
@@ -84,23 +81,17 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         return;
       }
 
-      const nextLat = Number(json.lat);
-      const nextLon = Number(json.lon);
+      const newLat = Number(json.lat);
+      const newLon = Number(json.lon);
 
-      if (!Number.isFinite(nextLat) || !Number.isFinite(nextLon)) {
-        setGeoStatus("error");
-        setGeoError("Geocoder returned invalid coordinates.");
-        return;
-      }
-
-      setLat(nextLat);
-      setLon(nextLon);
+      setLat(Number.isFinite(newLat) ? newLat : null);
+      setLon(Number.isFinite(newLon) ? newLon : null);
       setGeoLabel(String(json.display_name || q));
       setGeoStatus("ok");
 
-      // If the user hasn’t typed a birthPlace, adopt the resolved label.
-      if (!birthPlace.trim() && (json.display_name || "").trim()) {
-        setBirthPlace(String(json.display_name));
+      // If the user didn't set birthPlace explicitly, adopt the resolved label
+      if (!birthPlace.trim() && typeof json.display_name === "string") {
+        setBirthPlace(json.display_name);
       }
     } catch (e: any) {
       setGeoStatus("error");
@@ -117,15 +108,12 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
       }}
     >
-      <div
-        className="text-[11px] tracking-[0.18em] uppercase"
-        style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-      >
+      <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
         Profile
       </div>
 
       <form action={saveProfileEditAction} className="mt-5 space-y-5">
-        {/* --- Basic --- */}
+        {/* Basic */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
@@ -154,32 +142,26 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
           </div>
         </div>
 
-        {/* --- Bio --- */}
+        {/* Bio */}
         <div>
           <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
             Bio (optional)
           </label>
-          <input
+          <textarea
             name="bio"
             defaultValue={initial.bio}
             className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
-            style={inputStyle}
-            placeholder=""
+            style={{ ...inputStyle, minHeight: 92 }}
+            placeholder="Short bio…"
           />
         </div>
 
-        {/* --- Location + Geocode --- */}
-        <div
-          className="rounded-2xl border px-5 py-4"
-          style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
-        >
+        {/* Location + Geocode */}
+        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div
-                className="text-[11px] tracking-[0.18em] uppercase"
-                style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-              >
-                Birth Location
+              <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+                Birth place
               </div>
               <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
                 Resolve lat/lon via Nominatim (required for Asc-Year / ASC).
@@ -200,24 +182,24 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             </button>
           </div>
 
-          <div className="mt-4">
-            <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
-              Birth Place (recommended)
-            </label>
-            <input
-              value={birthPlace}
-              onChange={(e) => setBirthPlace(e.target.value)}
-              className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
-              style={inputStyle}
-              placeholder={initial.locationLine}
-            />
-            <input type="hidden" name="birthPlace" value={birthPlace} />
-          </div>
-
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="md:col-span-2">
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                Birth place label (recommended)
+              </label>
+              <input
+                value={birthPlace}
+                onChange={(e) => setBirthPlace(e.target.value)}
+                className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
+                style={inputStyle}
+                placeholder="Danville, VA"
+              />
+              <input type="hidden" name="birthPlace" value={birthPlace} />
+            </div>
+
             <div>
               <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
-                City (optional)
+                City (fallback)
               </label>
               <input
                 value={city}
@@ -231,7 +213,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
 
             <div>
               <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
-                State (optional)
+                State (fallback)
               </label>
               <input
                 value={state}
@@ -248,7 +230,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             Query: <span className="font-mono">{query || "—"}</span>
           </div>
 
-          {/* Hidden authoritative coords for server action */}
+          {/* hidden authoritative coords for server action */}
           <input type="hidden" name="lat" value={lat ?? ""} />
           <input type="hidden" name="lon" value={lon ?? ""} />
 
@@ -260,8 +242,8 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
               {geoStatus === "ok"
                 ? `${geoLabel ?? query} • lat ${lat?.toFixed(5)} • lon ${lon?.toFixed(5)}`
                 : lat != null && lon != null
-                  ? `lat ${lat.toFixed(5)} • lon ${lon.toFixed(5)}`
-                  : "—"}
+                ? `lat ${lat.toFixed(5)} • lon ${lon.toFixed(5)}`
+                : "—"}
             </div>
 
             {geoStatus === "error" && geoError ? (
@@ -272,15 +254,9 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
           </div>
         </div>
 
-        {/* --- Birth data --- */}
-        <div
-          className="rounded-2xl border px-5 py-4"
-          style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
-        >
-          <div
-            className="text-[11px] tracking-[0.18em] uppercase"
-            style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-          >
+        {/* Birth data */}
+        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
+          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
             Birth data
           </div>
 
@@ -307,24 +283,18 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
           </div>
         </div>
 
-        {/* --- Avatar placeholder --- */}
-        <div
-          className="rounded-2xl border px-5 py-4"
-          style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
-        >
-          <div
-            className="text-[11px] tracking-[0.18em] uppercase"
-            style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-          >
+        {/* Avatar placeholder */}
+        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
+          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
             Profile image (optional)
           </div>
           <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-            Upload wiring next (R2/S3). For now we preserve existing URL if present.
+            Upload wiring next (R2/S3). For now this preserves existing URL if you already have one.
           </div>
           <input type="hidden" name="avatarUrl" value={initial.avatarUrl ?? ""} />
         </div>
 
-        {/* --- Actions --- */}
+        {/* Actions */}
         <div className="flex items-center gap-3">
           <button
             type="submit"
