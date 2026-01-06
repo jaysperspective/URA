@@ -64,7 +64,7 @@ function ActionPill({ children }: { children: React.ReactNode }) {
         className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
         style={{
           background:
-            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
+            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
         }}
       />
       <span className="relative">{children}</span>
@@ -100,7 +100,7 @@ export default async function EditProfilePage() {
     );
   }
 
-  // Prefer the explicit birthPlace label if it exists (it’s what you want to geocode from).
+  // Prefer explicit birthPlace label if it exists (best geocode input).
   const locationLine =
     profile.birthPlace?.trim() ||
     [profile.city, profile.state].filter(Boolean).join(", ") ||
@@ -113,17 +113,29 @@ export default async function EditProfilePage() {
         {/* Header + Nav (Calendar-style) */}
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-baseline justify-between md:block">
-            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+            <div
+              className="text-xs tracking-[0.28em] uppercase"
+              style={{ color: "rgba(31,36,26,0.55)" }}
+            >
               URA
             </div>
-            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
+            <div
+              className="mt-1 text-lg font-semibold tracking-tight"
+              style={{ color: "rgba(31,36,26,0.90)" }}
+            >
               Edit Profile
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {NAV.map((n) => (
-              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
+              <NavPill
+                key={n.href}
+                href={n.href}
+                label={n.label}
+                // when on /profile/edit, keep Profile pill active
+                active={n.href === "/profile"}
+              />
             ))}
 
             <Link href="/profile" aria-label="Back to profile">
