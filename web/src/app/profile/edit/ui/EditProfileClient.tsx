@@ -2,13 +2,14 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { saveProfileEditsAction } from "../actions";
+import { saveProfileEditAction } from "../actions";
 
 type Initial = {
   username: string;
   timezone: string;
   city: string;
   state: string;
+  locationLine: string;
   lat: number | null;
   lon: number | null;
 
@@ -18,242 +19,263 @@ type Initial = {
   birthHour: number | null;
   birthMinute: number | null;
 
-  imageUrl: string | null;
+  avatarUrl: string | null;
 };
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[11px] tracking-[0.18em] uppercase text-black/55 font-semibold">
-      {children}
-    </div>
-  );
-}
-
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={[
-        "w-full rounded-2xl border border-black/15 bg-white/70 px-4 py-3 text-sm text-black/85",
-        "outline-none focus:border-black/25 focus:bg-white/90",
-        props.className ?? "",
-      ].join(" ")}
-    />
-  );
-}
-
 export default function EditProfileClient({ initial }: { initial: Initial }) {
-  const [imageUrl, setImageUrl] = useState<string>(initial.imageUrl ?? "");
-  const [uploading, setUploading] = useState(false);
-  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [city, setCity] = useState(initial.city);
+  const [state, setState] = useState(initial.state);
 
-  const preview = useMemo(() => {
-    const u = (imageUrl || "").trim();
-    return u.length ? u : null;
-  }, [imageUrl]);
+  const [lat, setLat] = useState<number | null>(initial.lat);
+  const [lon, setLon] = useState<number | null>(initial.lon);
+  const [geoLabel, setGeoLabel] = useState<string | null>(null);
 
-  async function onUpload(file: File | null) {
-    if (!file) return;
-    setUploading(true);
-    setUploadErr(null);
+  const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [geoError, setGeoError] = useState<string | null>(null);
 
+  const q = useMemo(() => {
+    const parts = [city.trim(), state.trim()].filter(Boolean);
+    return parts.join(", ");
+  }, [city, state]);
+
+  async function resolveLocation() {
+    setGeoError(null);
+    setGeoLabel(null);
+
+    const query = q.trim();
+    if (!query) {
+      setGeoStatus("error");
+      setGeoError("Enter a city and state first.");
+      return;
+    }
+
+    setGeoStatus("loading");
     try {
-      const fd = new FormData();
-      fd.append("file", file);
+      const res = await fetch("/api/geocode", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ q: query }),
+      });
 
-      const r = await fetch("/api/profile/photo", { method: "POST", body: fd });
-      const j = await r.json();
-      if (!r.ok || !j?.ok || typeof j?.url !== "string") {
-        throw new Error(j?.error || "Upload failed");
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.ok) {
+        setGeoStatus("error");
+        setGeoError(json?.error || `Geocode failed (HTTP ${res.status})`);
+        return;
       }
-      setImageUrl(j.url);
+
+      setLat(Number(json.lat));
+      setLon(Number(json.lon));
+      setGeoLabel(String(json.display_name || query));
+      setGeoStatus("ok");
     } catch (e: any) {
-      setUploadErr(e?.message || "Upload failed");
-    } finally {
-      setUploading(false);
+      setGeoStatus("error");
+      setGeoError(e?.message || "Geocode failed.");
     }
   }
 
   return (
-    <form
-      action={saveProfileEditsAction}
-      className="rounded-3xl border border-black/10 bg-white/60 p-6 shadow-[0_18px_50px_rgba(31,36,26,0.10)]"
+    <div
+      className="rounded-3xl border p-6"
+      style={{
+        borderColor: "rgba(31,36,26,0.16)",
+        background: "rgba(244,235,221,0.86)",
+        boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
+      }}
     >
-      {/* Hidden imageUrl */}
-      <input type="hidden" name="imageUrl" value={imageUrl} />
+      <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+        Profile
+      </div>
 
-      {/* PHOTO */}
-      <div className="rounded-3xl border border-black/10 bg-white/55 p-5">
-        <FieldLabel>Profile Image (optional)</FieldLabel>
-
-        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl border border-black/10 bg-black/5 overflow-hidden flex items-center justify-center">
-              {preview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={preview} alt="Profile" className="h-full w-full object-cover" />
-              ) : (
-                <div className="text-xs text-black/40">No photo</div>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-black/85">
-                {preview ? "Photo linked" : "No image yet"}
-              </div>
-              <div className="text-xs text-black/55 break-all">
-                {preview ? preview : "Upload a square image for clean UI fit."}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <label className="cursor-pointer rounded-full border border-black/15 bg-white/70 px-4 py-2 text-sm text-black/80 hover:bg-white/90">
-              {uploading ? "Uploading..." : "Upload"}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => onUpload(e.target.files?.[0] ?? null)}
-                disabled={uploading}
-              />
+      <form action={saveProfileEditAction} className="mt-5 space-y-5">
+        {/* --- Basic --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+              Display name
             </label>
-
-            <button
-              type="button"
-              className="rounded-full border border-black/15 bg-white/55 px-4 py-2 text-sm text-black/70 hover:bg-white/80"
-              onClick={() => setImageUrl("")}
-            >
-              Remove
-            </button>
+            <input
+              name="username"
+              defaultValue={initial.username}
+              className="w-full rounded-2xl border px-4 py-3 text-sm"
+              style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+              placeholder="your name"
+            />
           </div>
-        </div>
 
-        {uploadErr ? <div className="mt-3 text-xs text-red-700">{uploadErr}</div> : null}
-
-        <div className="mt-4">
-          <FieldLabel>Or paste an image URL</FieldLabel>
-          <div className="mt-2">
-            <Input
-              name="imageUrlText"
-              defaultValue={initial.imageUrl ?? ""}
-              placeholder="https://..."
-              onChange={(e) => setImageUrl(e.target.value)}
+          <div>
+            <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+              Timezone
+            </label>
+            <input
+              name="timezone"
+              defaultValue={initial.timezone}
+              className="w-full rounded-2xl border px-4 py-3 text-sm"
+              style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+              placeholder="America/New_York"
             />
           </div>
         </div>
-      </div>
 
-      {/* IDENTITY */}
-      <div className="mt-4 rounded-3xl border border-black/10 bg-white/55 p-5">
-        <FieldLabel>Identity</FieldLabel>
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>Display Name</FieldLabel>
-            <div className="mt-2">
-              <Input name="username" defaultValue={initial.username} placeholder="Your name" />
+        {/* --- Location + Geocode --- */}
+        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+                Location
+              </div>
+              <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+                We resolve lat/lon via Nominatim (required for Asc-Year / ASC).
+              </div>
             </div>
+
+            <button
+              type="button"
+              onClick={resolveLocation}
+              className="rounded-full border px-4 py-2 text-sm"
+              style={{
+                borderColor: "rgba(31,36,26,0.20)",
+                background: "rgba(244,235,221,0.85)",
+                color: "rgba(31,36,26,0.88)",
+              }}
+            >
+              {geoStatus === "loading" ? "Resolving…" : "Resolve"}
+            </button>
           </div>
 
-          <div>
-            <FieldLabel>Timezone</FieldLabel>
-            <div className="mt-2">
-              <Input name="timezone" defaultValue={initial.timezone} placeholder="America/New_York" />
-            </div>
-          </div>
-
-          <div>
-            <FieldLabel>City</FieldLabel>
-            <div className="mt-2">
-              <Input name="city" defaultValue={initial.city} placeholder="City" />
-            </div>
-          </div>
-
-          <div>
-            <FieldLabel>State</FieldLabel>
-            <div className="mt-2">
-              <Input name="state" defaultValue={initial.state} placeholder="State" />
-            </div>
-          </div>
-
-          <div>
-            <FieldLabel>Latitude</FieldLabel>
-            <div className="mt-2">
-              <Input
-                name="lat"
-                type="number"
-                step="0.000001"
-                defaultValue={initial.lat ?? ""}
-                placeholder="36.585"
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                City
+              </label>
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+                placeholder="Danville"
               />
+              <input type="hidden" name="city" value={city} />
             </div>
-          </div>
 
-          <div>
-            <FieldLabel>Longitude</FieldLabel>
-            <div className="mt-2">
-              <Input
-                name="lon"
-                type="number"
-                step="0.000001"
-                defaultValue={initial.lon ?? ""}
-                placeholder="-79.395"
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                State
+              </label>
+              <input
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+                placeholder="VA"
               />
+              <input type="hidden" name="state" value={state} />
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* BIRTH */}
-      <div className="mt-4 rounded-3xl border border-black/10 bg-white/55 p-5">
-        <FieldLabel>Birth Data</FieldLabel>
-        <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div>
-            <FieldLabel>Year</FieldLabel>
-            <div className="mt-2">
-              <Input name="birthYear" type="number" defaultValue={initial.birthYear ?? ""} />
-            </div>
+          <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+            Query: <span className="font-mono">{q || "—"}</span>
           </div>
-          <div>
-            <FieldLabel>Month</FieldLabel>
-            <div className="mt-2">
-              <Input name="birthMonth" type="number" defaultValue={initial.birthMonth ?? ""} />
+
+          {/* hidden authoritative coords for server action */}
+          <input type="hidden" name="lat" value={lat ?? ""} />
+          <input type="hidden" name="lon" value={lon ?? ""} />
+
+          <div className="mt-3">
+            <div className="text-xs" style={{ color: "rgba(31,36,26,0.70)" }}>
+              Resolved:
             </div>
-          </div>
-          <div>
-            <FieldLabel>Day</FieldLabel>
-            <div className="mt-2">
-              <Input name="birthDay" type="number" defaultValue={initial.birthDay ?? ""} />
+            <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
+              {geoStatus === "ok"
+                ? `${geoLabel ?? q} • lat ${lat?.toFixed(5)} • lon ${lon?.toFixed(5)}`
+                : lat != null && lon != null
+                ? `lat ${lat.toFixed(5)} • lon ${lon.toFixed(5)}`
+                : "—"}
             </div>
-          </div>
-          <div>
-            <FieldLabel>Hour</FieldLabel>
-            <div className="mt-2">
-              <Input name="birthHour" type="number" defaultValue={initial.birthHour ?? ""} />
-            </div>
-          </div>
-          <div>
-            <FieldLabel>Minute</FieldLabel>
-            <div className="mt-2">
-              <Input name="birthMinute" type="number" defaultValue={initial.birthMinute ?? ""} />
-            </div>
+
+            {geoStatus === "error" && geoError ? (
+              <div className="mt-2 text-sm" style={{ color: "rgba(120,20,20,0.85)" }}>
+                {geoError}
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="mt-3 text-xs text-black/55">
-          When you save, we refresh <span className="font-mono">natal / asc-year / lunation</span> caches.
-        </div>
-      </div>
+        {/* --- Birth data --- */}
+        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
+          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+            Birth data
+          </div>
 
-      {/* SAVE */}
-      <div className="mt-6 flex items-center justify-end gap-3">
-        <button
-          type="submit"
-          className="rounded-full border border-black/15 bg-black/85 px-5 py-2 text-sm text-white hover:bg-black"
-        >
-          Save changes
-        </button>
-      </div>
-    </form>
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Year</label>
+              <input name="birthYear" defaultValue={initial.birthYear ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Month</label>
+              <input name="birthMonth" defaultValue={initial.birthMonth ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Day</label>
+              <input name="birthDay" defaultValue={initial.birthDay ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Hour</label>
+              <input name="birthHour" defaultValue={initial.birthHour ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Minute</label>
+              <input name="birthMinute" defaultValue={initial.birthMinute ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+            </div>
+          </div>
+        </div>
+
+        {/* --- Avatar placeholder (optional) --- */}
+        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
+          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+            Profile image (optional)
+          </div>
+          <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+            We can wire upload next (R2/S3). For now this preserves existing URL if you already have one.
+          </div>
+          <input type="hidden" name="avatarUrl" value={initial.avatarUrl ?? ""} />
+        </div>
+
+        {/* --- Actions --- */}
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            className="rounded-full border px-5 py-3 text-sm"
+            style={{
+              borderColor: "rgba(31,36,26,0.20)",
+              background: "rgba(244,235,221,0.90)",
+              color: "rgba(31,36,26,0.88)",
+              boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
+            }}
+          >
+            Save
+          </button>
+
+          <a
+            href="/profile"
+            className="rounded-full border px-5 py-3 text-sm"
+            style={{
+              borderColor: "rgba(31,36,26,0.16)",
+              background: "rgba(248,242,232,0.85)",
+              color: "rgba(31,36,26,0.78)",
+            }}
+          >
+            Cancel
+          </a>
+        </div>
+      </form>
+    </div>
   );
 }
