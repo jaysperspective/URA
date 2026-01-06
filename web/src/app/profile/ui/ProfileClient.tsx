@@ -226,18 +226,18 @@ type Props = {
   natalSunLon: number | null;
   natalMoonLon: number | null;
 
-  // as-of (transiting) sun (preferred for "Current Zodiac")
+  // as-of (transiting) sun
   currentSunLon: number | null;
 
-  // progressed (from /api/lunation)
+  // progressed
   progressedSunLon: number | null;
   progressedMoonLon: number | null;
 
-  // asc-year
+  // asc-year (from cached /api/asc-year output)
   ascYearCyclePosDeg: number | null;
-  ascYearSeason: string | null; // "Spring" | "Summer" | "Fall" | "Winter"
-  ascYearModality: string | null; // "Cardinal" | "Fixed" | "Mutable"
-  ascYearDegreesIntoModality: number | null; // 0..30
+  ascYearSeason: string | null;
+  ascYearModality: string | null;
+  ascYearDegreesIntoModality: number | null;
 };
 
 function phaseIdFromCyclePos45(cyclePosDeg: number): PhaseId {
@@ -314,7 +314,8 @@ export default function ProfileClient(props: Props) {
           : null;
 
     const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
-  
+
+    // ✅ URA 8-phase derived from cycle position
     const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : null;
     const uraDegIntoPhase = ok ? (cyclePos! % 45) : null;
     const uraProgress01 = uraDegIntoPhase != null ? uraDegIntoPhase / 45 : null;
@@ -333,18 +334,21 @@ export default function ProfileClient(props: Props) {
       uraProgress01,
     };
   }, [ascYearCyclePosDeg, ascYearSeason, ascYearModality, ascYearDegreesIntoModality]);
- 
+
+  // ✅ Microcopy is only computed if we have a phase id
   const phaseCopy = useMemo(() => {
     if (!orientation.uraPhaseId) return null;
     return microcopyForPhase(orientation.uraPhaseId);
   }, [orientation.uraPhaseId]);
 
+  // Foundation panel “Sun” line should use current as-of Sun (preferred)
   const sunTextForFoundation = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
     if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
     return "—";
   }, [currentSunLon, progressedSunLon]);
 
+  // Sanity check: cyclePos should equal wrap360(asOfSun - natalAsc)
   const ascMathCheck = useMemo(() => {
     if (
       typeof natalAscLon !== "number" ||
@@ -357,7 +361,11 @@ export default function ProfileClient(props: Props) {
     const got = norm360(orientation.cyclePos);
     const diff = Math.abs(expected - got);
     const diffWrapped = Math.min(diff, 360 - diff);
-    return { expected, got, diff: diffWrapped };
+    return {
+      expected,
+      got,
+      diff: diffWrapped,
+    };
   }, [natalAscLon, currentSunLon, orientation.cyclePos]);
 
   return (
@@ -402,23 +410,26 @@ export default function ProfileClient(props: Props) {
                   <div>{orientation.ok ? orientation.seasonText : "—"}</div>
                 </div>
 
-                {/* ✅ Phase replaces Modality under the season */}
+                {/* ✅ show Phase under Spring instead of Modality */}
                 <div className="flex justify-center">
                   <div>
-                    {orientation.ok ? `Phase ${orientation.uraPhaseId} · ${phaseCopy.orisha}` : "—"}
+                    {orientation.ok && orientation.uraPhaseId
+                      ? `Phase ${orientation.uraPhaseId}`
+                      : "—"}
                   </div>
                 </div>
               </div>
 
-              {/* Keep Modality, but smaller (still useful) */}
-              <div className="mt-2 text-sm text-[#403A32]/70">
-                {orientation.ok ? `${orientation.modalityText} • ${orientation.cyclePos?.toFixed(2)}° (0–360)` : "Cycle position unavailable."}
+              <div className="mt-2 text-sm text-[#403A32]/75">
+                {orientation.ok && typeof orientation.cyclePos === "number"
+                  ? `Asc-Year cycle position: ${orientation.cyclePos.toFixed(2)}° (0–360)`
+                  : "Cycle position unavailable."}
               </div>
 
               {ascMathCheck ? (
                 <div className="mt-2 text-xs text-[#403A32]/70">
-                  ASC math check: expected {ascMathCheck.expected.toFixed(2)}° • got {ascMathCheck.got.toFixed(2)}° • Δ{" "}
-                  {ascMathCheck.diff.toFixed(4)}°
+                  ASC math check: expected {ascMathCheck.expected.toFixed(2)}° • got{" "}
+                  {ascMathCheck.got.toFixed(2)}° • Δ {ascMathCheck.diff.toFixed(4)}°
                 </div>
               ) : null}
             </div>
@@ -443,7 +454,7 @@ export default function ProfileClient(props: Props) {
 
               <SubCard title="URA Phase (45° lens)">
                 <div className="text-sm font-semibold text-[#1F1B16]">
-                  Phase {orientation.uraPhaseId}
+                  {orientation.uraPhaseId ? `Phase ${orientation.uraPhaseId}` : "—"}
                 </div>
                 <div className="mt-1 text-sm text-[#403A32]/75">
                   Derived from Asc-Year cycle position (8×45°).
@@ -508,7 +519,8 @@ export default function ProfileClient(props: Props) {
             {/* URA FOUNDATION PANEL */}
             <div className="mt-4">
               <URAFoundationPanel
-                solarPhaseId={orientation.uraPhaseId}
+                // keep panel stable even if asc-year missing
+                solarPhaseId={(orientation.uraPhaseId ?? 1) as any}
                 solarProgress01={orientation.uraProgress01}
                 sunText={sunTextForFoundation}
                 ontology={null}
@@ -516,15 +528,21 @@ export default function ProfileClient(props: Props) {
               />
             </div>
 
-            {/* ORISHA PHASE MODULE */}
+            {/* ✅ ORISHA PHASE MODULE (THIS IS WHERE THE GUARD GOES) */}
             <div className="mt-4">
-              <PhaseMicrocopyCard
-                copy={phaseCopy}
-                tone="linen"
-                defaultExpanded={false}
-                showJournal={true}
-                showActionHint={true}
-              />
+              {phaseCopy ? (
+                <PhaseMicrocopyCard
+                  copy={phaseCopy}
+                  tone="linen"
+                  defaultExpanded={false}
+                  showJournal={true}
+                  showActionHint={true}
+                />
+              ) : (
+                <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4 text-sm text-[#403A32]/70">
+                  Waiting for Asc-Year cycle position…
+                </div>
+              )}
             </div>
 
             {/* FOOT */}
