@@ -6,18 +6,18 @@ import { saveProfileEditAction } from "../actions";
 
 type Initial = {
   username: string;
-  bio: string; // ✅ added
+  bio: string;
   timezone: string;
 
-  // location
-  birthPlace: string; // ✅ added (preferred label for geocode)
   city: string;
   state: string;
+
+  birthPlace: string;
   locationLine: string;
+
   lat: number | null;
   lon: number | null;
 
-  // birth data
   birthYear: number | null;
   birthMonth: number | null;
   birthDay: number | null;
@@ -30,21 +30,14 @@ type Initial = {
 const inputStyle: React.CSSProperties = {
   borderColor: "rgba(31,36,26,0.18)",
   background: "rgba(248,242,232,0.85)",
-  color: "#000", // ✅ force black
-  caretColor: "#000",
-  WebkitTextFillColor: "#000", // ✅ Safari text color fix
-};
-
-const inputShellStyle: React.CSSProperties = {
-  borderColor: "rgba(31,36,26,0.18)",
-  background: "rgba(248,242,232,0.85)",
+  color: "rgba(15,15,15,0.92)",
+  WebkitTextFillColor: "rgba(15,15,15,0.92)", // Safari fix
 };
 
 export default function EditProfileClient({ initial }: { initial: Initial }) {
+  const [birthPlace, setBirthPlace] = useState(initial.birthPlace);
   const [city, setCity] = useState(initial.city);
   const [state, setState] = useState(initial.state);
-  const [birthPlace, setBirthPlace] = useState(initial.birthPlace);
-  const [bio, setBio] = useState(initial.bio);
 
   const [lat, setLat] = useState<number | null>(initial.lat);
   const [lon, setLon] = useState<number | null>(initial.lon);
@@ -53,23 +46,25 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [geoError, setGeoError] = useState<string | null>(null);
 
-  // Prefer birthPlace if user provided it; fallback to city/state
-  const q = useMemo(() => {
-    const bp = birthPlace.trim();
-    if (bp) return bp;
-
+  const fallbackQuery = useMemo(() => {
     const parts = [city.trim(), state.trim()].filter(Boolean);
     return parts.join(", ");
-  }, [birthPlace, city, state]);
+  }, [city, state]);
+
+  const query = useMemo(() => {
+    const bp = birthPlace.trim();
+    if (bp) return bp;
+    return fallbackQuery;
+  }, [birthPlace, fallbackQuery]);
 
   async function resolveLocation() {
     setGeoError(null);
     setGeoLabel(null);
 
-    const query = q.trim();
-    if (!query) {
+    const q = query.trim();
+    if (!q) {
       setGeoStatus("error");
-      setGeoError("Enter a Birth Place or City + State first.");
+      setGeoError("Enter a birth place (recommended) or city/state first.");
       return;
     }
 
@@ -78,7 +73,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
       const res = await fetch("/api/geocode", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ q: query }),
+        body: JSON.stringify({ q }),
       });
 
       const json = await res.json().catch(() => null);
@@ -92,14 +87,20 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
       const nextLat = Number(json.lat);
       const nextLon = Number(json.lon);
 
-      setLat(Number.isFinite(nextLat) ? nextLat : null);
-      setLon(Number.isFinite(nextLon) ? nextLon : null);
-      setGeoLabel(String(json.display_name || query));
+      if (!Number.isFinite(nextLat) || !Number.isFinite(nextLon)) {
+        setGeoStatus("error");
+        setGeoError("Geocoder returned invalid coordinates.");
+        return;
+      }
+
+      setLat(nextLat);
+      setLon(nextLon);
+      setGeoLabel(String(json.display_name || q));
       setGeoStatus("ok");
 
-      // If user was using city/state, keep birthPlace synced to the resolved label
-      if (!birthPlace.trim()) {
-        setBirthPlace(String(json.display_name || query));
+      // If the user hasn’t typed a birthPlace, adopt the resolved label.
+      if (!birthPlace.trim() && (json.display_name || "").trim()) {
+        setBirthPlace(String(json.display_name));
       }
     } catch (e: any) {
       setGeoStatus("error");
@@ -116,21 +117,6 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
       }}
     >
-      {/* Autofill hard-fix (Safari/Chrome) */}
-      <style>{`
-        input:-webkit-autofill,
-        input:-webkit-autofill:hover,
-        input:-webkit-autofill:focus,
-        textarea:-webkit-autofill,
-        textarea:-webkit-autofill:hover,
-        textarea:-webkit-autofill:focus {
-          -webkit-text-fill-color: #000 !important;
-          caret-color: #000 !important;
-          box-shadow: 0 0 0px 1000px rgba(248,242,232,0.92) inset !important;
-          transition: background-color 9999s ease-in-out 0s !important;
-        }
-      `}</style>
-
       <div
         className="text-[11px] tracking-[0.18em] uppercase"
         style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
@@ -151,7 +137,6 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
               className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
               style={inputStyle}
               placeholder="your name"
-              autoComplete="name"
             />
           </div>
 
@@ -165,7 +150,6 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
               className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
               style={inputStyle}
               placeholder="America/New_York"
-              autoComplete="off"
             />
           </div>
         </div>
@@ -176,15 +160,12 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             Bio (optional)
           </label>
           <input
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
+            name="bio"
+            defaultValue={initial.bio}
             className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
             style={inputStyle}
             placeholder=""
-            autoComplete="off"
           />
-          {/* authoritative submit value */}
-          <input type="hidden" name="bio" value={bio} />
         </div>
 
         {/* --- Location + Geocode --- */}
@@ -228,7 +209,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
               onChange={(e) => setBirthPlace(e.target.value)}
               className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
               style={inputStyle}
-              placeholder="Danville, Virginia, United States"
+              placeholder={initial.locationLine}
             />
             <input type="hidden" name="birthPlace" value={birthPlace} />
           </div>
@@ -264,10 +245,10 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
           </div>
 
           <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-            Query: <span className="font-mono">{q || "—"}</span>
+            Query: <span className="font-mono">{query || "—"}</span>
           </div>
 
-          {/* hidden authoritative coords for server action */}
+          {/* Hidden authoritative coords for server action */}
           <input type="hidden" name="lat" value={lat ?? ""} />
           <input type="hidden" name="lon" value={lon ?? ""} />
 
@@ -277,10 +258,10 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             </div>
             <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
               {geoStatus === "ok"
-                ? `${geoLabel ?? q} • lat ${lat?.toFixed(5)} • lon ${lon?.toFixed(5)}`
+                ? `${geoLabel ?? query} • lat ${lat?.toFixed(5)} • lon ${lon?.toFixed(5)}`
                 : lat != null && lon != null
-                ? `lat ${lat.toFixed(5)} • lon ${lon.toFixed(5)}`
-                : "—"}
+                  ? `lat ${lat.toFixed(5)} • lon ${lon.toFixed(5)}`
+                  : "—"}
             </div>
 
             {geoStatus === "error" && geoError ? (
@@ -320,14 +301,13 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
                   defaultValue={val ?? ""}
                   className="w-full rounded-2xl border px-4 py-3 text-sm placeholder:text-black/40"
                   style={inputStyle}
-                  inputMode="numeric"
                 />
               </div>
             ))}
           </div>
         </div>
 
-        {/* --- Avatar placeholder (optional) --- */}
+        {/* --- Avatar placeholder --- */}
         <div
           className="rounded-2xl border px-5 py-4"
           style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
