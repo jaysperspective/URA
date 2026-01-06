@@ -98,7 +98,6 @@ function pickName(user: any, profile: any) {
 function getNatalSources(natal: any) {
   const planets = natal?.data?.planets ?? natal?.planets ?? natal?.data?.bodies ?? natal?.bodies ?? null;
 
-  // ✅ broaden ASC extraction (sometimes stored as object)
   const asc =
     natal?.data?.ascendant ??
     natal?.data?.angles?.asc ??
@@ -113,55 +112,42 @@ function getNatalSources(natal: any) {
   return { planets, asc };
 }
 
-// ✅ robust progressed lon extraction from lunation json (multiple fallbacks)
-function getProgressedFromLunation(lunation: any) {
-  const pSun =
-    safeLon(lunation?.lunation?.progressedSunLon) ??
-    safeLon(lunation?.progressedSunLon) ??
-    safeLon(lunation?.data?.lunation?.progressedSunLon) ??
-    safeLon(lunation?.data?.progressedSunLon) ??
-    safeLon(lunation?.sep?.progressedSunLon) ??
-    safeLon(lunation?.secondaryProgressions?.sunLon) ??
-    safeLon(lunation?.progressed?.sunLon) ??
-    null;
+// ✅ NEW lunation wrapper structure:
+// profile.lunationJson = { ok, text, summary, lunation, input }
+function getFromLunationWrapper(lunWrap: any) {
+  const summary = lunWrap?.summary ?? null;
+  const lun = lunWrap?.lunation ?? null;
 
-  const pMoon =
-    safeLon(lunation?.lunation?.progressedMoonLon) ??
-    safeLon(lunation?.progressedMoonLon) ??
-    safeLon(lunation?.data?.lunation?.progressedMoonLon) ??
-    safeLon(lunation?.data?.progressedMoonLon) ??
-    safeLon(lunation?.sep?.progressedMoonLon) ??
-    safeLon(lunation?.secondaryProgressions?.moonLon) ??
-    safeLon(lunation?.progressed?.moonLon) ??
-    null;
+  const progressedSunLon = safeLon(lun?.progressedSunLon);
+  const progressedMoonLon = safeLon(lun?.progressedMoonLon);
 
-  return { progressedSunLon: pSun, progressedMoonLon: pMoon };
-}
+  // Current Sun should come from summary.asOf.sun (core derived summary)
+  const currentSunLon = safeLon(summary?.asOf?.sun);
 
-// ✅ current (as-of) Sun lon extraction (from core summary / asOf bodies)
-function getCurrentSunLon(ascYear: any, natal: any, lunation: any) {
-  // best: core summary shape (what your /api/lunation wrapper returns now)
-  const s1 =
-    safeLon(lunation?.summary?.asOf?.sun) ??
-    safeLon(lunation?.summary?.asOf?.sunLon) ??
-    safeLon(lunation?.summary?.asof?.sun) ??
-    null;
+  // Asc-Year values from summary (preferred)
+  const ascYearCyclePosDeg = safeNum(summary?.ascYearCyclePos);
+  const ascYearDegreesIntoModality = safeNum(summary?.ascYearDegreesInto);
 
-  if (typeof s1 === "number") return s1;
+  // Split "Spring · Mutable" into season/modality
+  let ascYearSeason: string | null = null;
+  let ascYearModality: string | null = null;
 
-  // fallback: if ascYear cache includes asOf sun
-  const s2 =
-    safeLon(ascYear?.summary?.asOf?.sun) ??
-    safeLon(ascYear?.summary?.asOf?.sunLon) ??
-    safeLon(ascYear?.asOf?.bodies?.sun?.lon) ??
-    safeLon(ascYear?.asOf?.sunLon) ??
-    null;
+  const label = typeof summary?.ascYearLabel === "string" ? summary.ascYearLabel : "";
+  if (label.includes("·")) {
+    const parts = label.split("·").map((x: string) => x.trim());
+    ascYearSeason = parts[0] || null;
+    ascYearModality = parts[1] || null;
+  }
 
-  if (typeof s2 === "number") return s2;
-
-  // final fallback: natal sun (not ideal but better than empty)
-  const natalPlanets = natal?.data?.planets ?? natal?.planets ?? natal?.data?.bodies ?? natal?.bodies ?? null;
-  return safeLon(natalPlanets?.sun?.lon ?? natalPlanets?.sun);
+  return {
+    progressedSunLon,
+    progressedMoonLon,
+    currentSunLon,
+    ascYearCyclePosDeg,
+    ascYearSeason,
+    ascYearModality,
+    ascYearDegreesIntoModality,
+  };
 }
 
 export default async function ProfilePage() {
@@ -246,11 +232,15 @@ export default async function ProfilePage() {
   }
 
   const tz = profile.timezone ?? "America/New_York";
-  const locationLine = [profile.city, profile.state].filter(Boolean).join(", ") || tz;
+
+  // Prefer birthPlace; fallback to city/state; fallback to timezone
+  const locationLine =
+    profile.birthPlace?.trim() ||
+    [profile.city, profile.state].filter(Boolean).join(", ") ||
+    tz;
 
   const natal = profile.natalChartJson as any;
-  const ascYear = profile.ascYearJson as any;
-  const lunation = profile.lunationJson as any;
+  const lunWrap = profile.lunationJson as any;
 
   const { planets, asc } = getNatalSources(natal);
 
@@ -258,37 +248,16 @@ export default async function ProfilePage() {
   const natalMoonLon = safeLon(planets?.moon?.lon ?? planets?.moon);
   const natalAscLon = safeLon(asc);
 
-  // Asc-Year (authoritative for orientation)
-  const cyclePos =
-    safeNum(ascYear?.derived?.ascYear?.cyclePosition) ??
-    safeNum(ascYear?.ascYear?.cyclePositionDeg) ??
-    safeNum(ascYear?.ascYear?.cyclePosition) ??
-    safeNum(ascYear?.cyclePositionDeg) ??
-    safeNum(ascYear?.cyclePosition) ??
-    safeNum(ascYear?.summary?.ascYearCyclePos);
-
-  const ascYearSeason =
-    (typeof ascYear?.derived?.ascYear?.season === "string" ? ascYear.derived.ascYear.season : null) ??
-    (typeof ascYear?.ascYear?.season === "string" ? ascYear.ascYear.season : null) ??
-    (typeof ascYear?.season === "string" ? ascYear.season : null) ??
-    (typeof ascYear?.summary?.ascYearLabel === "string" ? ascYear.summary.ascYearLabel?.split("·")?.[0]?.trim() : null);
-
-  const ascYearModality =
-    (typeof ascYear?.derived?.ascYear?.modality === "string" ? ascYear.derived.ascYear.modality : null) ??
-    (typeof ascYear?.ascYear?.modality === "string" ? ascYear.ascYear.modality : null) ??
-    (typeof ascYear?.modality === "string" ? ascYear.modality : null);
-
-  const ascYearDegreesIntoModality =
-    safeNum(ascYear?.derived?.ascYear?.degreesIntoModality) ??
-    safeNum(ascYear?.ascYear?.degreesIntoModality) ??
-    safeNum(ascYear?.degreesIntoModality) ??
-    safeNum(ascYear?.summary?.ascYearDegreesInto);
-
-  // Progressed Sun/Moon (for “moving” slots)
-  const { progressedSunLon, progressedMoonLon } = getProgressedFromLunation(lunation);
-
-  // Current (as-of) Sun lon (for Current Zodiac + foundation Sun line)
-  const currentSunLon = getCurrentSunLon(ascYear, natal, lunation);
+  // ✅ Pull everything else from lunation wrapper (core-derived summary)
+  const {
+    progressedSunLon,
+    progressedMoonLon,
+    currentSunLon,
+    ascYearCyclePosDeg,
+    ascYearSeason,
+    ascYearModality,
+    ascYearDegreesIntoModality,
+  } = getFromLunationWrapper(lunWrap);
 
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
   const name = pickName(user, profile);
@@ -311,7 +280,6 @@ export default async function ProfilePage() {
               <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
             ))}
 
-            {/* ✅ NEW: Edit Profile route */}
             <Link href="/profile/edit" aria-label="Edit profile">
               <ActionPill>Edit</ActionPill>
             </Link>
@@ -335,7 +303,7 @@ export default async function ProfilePage() {
           currentSunLon={currentSunLon}
           progressedSunLon={progressedSunLon}
           progressedMoonLon={progressedMoonLon}
-          ascYearCyclePosDeg={cyclePos}
+          ascYearCyclePosDeg={ascYearCyclePosDeg}
           ascYearSeason={ascYearSeason}
           ascYearModality={ascYearModality}
           ascYearDegreesIntoModality={ascYearDegreesIntoModality}
