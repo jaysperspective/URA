@@ -24,7 +24,6 @@ function hasNum(x: any): x is number {
 }
 
 function getBaseUrl() {
-  // Prefer a configured canonical URL for server-side fetches
   const explicit =
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.NEXTAUTH_URL ||
@@ -33,11 +32,9 @@ function getBaseUrl() {
 
   if (explicit) return explicit.replace(/\/$/, "");
 
-  // Vercel-like env
   const vercel = process.env.VERCEL_URL;
   if (vercel) return `https://${vercel}`.replace(/\/$/, "");
 
-  // Local / droplet fallback
   return "http://127.0.0.1:3000";
 }
 
@@ -63,6 +60,26 @@ async function geocodeViaApi(q: string): Promise<{ lat: number; lon: number; dis
   return { lat, lon, display_name: String(json.display_name || query) };
 }
 
+function isSetupComplete(p: {
+  birthYear: number | null;
+  birthMonth: number | null;
+  birthDay: number | null;
+  birthHour: number | null;
+  birthMinute: number | null;
+  birthLat: number | null;
+  birthLon: number | null;
+}) {
+  return (
+    typeof p.birthYear === "number" &&
+    typeof p.birthMonth === "number" &&
+    typeof p.birthDay === "number" &&
+    typeof p.birthHour === "number" &&
+    typeof p.birthMinute === "number" &&
+    typeof p.birthLat === "number" &&
+    typeof p.birthLon === "number"
+  );
+}
+
 export async function saveProfileEditAction(form: FormData) {
   const user = await requireUser();
 
@@ -75,14 +92,17 @@ export async function saveProfileEditAction(form: FormData) {
       city: true,
       state: true,
       timezone: true,
+
       birthPlace: true,
       birthLat: true,
       birthLon: true,
+
       birthYear: true,
       birthMonth: true,
       birthDay: true,
       birthHour: true,
       birthMinute: true,
+
       avatarUrl: true,
       setupDone: true,
     },
@@ -99,7 +119,7 @@ export async function saveProfileEditAction(form: FormData) {
   const state = s(form.get("state")) ?? existing.state ?? null;
 
   // ✅ Birth place label (authoritative input for geocoding + display)
-  const birthPlace = s(form.get("birthPlace")) ?? existing.birthPlace ?? null;
+  let birthPlace = s(form.get("birthPlace")) ?? existing.birthPlace ?? null;
 
   const birthYear = n(form.get("birthYear")) ?? existing.birthYear ?? null;
   const birthMonth = n(form.get("birthMonth")) ?? existing.birthMonth ?? null;
@@ -112,8 +132,8 @@ export async function saveProfileEditAction(form: FormData) {
   const formLon = n(form.get("lon"));
 
   // Preserve existing coords unless overwritten
-  let finalLat = hasNum(formLat) ? formLat : (hasNum(existing.birthLat) ? existing.birthLat : null);
-  let finalLon = hasNum(formLon) ? formLon : (hasNum(existing.birthLon) ? existing.birthLon : null);
+  let finalLat = hasNum(formLat) ? formLat : hasNum(existing.birthLat) ? existing.birthLat : null;
+  let finalLon = hasNum(formLon) ? formLon : hasNum(existing.birthLon) ? existing.birthLon : null;
 
   // If coords still missing, geocode server-side via /api/geocode
   if (finalLat == null || finalLon == null) {
@@ -124,20 +144,30 @@ export async function saveProfileEditAction(form: FormData) {
     if (g) {
       finalLat = g.lat;
       finalLon = g.lon;
-      // If birthPlace was empty, adopt the resolved label
-      if (!birthPlace && g.display_name) {
-        // keep a short-ish display label (optional)
-        // eslint-disable-next-line no-var
-      }
+
+      // ✅ adopt display label if birthPlace was empty
+      if (!birthPlace && g.display_name) birthPlace = g.display_name;
     }
   }
 
+  // If still missing, bounce back to edit
   if (finalLat == null || finalLon == null) {
     redirect("/profile/edit?error=missing_latlon");
   }
 
-  // Avatar: for now we preserve (upload wiring later)
+  // Avatar: preserve for now (upload wiring later)
   const avatarUrl = s(form.get("avatarUrl")) ?? existing.avatarUrl ?? null;
+
+  // ✅ only set setupDone when we actually have everything needed
+  const nextSetupDone = isSetupComplete({
+    birthYear,
+    birthMonth,
+    birthDay,
+    birthHour,
+    birthMinute,
+    birthLat: finalLat,
+    birthLon: finalLon,
+  });
 
   await prisma.profile.update({
     where: { id: existing.id },
@@ -159,7 +189,7 @@ export async function saveProfileEditAction(form: FormData) {
       birthMinute,
 
       avatarUrl,
-      setupDone: true,
+      setupDone: nextSetupDone,
     },
   });
 
