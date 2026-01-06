@@ -6,10 +6,18 @@ import { saveProfileEditAction } from "../actions";
 
 type Initial = {
   username: string;
+  bio?: string;
   timezone: string;
+
   city: string;
   state: string;
+
+  // ✅ authoritative place label for birth location
+  birthPlace?: string;
+
+  // display helper
   locationLine: string;
+
   lat: number | null;
   lon: number | null;
 
@@ -26,6 +34,8 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
   const [city, setCity] = useState(initial.city);
   const [state, setState] = useState(initial.state);
 
+  const [birthPlace, setBirthPlace] = useState(initial.birthPlace ?? initial.locationLine ?? "");
+
   const [lat, setLat] = useState<number | null>(initial.lat);
   const [lon, setLon] = useState<number | null>(initial.lon);
   const [geoLabel, setGeoLabel] = useState<string | null>(null);
@@ -34,9 +44,12 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
   const [geoError, setGeoError] = useState<string | null>(null);
 
   const q = useMemo(() => {
+    // Prefer birthPlace if present; fallback to city/state
+    const bp = birthPlace.trim();
+    if (bp) return bp;
     const parts = [city.trim(), state.trim()].filter(Boolean);
     return parts.join(", ");
-  }, [city, state]);
+  }, [birthPlace, city, state]);
 
   async function resolveLocation() {
     setGeoError(null);
@@ -45,7 +58,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
     const query = q.trim();
     if (!query) {
       setGeoStatus("error");
-      setGeoError("Enter a city and state first.");
+      setGeoError("Enter a Birth Place (recommended) or City/State first.");
       return;
     }
 
@@ -65,9 +78,20 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         return;
       }
 
-      setLat(Number(json.lat));
-      setLon(Number(json.lon));
-      setGeoLabel(String(json.display_name || query));
+      const newLat = Number(json.lat);
+      const newLon = Number(json.lon);
+
+      setLat(Number.isFinite(newLat) ? newLat : null);
+      setLon(Number.isFinite(newLon) ? newLon : null);
+
+      const label = String(json.display_name || query);
+      setGeoLabel(label);
+
+      // ✅ If user typed something short (or empty), adopt the resolved display label as birthPlace
+      if (!birthPlace.trim() || birthPlace.trim().length < 3) {
+        setBirthPlace(label);
+      }
+
       setGeoStatus("ok");
     } catch (e: any) {
       setGeoStatus("error");
@@ -84,7 +108,10 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
       }}
     >
-      <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+      <div
+        className="text-[11px] tracking-[0.18em] uppercase"
+        style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+      >
         Profile
       </div>
 
@@ -118,15 +145,35 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
           </div>
         </div>
 
+        {/* Optional bio (safe; won’t break anything) */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+            Bio (optional)
+          </label>
+          <input
+            name="bio"
+            defaultValue={initial.bio ?? ""}
+            className="w-full rounded-2xl border px-4 py-3 text-sm"
+            style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+            placeholder="short note"
+          />
+        </div>
+
         {/* --- Location + Geocode --- */}
-        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
+        <div
+          className="rounded-2xl border px-5 py-4"
+          style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
+        >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
-                Location
+              <div
+                className="text-[11px] tracking-[0.18em] uppercase"
+                style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+              >
+                Birth Location
               </div>
               <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-                We resolve lat/lon via Nominatim (required for Asc-Year / ASC).
+                Resolve lat/lon via Nominatim (required for Asc-Year / ASC).
               </div>
             </div>
 
@@ -144,10 +191,26 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
             </button>
           </div>
 
+          <div className="mt-4 grid grid-cols-1 gap-3">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                Birth Place (recommended)
+              </label>
+              <input
+                value={birthPlace}
+                onChange={(e) => setBirthPlace(e.target.value)}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+                placeholder="Danville, VA"
+              />
+              <input type="hidden" name="birthPlace" value={birthPlace} />
+            </div>
+          </div>
+
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
-                City
+                City (optional)
               </label>
               <input
                 value={city}
@@ -161,7 +224,7 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
 
             <div>
               <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
-                State
+                State (optional)
               </label>
               <input
                 value={state}
@@ -203,47 +266,89 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
         </div>
 
         {/* --- Birth data --- */}
-        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
-          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+        <div
+          className="rounded-2xl border px-5 py-4"
+          style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
+        >
+          <div
+            className="text-[11px] tracking-[0.18em] uppercase"
+            style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+          >
             Birth data
           </div>
 
           <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
             <div>
-              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Year</label>
-              <input name="birthYear" defaultValue={initial.birthYear ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
-                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                Year
+              </label>
+              <input
+                name="birthYear"
+                defaultValue={initial.birthYear ?? ""}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+              />
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Month</label>
-              <input name="birthMonth" defaultValue={initial.birthMonth ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
-                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                Month
+              </label>
+              <input
+                name="birthMonth"
+                defaultValue={initial.birthMonth ?? ""}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+              />
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Day</label>
-              <input name="birthDay" defaultValue={initial.birthDay ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
-                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                Day
+              </label>
+              <input
+                name="birthDay"
+                defaultValue={initial.birthDay ?? ""}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+              />
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Hour</label>
-              <input name="birthHour" defaultValue={initial.birthHour ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
-                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                Hour
+              </label>
+              <input
+                name="birthHour"
+                defaultValue={initial.birthHour ?? ""}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+              />
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>Minute</label>
-              <input name="birthMinute" defaultValue={initial.birthMinute ?? ""} className="w-full rounded-2xl border px-4 py-3 text-sm"
-                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }} />
+              <label className="block text-xs mb-1" style={{ color: "rgba(31,36,26,0.70)" }}>
+                Minute
+              </label>
+              <input
+                name="birthMinute"
+                defaultValue={initial.birthMinute ?? ""}
+                className="w-full rounded-2xl border px-4 py-3 text-sm"
+                style={{ borderColor: "rgba(31,36,26,0.18)", background: "rgba(248,242,232,0.85)" }}
+              />
             </div>
           </div>
         </div>
 
         {/* --- Avatar placeholder (optional) --- */}
-        <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
-          <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+        <div
+          className="rounded-2xl border px-5 py-4"
+          style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
+        >
+          <div
+            className="text-[11px] tracking-[0.18em] uppercase"
+            style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+          >
             Profile image (optional)
           </div>
           <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-            We can wire upload next (R2/S3). For now this preserves existing URL if you already have one.
+            Upload wiring next (R2/S3). For now we preserve existing URL if present.
           </div>
           <input type="hidden" name="avatarUrl" value={initial.avatarUrl ?? ""} />
         </div>
