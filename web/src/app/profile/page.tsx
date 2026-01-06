@@ -29,7 +29,9 @@ function NavPill({
       className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
       style={{
         borderColor: active ? "rgba(31,36,26,0.30)" : "rgba(31,36,26,0.18)",
-        background: active ? "rgba(244,235,221,0.80)" : "rgba(244,235,221,0.62)",
+        background: active
+          ? "rgba(244,235,221,0.80)"
+          : "rgba(244,235,221,0.62)",
         color: "rgba(31,36,26,0.88)",
         boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
       }}
@@ -44,7 +46,9 @@ function NavPill({
       <span className="relative flex items-center gap-2">
         <span
           className="inline-block h-2 w-2 rounded-full opacity-70"
-          style={{ background: active ? "rgba(31,36,26,0.60)" : "rgba(31,36,26,0.45)" }}
+          style={{
+            background: active ? "rgba(31,36,26,0.60)" : "rgba(31,36,26,0.45)",
+          }}
         />
         <span className="tracking-wide">{label}</span>
       </span>
@@ -119,8 +123,9 @@ type CalendarAPI = {
 };
 
 async function fetchCalendarForProfile(asOfISO?: string | null) {
-  // Build absolute URL (works behind nginx / on droplet)
-  const h = headers();
+  // ✅ Next.js 16: headers() is async (Promise<ReadonlyHeaders>)
+  const h = await headers();
+
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
   if (!host) return null;
@@ -184,17 +189,28 @@ export default async function ProfilePage() {
           {/* Header */}
           <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-baseline justify-between md:block">
-              <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+              <div
+                className="text-xs tracking-[0.28em] uppercase"
+                style={{ color: "rgba(31,36,26,0.55)" }}
+              >
                 URA
               </div>
-              <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
+              <div
+                className="mt-1 text-lg font-semibold tracking-tight"
+                style={{ color: "rgba(31,36,26,0.90)" }}
+              >
                 Profile
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               {NAV.map((n) => (
-                <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
+                <NavPill
+                  key={n.href}
+                  href={n.href}
+                  label={n.label}
+                  active={n.href === "/profile"}
+                />
               ))}
             </div>
           </div>
@@ -207,10 +223,16 @@ export default async function ProfilePage() {
               boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
             }}
           >
-            <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+            <div
+              className="text-[11px] tracking-[0.18em] uppercase"
+              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+            >
               Setup
             </div>
-            <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
+            <div
+              className="mt-2 text-2xl font-semibold tracking-tight"
+              style={{ color: "rgba(31,36,26,0.92)" }}
+            >
               Finish your profile
             </div>
             <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
@@ -290,17 +312,28 @@ export default async function ProfilePage() {
         {/* Header (Calendar parity) */}
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-baseline justify-between md:block">
-            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+            <div
+              className="text-xs tracking-[0.28em] uppercase"
+              style={{ color: "rgba(31,36,26,0.55)" }}
+            >
               URA
             </div>
-            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
+            <div
+              className="mt-1 text-lg font-semibold tracking-tight"
+              style={{ color: "rgba(31,36,26,0.90)" }}
+            >
               Profile
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {NAV.map((n) => (
-              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
+              <NavPill
+                key={n.href}
+                href={n.href}
+                label={n.label}
+                active={n.href === "/profile"}
+              />
             ))}
 
             <Link href="/profile/setup" aria-label="Edit profile">
@@ -326,7 +359,7 @@ export default async function ProfilePage() {
           movingSunLon={movingSunLon}
           movingMoonLon={movingMoonLon}
           cyclePosDeg={cyclePos}
-          // ✅ new: calendar parity props
+          // ✅ Calendar parity props
           solarPhaseId={solarPhaseId}
           solarProgress01={solarProgress01}
           sunText={sunText}
