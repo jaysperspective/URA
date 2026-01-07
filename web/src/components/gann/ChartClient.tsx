@@ -2,9 +2,6 @@
 "use client";
 
 import React, { useMemo, useState, type CSSProperties } from "react";
-
-// If you already have this component, keep your existing path.
-// If not, comment it out until you add it back.
 import PivotAutoAnchorPanel from "@/components/PivotAutoAnchorPanel";
 
 type Mode = "market" | "personal";
@@ -93,6 +90,14 @@ export default function ChartClient() {
   const [loading, setLoading] = useState(false);
 
   const angles = useMemo(() => FIXED_ANGLES.slice(), []);
+
+  // Infer market kind from symbol. Adjust later if you add an explicit toggle.
+  const marketKind = useMemo<"crypto" | "stock">(() => {
+    const s = (symbol || "").toUpperCase();
+    // your symbols look like SOL-USD, BTC-USD etc → treat as crypto
+    if (s.includes("BTC") || s.includes("ETH") || s.includes("SOL") || s.includes("-USD")) return "crypto";
+    return "stock";
+  }, [symbol]);
 
   async function run() {
     setLoading(true);
@@ -431,11 +436,10 @@ export default function ChartClient() {
 
           {/* Visualization */}
           <div style={panelStyle}>
-            <div style={panelHeaderStyle}>Angle + Levels</div>
+            <div style={panelHeaderStyle}>Angle Ring</div>
 
             {res?.ok ? (
               <div style={{ padding: 0 }}>
-                {/* Single wheel only */}
                 <AngleRing
                   angles={angles}
                   markerDeg={res.data?.markerDeg ?? null}
@@ -447,20 +451,6 @@ export default function ChartClient() {
                   }
                 />
 
-                {/* Square-of-Nine style levels grid derived from targets */}
-                {mode === "market" ? (
-                  <div style={{ borderTop: "1px solid rgba(58,69,80,0.6)" }}>
-                    <SquareOfNineGrid
-                      anchor={Number(res.data?.anchor)}
-                      targets={Array.isArray(res.data?.targets) ? res.data.targets : []}
-                      price={priceRes?.ok ? Number(priceRes.price) : null}
-                      priceDeg={priceMarkerDeg}
-                      timeDeg={typeof res.data?.markerDeg === "number" ? res.data.markerDeg : null}
-                    />
-                  </div>
-                ) : null}
-
-                {/* Bottom note for the whole middle section */}
                 <div style={midNoteStyle}>
                   <div style={{ opacity: 0.9, fontWeight: 700, marginBottom: 6 }}>Time vs Price alignment</div>
                   <div>
@@ -489,30 +479,28 @@ export default function ChartClient() {
           </div>
         </div>
 
-        {/* Bottom: manual Auto Pivot Finder (horizontal strip) */}
+        {/* Bottom: Auto Pivot Finder (manual run only) */}
         {mode === "market" ? (
           <div style={{ marginTop: 14 }}>
             <PivotAutoAnchorPanel
+              kind={marketKind}
               symbol={symbol}
-              // IMPORTANT: keep this panel manual-run (no auto effect)
-              // and wire apply to set the Market Inputs.
-              onApplyToMarketInputs={(p) => {
-                // Expect p: { pivotISO, anchor, anchorSource: "high"|"low"|"close"|"open" }
-                try {
-                  const dtLocal = isoToLocalInput(p.pivotISO);
-                  setPivotDateTime(dtLocal);
+              tickSize={Number(tickSize) || 0.01}
+              onApply={(p) => {
+                // 1) Set pivot datetime-local value
+                if (p?.pivotLocalInput) setPivotDateTime(p.pivotLocalInput);
 
-                  const t = Number(tickSize) || 0.01;
-                  const rounded = Math.round(Number(p.anchor) / t) * t;
-                  setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
+                // 2) Match the pivot's anchor source (low/high)
+                //    (You can still manually switch to Close/Open if you want.)
+                if (p?.anchorSource) setPivotAnchorMode(p.anchorSource);
 
-                  if (p.anchorSource) setPivotAnchorMode(p.anchorSource);
+                // 3) Set anchor price (rounded using tick size)
+                const t = Number(tickSize) || 0.01;
+                const rounded = Math.round(Number(p.anchorPrice) / t) * t;
+                setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
 
-                  // prevent stale “selected anchor source” readouts from older candle fetches
-                  setCandleRes(null);
-                } catch {
-                  // no-op (panel should validate)
-                }
+                // 4) Clear candle readout so you don’t confuse “previous pivot candle” with the new pivot
+                setCandleRes(null);
               }}
             />
           </div>
@@ -674,147 +662,6 @@ function AngleRing({
   );
 }
 
-/**
- * Square-of-9 “levels map”
- * - Derived strictly from TargetsPanel data (same targets you already compute)
- * - Shows levels at key angles and highlights proximity to current price
- */
-function SquareOfNineGrid({
-  anchor,
-  targets,
-  price,
-  priceDeg,
-  timeDeg,
-}: {
-  anchor: number;
-  targets: any[];
-  price: number | null;
-  priceDeg: number | null;
-  timeDeg: number | null;
-}) {
-  const rows = useMemo(() => {
-    const clean = (targets ?? [])
-      .filter((t) => t && typeof t.angle === "number")
-      .slice()
-      .sort((a, b) => a.angle - b.angle);
-
-    return clean.map((t) => ({
-      angle: t.angle,
-      up: Number(t.up),
-      down: Number(t.down),
-      deltaSqrt: Number(t.deltaSqrt),
-    }));
-  }, [targets]);
-
-  const nearest = useMemo(() => {
-    if (!rows.length || price == null || !Number.isFinite(price)) return null;
-
-    // Find the nearest “ray” by comparing price to BOTH up/down levels.
-    let best: { angle: number; side: "up" | "down"; dist: number } | null = null;
-
-    for (const r of rows) {
-      const du = Math.abs(price - r.up);
-      const dd = Math.abs(price - r.down);
-      const pickSide = du <= dd ? ("up" as const) : ("down" as const);
-      const dist = Math.min(du, dd);
-
-      if (!best || dist < best.dist) best = { angle: r.angle, side: pickSide, dist };
-    }
-    return best;
-  }, [rows, price]);
-
-  return (
-    <div style={{ padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.9 }}>Square-of-9 Levels</div>
-          <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-            Levels are derived from the same targets output (audit-safe).
-          </div>
-        </div>
-
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 11, opacity: 0.7 }}>Anchor</div>
-          <div style={{ fontSize: 12, fontWeight: 800 }}>{Number.isFinite(anchor) ? formatNum(anchor) : "—"}</div>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {price != null ? (
-          <div style={chipStyle}>
-            <span style={{ opacity: 0.75 }}>Price</span>{" "}
-            <strong>{formatNum(price)}</strong>
-          </div>
-        ) : (
-          <div style={chipStyle}>
-            <span style={{ opacity: 0.75 }}>Price</span> <strong>—</strong>
-          </div>
-        )}
-
-        {timeDeg != null ? (
-          <div style={chipStyle}>
-            <span style={{ opacity: 0.75 }}>Time°</span>{" "}
-            <strong>{formatNum(timeDeg)}</strong>
-          </div>
-        ) : null}
-
-        {priceDeg != null ? (
-          <div style={chipStyle}>
-            <span style={{ opacity: 0.75 }}>Price°</span>{" "}
-            <strong>{formatNum(priceDeg)}</strong>
-          </div>
-        ) : null}
-
-        {nearest ? (
-          <div style={chipStyle}>
-            <span style={{ opacity: 0.75 }}>Nearest ray</span>{" "}
-            <strong>{nearest.angle}°</strong>{" "}
-            <span style={{ opacity: 0.75 }}>({nearest.side})</span>
-          </div>
-        ) : null}
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <div style={levelsTableWrap}>
-          <div style={levelsHeaderRow}>
-            <div>Angle</div>
-            <div>Up</div>
-            <div>Down</div>
-            <div>Δ√</div>
-          </div>
-
-          {rows.map((r) => {
-            const isNearest = nearest?.angle === r.angle;
-            const upNear = isNearest && nearest?.side === "up";
-            const downNear = isNearest && nearest?.side === "down";
-
-            return (
-              <div key={r.angle} style={{ ...levelsRow, ...(isNearest ? levelsRowActive : null) }}>
-                <div style={{ fontWeight: 800 }}>{r.angle}°</div>
-
-                <div style={{ fontWeight: upNear ? 900 : 700, opacity: upNear ? 1 : 0.9 }}>
-                  {Number.isFinite(r.up) ? formatNum(r.up) : "—"}
-                </div>
-
-                <div style={{ fontWeight: downNear ? 900 : 700, opacity: downNear ? 1 : 0.9 }}>
-                  {Number.isFinite(r.down) ? formatNum(r.down) : "—"}
-                </div>
-
-                <div style={{ opacity: 0.85 }}>{Number.isFinite(r.deltaSqrt) ? formatNum(r.deltaSqrt) : "—"}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={{ marginTop: 10, fontSize: 11, opacity: 0.7, lineHeight: 1.35 }}>
-          Read: the wheel tells you <strong>timing</strong>. This grid tells you <strong>levels</strong>. When time° approaches a key angle
-          and price is near the corresponding level, that’s your “convergence.”
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function TargetsPanel({ data }: { data: any }) {
   const markerOk = typeof data.markerDeg === "number" && Number.isFinite(data.markerDeg);
 
@@ -965,18 +812,6 @@ function decimalsFromTick(tick: number) {
   return i === -1 ? 0 : Math.min(12, s.length - i - 1);
 }
 
-function isoToLocalInput(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const y = d.getFullYear();
-  const m = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mm = pad(d.getMinutes());
-  return `${y}-${m}-${day}T${hh}:${mm}`;
-}
-
 /* -------------------- Styles -------------------- */
 
 const pageStyle: CSSProperties = {
@@ -1011,7 +846,7 @@ const topBarStyle: CSSProperties = {
 
 const gridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1.35fr 1fr",
+  gridTemplateColumns: "1fr 1.2fr 1fr",
   gap: 14,
 };
 
@@ -1117,47 +952,4 @@ const midNoteStyle: CSSProperties = {
   lineHeight: 1.45,
   color: "#EDE3CC",
   opacity: 0.9,
-};
-
-const chipStyle: CSSProperties = {
-  display: "inline-flex",
-  gap: 8,
-  alignItems: "baseline",
-  padding: "6px 10px",
-  borderRadius: 999,
-  border: "1px solid rgba(58,69,80,0.75)",
-  background: "rgba(0,0,0,0.12)",
-  fontSize: 11,
-  color: "#EDE3CC",
-};
-
-const levelsTableWrap: CSSProperties = {
-  borderRadius: 14,
-  border: "1px solid rgba(58,69,80,0.6)",
-  overflow: "hidden",
-  background: "rgba(0,0,0,0.12)",
-};
-
-const levelsHeaderRow: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "0.7fr 1fr 1fr 0.7fr",
-  gap: 10,
-  padding: "10px 12px",
-  fontSize: 11,
-  fontWeight: 800,
-  opacity: 0.8,
-  borderBottom: "1px solid rgba(58,69,80,0.55)",
-};
-
-const levelsRow: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "0.7fr 1fr 1fr 0.7fr",
-  gap: 10,
-  padding: "10px 12px",
-  fontSize: 12,
-  borderBottom: "1px solid rgba(58,69,80,0.35)",
-};
-
-const levelsRowActive: CSSProperties = {
-  background: "rgba(237,227,204,0.06)",
 };
