@@ -610,7 +610,7 @@ function AngleRing({
       </svg>
 
       <div style={{ fontSize: 12, opacity: 0.85, textAlign: "center", marginTop: 10 }}>
-        {markerDeg == null ? "Marker appears after run." : `Marker: ${formatNum(markerDeg)}°`}
+        {markerDeg == null ? "Time appears after run." : `Time: ${formatNum(markerDeg)}°`}
       </div>
 
       {priceDeg != null ? (
