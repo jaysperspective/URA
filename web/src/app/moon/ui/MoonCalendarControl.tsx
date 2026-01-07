@@ -3,13 +3,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 type DayRow = {
-  dateISO: string; // YYYY-MM-DD
-  day: number; // 1..31
-  illuminationPct: number; // 0..100
-  phaseAngleDeg: number; // 0..360 (0=new, 180=full)
+  dateISO: string;
+  day: number;
+  illuminationPct: number;
+  phaseAngleDeg: number;
   moonLon: number;
   moonSign: string;
-  moonSignGlyph: string; // ♈︎..♓︎
+  moonSignGlyph: string;
 };
 
 function normalize360(deg: number) {
@@ -28,14 +28,14 @@ function monthLabel(year: number, month1to12: number) {
 
 function firstWeekdayIndexSun0(year: number, month1to12: number) {
   const dt = new Date(Date.UTC(year, month1to12 - 1, 1));
-  return dt.getUTCDay(); // 0=Sun..6=Sat
+  return dt.getUTCDay();
 }
 
 function daysInMonthUTC(year: number, month1to12: number) {
   return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
 }
 
-function CalendarIcon({ className }: { className?: string }) {
+function CalendarIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -46,7 +46,6 @@ function CalendarIcon({ className }: { className?: string }) {
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={className}
       aria-hidden="true"
     >
       <path d="M8 3v3M16 3v3" />
@@ -59,84 +58,128 @@ function CalendarIcon({ className }: { className?: string }) {
 }
 
 /**
- * Lightweight moon disk SVG using phase angle (reads well at small sizes).
+ * REALISTIC TILE MOON
+ * - No <defs>, no ids, no clipPaths → nothing can collide/hydration-mismatch.
+ * - Uses layered circles + blur to create a soft terminator and "sphere" feel.
  */
-function MoonDisk({
+function RealMoonTile({
   phaseAngleDeg,
-  size = 44,
+  size = 42,
 }: {
   phaseAngleDeg: number;
   size?: number;
 }) {
   const a = normalize360(phaseAngleDeg);
-  const k = -Math.cos((a * Math.PI) / 180); // new: -1, full: +1 approx
+  const rad = (a * Math.PI) / 180;
 
-  const r = 20;
-  const cx = 24;
-  const cy = 24;
+  // illumination proxy: new≈0, full≈1
+  const illum01 = (1 - Math.cos(rad)) / 2;
 
-  const shift = k * r;
+  // waxing: light on right; waning: light on left
   const waxing = a < 180;
 
-  const litPath = waxing
-    ? `
-      M ${cx} ${cy - r}
-      A ${r} ${r} 0 1 1 ${cx} ${cy + r}
-      A ${r} ${r} 0 1 1 ${cx} ${cy - r}
-      M ${cx + r} ${cy - r}
-      A ${r} ${r} 0 0 0 ${cx + shift} ${cy}
-      A ${r} ${r} 0 0 0 ${cx + r} ${cy + r}
-      Z
-    `
-    : `
-      M ${cx} ${cy - r}
-      A ${r} ${r} 0 1 0 ${cx} ${cy + r}
-      A ${r} ${r} 0 1 0 ${cx} ${cy - r}
-      M ${cx - r} ${cy - r}
-      A ${r} ${r} 0 0 1 ${cx - shift} ${cy}
-      A ${r} ${r} 0 0 1 ${cx - r} ${cy + r}
-      Z
-    `;
+  // terminator offset: -1..+1
+  // using cos produces a nice progression of the shadow edge
+  const t = Math.cos(rad);
+  const r = size / 2;
+
+  // how far the shadow circle should be shifted
+  // closer to ±r near quarters, closer to 0 near full/new
+  const dx = (waxing ? -1 : 1) * r * (1 - Math.abs(t)) * 0.95;
+
+  // stronger shadow near new moon, lighter shadow near full moon
+  const shadowOpacity = 0.85 - illum01 * 0.55; // ~0.85 at new, ~0.30 at full
 
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      className="block"
+    <div
+      className="relative"
+      style={{ width: size, height: size, borderRadius: 9999 }}
       aria-hidden="true"
     >
-      <defs>
-        <radialGradient id="moonBase" cx="35%" cy="30%" r="70%">
-          <stop offset="0%" stopColor="rgba(255,255,255,0.28)" />
-          <stop offset="100%" stopColor="rgba(255,255,255,0.06)" />
-        </radialGradient>
-        <radialGradient id="moonLit" cx="40%" cy="35%" r="75%">
-          <stop offset="0%" stopColor="rgba(255,255,255,0.95)" />
-          <stop offset="100%" stopColor="rgba(255,255,255,0.55)" />
-        </radialGradient>
-      </defs>
+      {/* base sphere */}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background:
+            "radial-gradient(circle at 35% 30%, rgba(255,255,255,0.96) 0%, rgba(244,238,230,0.92) 48%, rgba(214,206,196,0.84) 100%)",
+          boxShadow:
+            "inset -6px -10px 18px rgba(0,0,0,0.22), inset 6px 8px 14px rgba(255,255,255,0.16)",
+        }}
+      />
 
-      <circle
-        cx={24}
-        cy={24}
-        r={20}
-        fill="url(#moonBase)"
-        stroke="rgba(255,255,255,0.12)"
+      {/* subtle texture specks */}
+      <div className="absolute inset-0 rounded-full opacity-[0.22]">
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: size * 0.16,
+            height: size * 0.16,
+            left: size * 0.30,
+            top: size * 0.30,
+            background: "rgba(60,62,70,0.65)",
+            filter: "blur(0.2px)",
+          }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: size * 0.10,
+            height: size * 0.10,
+            left: size * 0.58,
+            top: size * 0.24,
+            background: "rgba(60,62,70,0.55)",
+            filter: "blur(0.2px)",
+          }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: size * 0.18,
+            height: size * 0.18,
+            left: size * 0.48,
+            top: size * 0.58,
+            background: "rgba(60,62,70,0.50)",
+            filter: "blur(0.2px)",
+          }}
+        />
+      </div>
+
+      {/* shadow wash */}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background: "rgba(10,14,24,0.10)",
+        }}
       />
-      <path d={litPath} fill="url(#moonLit)" opacity={0.92} />
-      <circle
-        cx={24}
-        cy={24}
-        r={20}
-        fill="none"
-        stroke="rgba(0,0,0,0.35)"
-        strokeWidth={1}
+
+      {/* terminator shadow: big blurred circle shifted left/right */}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          transform: `translateX(${dx}px)`,
+          background:
+            "radial-gradient(circle at 55% 50%, rgba(10,14,24,0.35) 0%, rgba(10,14,24,0.92) 70%)",
+          opacity: shadowOpacity,
+          filter: "blur(1.2px)",
+          mixBlendMode: "multiply",
+        }}
       />
-    </svg>
+
+      {/* soft limb darkening */}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.35), inset 0 0 18px rgba(0,0,0,0.25)",
+          pointerEvents: "none",
+        }}
+      />
+    </div>
   );
 }
 
+/* ============================================================
+   MODAL
+============================================================ */
 function Modal({
   open,
   onClose,
@@ -150,7 +193,6 @@ function Modal({
 }) {
   useEffect(() => {
     if (!open) return;
-
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -162,17 +204,11 @@ function Modal({
 
   return (
     <div className="fixed inset-0 z-[80]">
-      <div
-        className="absolute inset-0 bg-black/70"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden="true" />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-black/70 backdrop-blur-xl shadow-2xl">
+        <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-black/80 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-            <div className="text-white/90 font-semibold tracking-tight">
-              {title}
-            </div>
+            <div className="text-white/90 font-semibold tracking-tight">{title}</div>
             <button
               onClick={onClose}
               className="rounded-lg px-3 py-1.5 text-white/70 hover:text-white hover:bg-white/10 border border-white/10"
@@ -187,23 +223,21 @@ function Modal({
   );
 }
 
+/* ============================================================
+   MAIN CONTROL
+============================================================ */
 export default function MoonCalendarControl() {
   const now = new Date();
   const [open, setOpen] = useState(false);
 
-  const [year, setYear] = useState<number>(now.getFullYear());
-  const [month, setMonth] = useState<number>(now.getMonth() + 1); // 1..12
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<DayRow[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // minutes east of UTC
   const tzOffsetMin = useMemo(() => -now.getTimezoneOffset(), [now]);
-
-  // If you already have a saved city/location in URA, wire these from profile later.
-  const lat = 0;
-  const lon = 0;
 
   async function loadMonth(y: number, m: number) {
     setLoading(true);
@@ -213,22 +247,17 @@ export default function MoonCalendarControl() {
         year: String(y),
         month: String(m),
         tzOffsetMin: String(tzOffsetMin),
-        lat: String(lat),
-        lon: String(lon),
+        lat: "0",
+        lon: "0",
       });
 
-      const res = await fetch(`/api/moon-calendar?${qs.toString()}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/moon-calendar?${qs.toString()}`, { cache: "no-store" });
       const json = await res.json();
 
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || "Failed to load moon calendar");
-      }
-
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load moon calendar");
       setRows(json.rows as DayRow[]);
     } catch (e: any) {
-      setError(e?.message ?? "Unknown error");
+      setError(e?.message ?? "Failed to load");
       setRows([]);
     } finally {
       setLoading(false);
@@ -245,7 +274,7 @@ export default function MoonCalendarControl() {
     let m = month - 1;
     if (m < 1) {
       m = 12;
-      y = y - 1;
+      y -= 1;
     }
     setYear(y);
     setMonth(m);
@@ -256,7 +285,7 @@ export default function MoonCalendarControl() {
     let m = month + 1;
     if (m > 12) {
       m = 1;
-      y = y + 1;
+      y += 1;
     }
     setYear(y);
     setMonth(m);
@@ -269,8 +298,7 @@ export default function MoonCalendarControl() {
     const byDay = new Map<number, DayRow>();
     rows.forEach((r) => byDay.set(r.day, r));
 
-    const cells: Array<{ kind: "blank" } | { kind: "day"; day: number; row?: DayRow }> =
-      [];
+    const cells: Array<{ kind: "blank" } | { kind: "day"; day: number; row?: DayRow }> = [];
     for (let i = 0; i < firstDow; i++) cells.push({ kind: "blank" });
     for (let d = 1; d <= dim; d++) cells.push({ kind: "day", day: d, row: byDay.get(d) });
     while (cells.length % 7 !== 0) cells.push({ kind: "blank" });
@@ -280,14 +308,13 @@ export default function MoonCalendarControl() {
 
   return (
     <>
-      {/* Icon-only pill */}
       <button
         onClick={() => setOpen(true)}
-        className="rounded-full border p-2"
+        className="rounded-full border p-2 hover:shadow-sm"
         style={{
-          borderColor: "rgba(248,244,238,0.18)",
-          color: "rgba(248,244,238,0.78)",
-          background: "rgba(0,0,0,0.18)",
+          borderColor: "rgba(248,244,238,0.14)",
+          background: "rgba(248,244,238,0.10)",
+          color: "rgba(248,244,238,0.80)",
         }}
         aria-label="Open moon calendar"
         title="Moon calendar"
@@ -339,9 +366,7 @@ export default function MoonCalendarControl() {
         {!loading && !error && (
           <div className="grid grid-cols-7 gap-2">
             {grid.map((cell, idx) => {
-              if (cell.kind === "blank") {
-                return <div key={idx} className="h-[92px] rounded-xl bg-white/0" />;
-              }
+              if (cell.kind === "blank") return <div key={idx} className="h-[92px]" />;
 
               const r = cell.row;
 
@@ -352,13 +377,11 @@ export default function MoonCalendarControl() {
                 >
                   <div className="w-full flex items-center justify-between">
                     <div className="text-white/70 text-[11px]">{cell.day}</div>
-                    <div className="text-white/55 text-[11px]">
-                      {r?.moonSignGlyph ?? ""}
-                    </div>
+                    <div className="text-white/55 text-[11px]">{r?.moonSignGlyph ?? ""}</div>
                   </div>
 
                   <div className="mt-1">
-                    <MoonDisk phaseAngleDeg={r?.phaseAngleDeg ?? 0} size={42} />
+                    <RealMoonTile phaseAngleDeg={r?.phaseAngleDeg ?? 0} size={42} />
                   </div>
 
                   <div className="text-white/80 text-[12px] font-medium">
