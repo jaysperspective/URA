@@ -7,6 +7,9 @@ import type { CSSProperties } from "react";
 import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 
+// ✅ NEW
+import MoonCalendarControl from "./MoonCalendarControl";
+
 type Marker = {
   kind: "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
   whenLocal: string;
@@ -271,7 +274,8 @@ export default function MoonClient() {
   };
 
   const currentMoonPhaseName =
-    MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ?? (data?.lunar?.phaseName ?? "—");
+    MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ??
+    (data?.lunar?.phaseName ?? "—");
 
   return (
     <div className="space-y-5">
@@ -287,10 +291,7 @@ export default function MoonClient() {
           />
         </div>
 
-        <div
-          className="text-4xl font-semibold tracking-tight mt-3"
-          style={{ color: M.ink }}
-        >
+        <div className="text-4xl font-semibold tracking-tight mt-3" style={{ color: M.ink }}>
           {data?.lunar?.phaseName ?? "—"}
         </div>
 
@@ -361,6 +362,11 @@ export default function MoonClient() {
           </div>
         </div>
 
+        {/* ✅ NEW: Calendar icon placed directly under "The Moon is in..." module */}
+        <div className="mt-2 flex justify-center">
+          <MoonCalendarControl />
+        </div>
+
         {/* ✅ MOON PHASES (8) — replaces “Lunation markers” */}
         <div className="mt-5 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
@@ -427,12 +433,9 @@ export default function MoonClient() {
               })}
             </div>
 
-            {/* Optional: a tiny “current lens” line, like /lunation vibes */}
             <div className="mt-4 text-sm text-center" style={{ color: M.inkMuted }}>
               Lunar URA lens:{" "}
-              <span style={{ color: M.ink, fontWeight: 700 }}>
-                {lunarCopy.orisha}
-              </span>{" "}
+              <span style={{ color: M.ink, fontWeight: 700 }}>{lunarCopy.orisha}</span>{" "}
               — {lunarCopy.oneLine}
             </div>
           </div>
