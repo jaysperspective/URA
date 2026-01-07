@@ -6,12 +6,15 @@ import PivotPrecheckPanel, { type PivotPrecheckResult } from "@/components/Pivot
 
 type Timeframe = "1d" | "4h" | "1h";
 type PivotType = "SWING_LOW" | "SWING_HIGH";
+type AnchorBasis = "low" | "high" | "close" | "open";
+
+type Candle = { t: string; o: number; h: number; l: number; c: number; v?: number };
 
 type Candidate = {
   idx: number;
   pivotISO: string;
   pivotType: PivotType;
-  anchorSource: "low" | "high";
+  anchorSource: "low" | "high"; // server may still send only these
   anchorPrice: number;
   score: number;
   breakdown: {
@@ -35,7 +38,7 @@ type ScanOk = {
   returnedBars: number;
   startISO: string;
   endISO: string;
-  candles: { t: string; o: number; h: number; l: number; c: number; v?: number }[];
+  candles: Candle[];
   candidates: Candidate[];
   recommended: Candidate | null;
   note?: string;
@@ -46,7 +49,7 @@ type ScanRes = ScanOk | { ok: false; error: string };
 type ApplyPayload = {
   pivotISO: string;
   pivotLocalInput: string; // yyyy-mm-ddThh:mm for datetime-local
-  anchorSource: "low" | "high";
+  anchorSource: AnchorBasis; // now supports open/close
   anchorPrice: number; // raw; parent will round to tick
   score: number;
   pivotType: PivotType;
@@ -69,6 +72,7 @@ export default function PivotAutoAnchorPanel({
 }: Props) {
   const [timeframe, setTimeframe] = useState<Timeframe>(defaultTimeframe);
   const [lookbackBars, setLookbackBars] = useState<number>(180);
+  const [anchorBasis, setAnchorBasis] = useState<AnchorBasis>("close");
 
   const [res, setRes] = useState<ScanRes | null>(null);
   const [loading, setLoading] = useState(false);
@@ -124,30 +128,39 @@ export default function PivotAutoAnchorPanel({
     return res.candidates.find((c) => c.pivotISO === selectedISO) ?? res.recommended;
   }, [res, selectedISO]);
 
-  const verdict = useMemo(() => {
-    if (!precheck) return null;
-    const tone = precheck.recommendedAction === "USE" ? "good" : precheck.recommendedAction === "MARGINAL" ? "warn" : "bad";
-    const label = precheck.recommendedAction === "USE" ? "USE" : precheck.recommendedAction === "MARGINAL" ? "MARGINAL" : "REJECT";
-    return { tone, label, total: precheck.total };
-  }, [precheck]);
+  const selectedCandle = useMemo(() => {
+    if (!res?.ok || !selected) return null;
+    const idx = selected.idx;
+    const c = res.candles[idx];
+    return c ?? null;
+  }, [res, selected]);
+
+  function anchorPriceFromBasis(c: Candidate, candle: Candle | null) {
+    if (!candle) return c.anchorPrice; // fallback
+    if (anchorBasis === "low") return candle.l;
+    if (anchorBasis === "high") return candle.h;
+    if (anchorBasis === "open") return candle.o;
+    return candle.c; // close default
+  }
 
   function apply(c: Candidate) {
     const pivotLocalInput = isoToLocalInput(c.pivotISO);
+    const candle = selectedCandle;
+    const anchorPrice = anchorPriceFromBasis(c, candle);
+
     onApply?.({
       pivotISO: c.pivotISO,
       pivotLocalInput,
-      anchorSource: c.anchorSource,
-      anchorPrice: c.anchorPrice,
+      anchorSource: anchorBasis,
+      anchorPrice,
       score: c.score,
       pivotType: c.pivotType,
     });
   }
 
   const canApply = useMemo(() => {
-    // Ironclad: don’t apply if the manual check says reject.
-    // If you want “override allowed,” we’ll add a toggle.
     if (!selected) return false;
-    if (!precheck) return true; // allow if user hasn’t scored yet
+    if (!precheck) return true; // allow if user hasn't scored yet
     return precheck.recommendedAction !== "REJECT";
   }, [precheck, selected]);
 
@@ -157,13 +170,12 @@ export default function PivotAutoAnchorPanel({
         <div>
           <div style={title}>Auto Pivot Finder</div>
           <div style={subtitle}>
-            Scans swing pivots, ranks candidates, and recommends a pivot to anchor your market cycle.
+            Uses swing structure for pivot timing, then lets you choose the anchor price basis (Close/Open/High/Low).
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <div style={pillMuted}>{res?.ok ? "Data loaded" : "No data"}</div>
-
           <button type="button" onClick={runScan} style={btn} disabled={loading}>
             {loading ? "Scanning…" : "Run scan"}
           </button>
@@ -195,6 +207,21 @@ export default function PivotAutoAnchorPanel({
           <div style={hint}>Capped at 300 (Coinbase limit).</div>
         </div>
 
+        <div style={controlBlock}>
+          <div style={label}>Anchor basis (price)</div>
+          <Segmented
+            value={anchorBasis}
+            options={[
+              { value: "close", label: "Close" },
+              { value: "open", label: "Open" },
+              { value: "high", label: "High" },
+              { value: "low", label: "Low" },
+            ]}
+            onChange={(v) => setAnchorBasis(v as AnchorBasis)}
+          />
+          <div style={hint}>Close is usually the cleanest “consensus” anchor.</div>
+        </div>
+
         <div style={controlBlockWide}>
           <div style={label}>Instrument</div>
           <div style={instrumentLine}>
@@ -216,7 +243,7 @@ export default function PivotAutoAnchorPanel({
 
       {res?.ok ? (
         <div style={bodyGrid}>
-          {/* Left: Scan window + Candidates */}
+          {/* Left */}
           <div style={stackCol}>
             <div style={miniCard}>
               <div style={miniHeader}>Scan window</div>
@@ -248,17 +275,19 @@ export default function PivotAutoAnchorPanel({
                   {candidates.map((c, idx) => {
                     const active = c.pivotISO === selectedISO;
                     const dt = isoToLocalLabel(c.pivotISO);
-                    const price = roundToTick(c.anchorPrice, tickSize);
+
+                    const candle = res.candles[c.idx];
+                    const anchorPx = roundToTick(
+                      candle ? (anchorBasis === "close" ? candle.c : anchorBasis === "open" ? candle.o : anchorBasis === "high" ? candle.h : candle.l) : c.anchorPrice,
+                      tickSize
+                    );
 
                     return (
                       <button
                         key={c.pivotISO}
                         type="button"
                         onClick={() => setSelectedISO(c.pivotISO)}
-                        style={{
-                          ...candRow,
-                          ...(active ? candRowActive : null),
-                        }}
+                        style={{ ...candRow, ...(active ? candRowActive : null) }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                           <div style={{ fontWeight: 900, fontSize: 12 }}>
@@ -267,25 +296,15 @@ export default function PivotAutoAnchorPanel({
                           <div style={{ fontWeight: 900, fontSize: 12 }}>Score {c.score}/10</div>
                         </div>
 
-                        <div
-                          style={{
-                            marginTop: 6,
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: 10,
-                            fontSize: 12,
-                            opacity: 0.85,
-                          }}
-                        >
+                        <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, opacity: 0.85 }}>
                           <div>{dt}</div>
                           <div>
-                            Anchor {c.anchorSource.toUpperCase()}: <strong>{formatNum(price)}</strong>
+                            Anchor {anchorBasis.toUpperCase()}: <strong>{formatNum(anchorPx)}</strong>
                           </div>
                         </div>
 
                         <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
-                          Leg {c.breakdown.legBirth} • Struct {c.breakdown.structure} • Follow {c.breakdown.followThrough} • Time{" "}
-                          {c.breakdown.timeFit} • Sanity {c.breakdown.sanity}
+                          Leg {c.breakdown.legBirth} • Struct {c.breakdown.structure} • Follow {c.breakdown.followThrough} • Time {c.breakdown.timeFit} • Sanity {c.breakdown.sanity}
                         </div>
                       </button>
                     );
@@ -297,18 +316,10 @@ export default function PivotAutoAnchorPanel({
             </div>
           </div>
 
-          {/* Right: Selected + Apply + Precheck */}
+          {/* Right */}
           <div style={stackCol}>
             <div style={miniCard}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                <div style={miniHeader}>Selected pivot</div>
-
-                {verdict ? (
-                  <div style={{ ...verdictPill, ...(verdict.tone === "good" ? verdictGood : verdict.tone === "warn" ? verdictWarn : verdictBad) }}>
-                    {verdict.label} • {verdict.total}/10
-                  </div>
-                ) : null}
-              </div>
+              <div style={miniHeader}>Selected pivot</div>
 
               {selected ? (
                 <>
@@ -319,40 +330,29 @@ export default function PivotAutoAnchorPanel({
                     <div style={{ opacity: 0.85 }}>{isoToLocalLabel(selected.pivotISO)}</div>
                   </div>
 
-                  <div
-                    style={{
-                      marginTop: 10,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      fontSize: 12,
-                      opacity: 0.9,
-                    }}
-                  >
+                  {selectedCandle ? (
+                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85, lineHeight: 1.4 }}>
+                      Candle OHLC:{" "}
+                      <strong>
+                        O {formatNum(selectedCandle.o)} • H {formatNum(selectedCandle.h)} • L {formatNum(selectedCandle.l)} • C {formatNum(selectedCandle.c)}
+                      </strong>
+                    </div>
+                  ) : null}
+
+                  <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, opacity: 0.9 }}>
                     <div>
-                      Anchor source: <strong>{selected.anchorSource.toUpperCase()}</strong>
+                      Anchor basis: <strong>{anchorBasis.toUpperCase()}</strong>
                     </div>
                     <div>
-                      Anchor price: <strong>{formatNum(roundToTick(selected.anchorPrice, tickSize))}</strong>
+                      Anchor price:{" "}
+                      <strong>
+                        {formatNum(roundToTick(anchorPriceFromBasis(selected, selectedCandle), tickSize))}
+                      </strong>
                     </div>
                   </div>
 
-                  {selected.notes?.length ? (
-                    <ul style={{ margin: "10px 0 0", paddingLeft: 18, fontSize: 12, opacity: 0.75, lineHeight: 1.45 }}>
-                      {selected.notes.slice(0, 3).map((n, i) => (
-                        <li key={i}>{n}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-
-                  <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button
-                      type="button"
-                      style={{ ...btn, ...(canApply ? null : btnDisabled) }}
-                      onClick={() => apply(selected)}
-                      disabled={!canApply}
-                      title={!canApply ? "Pre-check is REJECT. Raise the pre-check or pick a different pivot." : undefined}
-                    >
+                  <div style={{ marginTop: 12, display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                    <button type="button" style={{ ...btn, ...(canApply ? null : btnDisabled) }} onClick={() => apply(selected)} disabled={!canApply}>
                       Apply to Market Inputs
                     </button>
                   </div>
@@ -402,7 +402,6 @@ function Segmented({
 /* ---------- helpers ---------- */
 
 function isoToLocalInput(iso: string) {
-  // yyyy-mm-ddThh:mm in user's local time
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -464,7 +463,7 @@ const subtitle: React.CSSProperties = {
 const controlsRow: React.CSSProperties = {
   padding: 14,
   display: "grid",
-  gridTemplateColumns: "auto auto 1fr",
+  gridTemplateColumns: "auto auto auto 1fr",
   gap: 14,
   alignItems: "start",
 };
@@ -621,25 +620,4 @@ const candRow: React.CSSProperties = {
 const candRowActive: React.CSSProperties = {
   background: "rgba(237,227,204,0.08)",
   border: "1px solid rgba(237,227,204,0.22)",
-};
-
-const verdictPill: React.CSSProperties = {
-  borderRadius: 999,
-  padding: "6px 10px",
-  fontSize: 12,
-  fontWeight: 900,
-  letterSpacing: 0.2,
-  border: "1px solid rgba(237,227,204,0.22)",
-};
-
-const verdictGood: React.CSSProperties = {
-  background: "rgba(46, 204, 113, 0.14)",
-};
-
-const verdictWarn: React.CSSProperties = {
-  background: "rgba(241, 196, 15, 0.14)",
-};
-
-const verdictBad: React.CSSProperties = {
-  background: "rgba(231, 76, 60, 0.16)",
 };
