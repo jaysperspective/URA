@@ -1,7 +1,7 @@
 // src/components/PivotPrecheckPanel.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 
 type ScoreState = {
   legBirth: 0 | 1 | 2 | 3; // 0–3
@@ -68,10 +68,9 @@ export default function PivotPrecheckPanel({ initial, onChange }: Props) {
     return { total, autoFail, hardPass, recommendedAction, reasons, state: s };
   }, [s]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     onChange?.(result);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result.total, result.autoFail, result.hardPass, result.recommendedAction, s]);
+  }, [onChange, result]);
 
   const badge = useMemo(() => {
     if (result.recommendedAction === "USE") return { text: "USE PIVOT", tone: "good" as const };
@@ -171,7 +170,11 @@ export default function PivotPrecheckPanel({ initial, onChange }: Props) {
         </button>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <button type="button" onClick={() => navigator.clipboard?.writeText(JSON.stringify(result, null, 2))} style={btnGhost}>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard?.writeText(JSON.stringify(result, null, 2))}
+            style={btnGhost}
+          >
             Copy verdict JSON
           </button>
 
