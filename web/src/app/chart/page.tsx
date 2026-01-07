@@ -1,10 +1,16 @@
 // src/app/chart/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 
 type Mode = "market" | "personal";
+type PivotAnchorMode = "low" | "high" | "close" | "open";
 
+type GannResponse =
+  | { ok: true; mode: Mode; input: any; data: any }
+  | { ok: false; error: string; retryAfterSeconds?: number };
+
+// UPDATED: matches new /api/market-candle response
 type Candle = {
   dayKey: string;
   label: "Prior" | "Pivot" | "Next";
@@ -15,15 +21,15 @@ type Candle = {
   v?: number;
 };
 
-type MarketCandleResp =
+type CandleResponse =
   | {
       ok: true;
       kind: "stock" | "crypto";
+      provider: "polygon" | "coinbase";
       symbol: string;
       pivotISO: string;
-      provider: "polygon" | "coinbase";
-      timezoneUsed: "America/New_York" | "UTC";
       bucketRule: string;
+      timezoneUsed: "America/New_York" | "UTC";
       sessionDayYMD: string;
       candles: Candle[];
       rawCount: number;
@@ -32,680 +38,804 @@ type MarketCandleResp =
 
 const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
 
-function clamp(n: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, n));
-}
-
-function parseAngles(s: string): number[] {
-  const raw = s
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean)
-    .map((x) => Number(x))
-    .filter((n) => Number.isFinite(n));
-  const normalized = raw.map((d) => ((d % 360) + 360) % 360);
-  // de-dupe + sort
-  return Array.from(new Set(normalized)).sort((a, b) => a - b);
-}
-
-function roundToTick(price: number, tick: number) {
-  if (!Number.isFinite(price) || !Number.isFinite(tick) || tick <= 0) return price;
-  return Math.round(price / tick) * tick;
-}
-
-function fmt(n: number, dp = 4) {
-  if (!Number.isFinite(n)) return "—";
-  const d = clamp(dp, 0, 10);
-  return n.toFixed(d);
-}
-
-function daysBetween(a: Date, b: Date) {
-  return (a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24);
-}
-
-function addDays(date: Date, days: number) {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
-}
-
-/**
- * Learning-first, basic model:
- * - Time origin = pivot datetime
- * - A cycle = N days maps to 360°
- * - MarkerDeg = where "now" lands on that 360° ring
- */
-function computeMarkerDeg(now: Date, pivot: Date, cycleDays: number) {
-  const d = daysBetween(now, pivot);
-  const cycle = Math.max(1e-6, cycleDays);
-  const frac = ((d % cycle) + cycle) % cycle / cycle;
-  return frac * 360;
-}
-
-/**
- * Next time we hit each angle boundary, within current cycle (forward only).
- */
-function computeNextBoundaryTimes(pivot: Date, now: Date, cycleDays: number, angles: number[]) {
-  const marker = computeMarkerDeg(now, pivot, cycleDays);
-  return angles.map((a) => {
-    const deltaDeg = ((a - marker) % 360 + 360) % 360; // [0..360)
-    const deltaDays = (deltaDeg / 360) * cycleDays;
-    return {
-      angle: a,
-      inDays: deltaDays,
-      when: addDays(now, deltaDays),
-    };
-  });
-}
-
-/**
- * Square-of-9 (very basic abstraction):
- * price(angle) = (sqrt(P) ± angle/180)^2
- * - 45° => ±0.25 step
- * - 90° => ±0.5 step
- * This is NOT "all of Gann"; it's the starter mapping we can learn with.
- */
-function squareOf9Targets(anchorPrice: number, angles: number[], includeDownside: boolean) {
-  const out: Array<{ angle: number; up: number; down?: number }> = [];
-  const root = Math.sqrt(Math.max(0, anchorPrice));
-  for (const a of angles) {
-    const k = a / 180;
-    const up = Math.pow(root + k, 2);
-    const down = Math.pow(Math.max(0, root - k), 2);
-    out.push({ angle: a, up, down: includeDownside ? down : undefined });
-  }
-  return out;
-}
-
-function Tooltip({
-  label,
-  tip,
-  className = "",
-}: {
-  label: string;
-  tip: string;
-  className?: string;
-}) {
-  return (
-    <span className={`inline-flex items-center gap-1 ${className}`}>
-      <span>{label}</span>
-      <span
-        title={tip}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] text-white/70"
-      >
-        ?
-      </span>
-    </span>
-  );
-}
-
-function CandleRow({ c }: { c: Candle }) {
-  return (
-    <tr className="border-b border-white/10">
-      <td className="py-2 pr-3 text-white/80 text-sm">{c.label}</td>
-      <td className="py-2 pr-3 text-white/60 text-sm">{c.dayKey}</td>
-      <td className="py-2 pr-3 text-white/80 text-sm tabular-nums">{fmt(c.o, 4)}</td>
-      <td className="py-2 pr-3 text-white/80 text-sm tabular-nums">{fmt(c.h, 4)}</td>
-      <td className="py-2 pr-3 text-white/80 text-sm tabular-nums">{fmt(c.l, 4)}</td>
-      <td className="py-2 text-white/80 text-sm tabular-nums">{fmt(c.c, 4)}</td>
-    </tr>
-  );
-}
-
-function panelClass() {
-  // keep it consistent with your moonstone vibe; adjust if your palette differs
-  return "rounded-2xl border border-white/10 bg-black/35 backdrop-blur px-5 py-4";
-}
-
 export default function ChartPage() {
   const [mode, setMode] = useState<Mode>("market");
 
-  // Market inputs
-  const [symbol, setSymbol] = useState("LUNR");
-  const [anchorPrice, setAnchorPrice] = useState<number>(0);
-  const [tickSize, setTickSize] = useState<number>(0.01);
+  // MARKET inputs
+  const [symbol, setSymbol] = useState("SOL-USD");
+  const [anchorPrice, setAnchorPrice] = useState("200");
+  const [tickSize, setTickSize] = useState("0.01");
   const [anglesCsv, setAnglesCsv] = useState(DEFAULT_ANGLES.join(","));
   const [includeDownside, setIncludeDownside] = useState(true);
-  const [pivotISO, setPivotISO] = useState<string>(() => {
-    // default: today local noon-ish so it’s not blank
+
+  // Market marker: pivot datetime + cycle length
+  const [pivotDateTime, setPivotDateTime] = useState<string>(() => {
     const d = new Date();
-    d.setHours(12, 0, 0, 0);
-    // datetime-local wants "YYYY-MM-DDTHH:mm"
     const pad = (n: number) => String(n).padStart(2, "0");
-    const y = d.getFullYear();
-    const m = pad(d.getMonth() + 1);
-    const dd = pad(d.getDate());
-    const hh = pad(d.getHours());
-    const mm = pad(d.getMinutes());
-    return `${y}-${m}-${dd}T${hh}:${mm}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+      d.getMinutes()
+    )}`;
   });
+  const [marketCycleDays, setMarketCycleDays] = useState("90");
 
-  // Multi-cycle support (learning mode)
-  const [cycle45On, setCycle45On] = useState(true);
-  const [cycle90On, setCycle90On] = useState(true);
+  // Pivot → anchor autofill
+  const [pivotAnchorMode, setPivotAnchorMode] = useState<PivotAnchorMode>("low");
+  const [candleRes, setCandleRes] = useState<CandleResponse | null>(null);
+  const [loadingCandle, setLoadingCandle] = useState(false);
 
-  // Pivot evidence
-  const [evidence, setEvidence] = useState<MarketCandleResp | null>(null);
-  const [evidenceLoading, setEvidenceLoading] = useState(false);
-  const [anchorFrom, setAnchorFrom] = useState<"low" | "high" | "close" | "open">("low");
+  // PERSONAL inputs
+  const [anchorDateTime, setAnchorDateTime] = useState("1990-01-24T01:39");
+  const [cycleDays, setCycleDays] = useState("365.2425");
+  const [personalAnglesCsv, setPersonalAnglesCsv] = useState(DEFAULT_ANGLES.join(","));
 
-  const angles = useMemo(() => parseAngles(anglesCsv), [anglesCsv]);
+  const [res, setRes] = useState<GannResponse | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const pivotDate = useMemo(() => {
-    // pivotISO from datetime-local => interpret as local time
-    // new Date("YYYY-MM-DDTHH:mm") is local in browsers
-    const d = new Date(pivotISO);
-    return Number.isNaN(d.getTime()) ? new Date() : d;
-  }, [pivotISO]);
+  const angles = useMemo(
+    () => parseAnglesCsv(mode === "market" ? anglesCsv : personalAnglesCsv),
+    [mode, anglesCsv, personalAnglesCsv]
+  );
 
-  const now = useMemo(() => new Date(), []);
-  const [nowTick, setNowTick] = useState(0);
+  async function run() {
+    setLoading(true);
+    setRes(null);
 
-  useEffect(() => {
-    const t = setInterval(() => setNowTick((x) => x + 1), 30_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const liveNow = useMemo(() => new Date(), [nowTick]);
-
-  const enabledCycles = useMemo(() => {
-    const arr: number[] = [];
-    if (cycle45On) arr.push(45);
-    if (cycle90On) arr.push(90);
-    return arr;
-  }, [cycle45On, cycle90On]);
-
-  const cycleOutputs = useMemo(() => {
-    if (mode !== "market") return [];
-    return enabledCycles.map((cycleDays) => {
-      const markerDeg = computeMarkerDeg(liveNow, pivotDate, cycleDays);
-      const nextAngles = computeNextBoundaryTimes(pivotDate, liveNow, cycleDays, angles);
-
-      const targetsRaw = squareOf9Targets(anchorPrice, angles, includeDownside);
-      const targets = targetsRaw.map((t) => ({
-        angle: t.angle,
-        up: roundToTick(t.up, tickSize),
-        down: t.down != null ? roundToTick(t.down, tickSize) : undefined,
-      }));
-
-      return { cycleDays, markerDeg, nextAngles, targets };
-    });
-  }, [mode, enabledCycles, liveNow, pivotDate, angles, anchorPrice, includeDownside, tickSize]);
-
-  async function loadPivotEvidence() {
-    setEvidenceLoading(true);
-    setEvidence(null);
     try {
-      // pivotISO here is local datetime-local; send full ISO with timezone offset so server can bucket
-      const pivotFullISO = new Date(pivotISO).toISOString();
-      const r = await fetch("/api/market-candle", {
+      const payload =
+        mode === "market"
+          ? {
+              mode,
+              symbol: symbol.trim() || undefined,
+              anchor: Number(anchorPrice),
+              tickSize: Number(tickSize),
+              angles,
+              includeDownside,
+              pivotDateTime,
+              cycleDays: Number(marketCycleDays),
+            }
+          : {
+              mode,
+              anchorDateTime,
+              cycleDays: Number(cycleDays),
+              angles,
+            };
+
+      const r = await fetch("/api/gann", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, pivotISO: pivotFullISO }),
+        body: JSON.stringify(payload),
       });
-      const j = (await r.json()) as MarketCandleResp;
-      setEvidence(j);
+
+      const json = (await r.json()) as GannResponse;
+      setRes(json);
     } catch (e: any) {
-      setEvidence({ ok: false, error: e?.message ? String(e.message) : "Failed to load pivot evidence" });
+      setRes({ ok: false, error: e?.message || "Unknown error" });
     } finally {
-      setEvidenceLoading(false);
+      setLoading(false);
     }
   }
 
-  function applyAnchorFromEvidence(kind: "low" | "high" | "close" | "open") {
-    if (!evidence || !evidence.ok) return;
-    const pivot = evidence.candles.find((c) => c.label === "Pivot");
-    if (!pivot) return;
+  async function autofillAnchorFromPivot() {
+    if (!symbol.trim()) {
+      setCandleRes({ ok: false, error: "Symbol is required for autofill." });
+      return;
+    }
+    if (!pivotDateTime) {
+      setCandleRes({ ok: false, error: "Pivot date/time is required for autofill." });
+      return;
+    }
 
-    const raw =
-      kind === "low" ? pivot.l :
-      kind === "high" ? pivot.h :
-      kind === "open" ? pivot.o :
-      pivot.c;
+    setLoadingCandle(true);
+    setCandleRes(null);
 
-    const snapped = roundToTick(raw, tickSize);
-    setAnchorFrom(kind);
-    setAnchorPrice(snapped);
+    try {
+      // Convert datetime-local (local time) into full ISO so the server can bucket correctly
+      const pivotISO = new Date(pivotDateTime).toISOString();
+
+      const r = await fetch("/api/market-candle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: symbol.trim(),
+          pivotISO, // UPDATED key name
+        }),
+      });
+
+      const json = (await r.json()) as CandleResponse;
+      setCandleRes(json);
+
+      if (!json.ok) return;
+
+      const pivot = json.candles.find((x) => x.label === "Pivot");
+      if (!pivot) {
+        setCandleRes({ ok: false, error: "No Pivot candle returned for that date." });
+        return;
+      }
+
+      const picked =
+        pivotAnchorMode === "low"
+          ? pivot.l
+          : pivotAnchorMode === "high"
+          ? pivot.h
+          : pivotAnchorMode === "open"
+          ? pivot.o
+          : pivot.c;
+
+      // Round to tick size
+      const t = Number(tickSize) || 0.01;
+      const rounded = Math.round(picked / t) * t;
+
+      setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
+    } catch (e: any) {
+      setCandleRes({ ok: false, error: e?.message || "Autofill failed" });
+    } finally {
+      setLoadingCandle(false);
+    }
   }
 
-  const orientationCopy = (
-    <div className="text-white/70 text-sm leading-relaxed">
-      <div className="font-medium text-white/85 mb-2">
-        Learning-first model (keep it basic)
-      </div>
-      <ul className="space-y-1">
-        <li>
-          <Tooltip
-            label="Pivot = time origin"
-            tip="The pivot sets 'day 0'. Everything on the cycle ring measures time from this moment."
-          />{" "}
-          (when the cycle starts)
-        </li>
-        <li>
-          <Tooltip
-            label="Anchor = price origin"
-            tip="The anchor sets the starting price level for targets. If you change the anchor (Low/High/Open/Close), your entire target ladder shifts."
-          />{" "}
-          (where targets start)
-        </li>
-        <li>
-          <Tooltip
-            label="Cycle = N days → 360°"
-            tip="We map N days onto a 360° ring. The marker is where 'now' lands on that ring."
-          />{" "}
-          (timing map)
-        </li>
-        <li>
-          <Tooltip
-            label="Angles = structure"
-            tip="Angles are your reference lines: 0°,45°,90°... We only use them as 'boundaries to watch' for time + as labels for price targets."
-          />{" "}
-          (reference lines)
-        </li>
-      </ul>
-      <div className="mt-3 text-white/60">
-        Orientation reminder: <span className="text-white/80">0° West • 90° North • 180° East • 270° South</span>
-      </div>
-    </div>
-  );
+  const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
+
+  // For mini-card display (keep your UI)
+  const pivotCandleForCard =
+    candleRes && candleRes.ok ? candleRes.candles.find((x) => x.label === "Pivot") ?? null : null;
 
   return (
-    <div className="min-h-screen px-5 py-6">
-      {/* Header */}
-      <div className="mx-auto max-w-6xl">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-white text-2xl font-semibold tracking-tight">
-              URA /chart — Gann (Modern, Learning-First)
-            </div>
-            <div className="text-white/60 text-sm mt-1">
-              Build the mental model first. Add complexity only when it earns its place.
-            </div>
+    <div style={pageStyle}>
+      <div style={wrapStyle}>
+        {/* Top bar */}
+        <div style={topBarStyle}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ opacity: 0.85 }}>Chart mode</span>
+
+            <Segmented
+              value={mode}
+              options={[
+                { value: "market", label: "Market" },
+                { value: "personal", label: "Personal" },
+              ]}
+              onChange={(v) => setMode(v as Mode)}
+            />
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setMode("market")}
-              className={`px-3 py-2 rounded-xl border ${
-                mode === "market" ? "border-white/25 bg-white/10 text-white" : "border-white/10 text-white/70"
-              }`}
-            >
-              Market
-            </button>
-            <button
-              onClick={() => setMode("personal")}
-              className={`px-3 py-2 rounded-xl border ${
-                mode === "personal" ? "border-white/25 bg-white/10 text-white" : "border-white/10 text-white/70"
-              }`}
-            >
-              Personal
-            </button>
-          </div>
+          <button type="button" onClick={run} style={{ ...buttonStyle, paddingInline: 14 }}>
+            {loading ? "Running…" : "Run"}
+          </button>
         </div>
 
-        {/* Layout: wider panels, less “long and skinny” */}
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Left column: Inputs + learning copy */}
-          <div className="lg:col-span-5 space-y-4">
-            <div className={panelClass()}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-white font-medium">Inputs</div>
-                <div className="text-white/50 text-xs">Basic first. No extra parts.</div>
-              </div>
+        <div style={gridStyle}>
+          {/* Inputs */}
+          <div style={panelStyle}>
+            <div style={panelHeaderStyle}>{cardTitle} Inputs</div>
 
-              {mode === "market" ? (
-                <div className="mt-4 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-white/60 text-xs mb-1">Symbol</label>
-                      <input
-                        value={symbol}
-                        onChange={(e) => setSymbol(e.target.value)}
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none"
-                        placeholder="LUNR or SOL-USD"
-                      />
-                      <div className="text-white/45 text-[11px] mt-1">
-                        Stocks: <span className="text-white/60">LUNR</span> • Crypto:{" "}
-                        <span className="text-white/60">SOL-USD</span> (Coinbase product id)
-                      </div>
-                    </div>
+            {mode === "market" ? (
+              <>
+                <Field label="Symbol (optional)">
+                  <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
+                </Field>
 
-                    <div>
-                      <label className="block text-white/60 text-xs mb-1">
-                        <Tooltip
-                          label="Pivot datetime (time origin)"
-                          tip="For stocks, we bucket the pivot into the America/New_York session day to match TradingView. For crypto, we use UTC day buckets."
-                        />
-                      </label>
-                      <input
-                        type="datetime-local"
-                        value={pivotISO}
-                        onChange={(e) => setPivotISO(e.target.value)}
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none"
-                      />
-                      <div className="text-white/45 text-[11px] mt-1">
-                        Pick the moment you want to treat as “day 0”.
-                      </div>
-                    </div>
+                <Field label="Anchor price (required)">
+                  <input
+                    value={anchorPrice}
+                    onChange={(e) => setAnchorPrice(e.target.value)}
+                    inputMode="decimal"
+                    style={inputStyle}
+                  />
+                </Field>
+
+                <Field label="Tick size (rounding)">
+                  <input
+                    value={tickSize}
+                    onChange={(e) => setTickSize(e.target.value)}
+                    inputMode="decimal"
+                    style={inputStyle}
+                  />
+                </Field>
+
+                <Field label="Angles (degrees, CSV)">
+                  <input value={anglesCsv} onChange={(e) => setAnglesCsv(e.target.value)} style={inputStyle} />
+                </Field>
+
+                <label style={checkRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={includeDownside}
+                    onChange={(e) => setIncludeDownside(e.target.checked)}
+                  />
+                  <span style={{ opacity: 0.9 }}>Include downside targets</span>
+                </label>
+
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
+                    Market Marker (time → angle)
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-white/60 text-xs mb-1">
-                        <Tooltip
-                          label="Anchor price (price origin)"
-                          tip="This is the starting level for Square-of-9 targets. Changing anchor changes every target."
-                        />
-                      </label>
-                      <input
-                        value={anchorPrice === 0 ? "" : String(anchorPrice)}
-                        onChange={(e) => setAnchorPrice(Number(e.target.value))}
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none"
-                        placeholder="Auto-fill from pivot"
-                        inputMode="decimal"
-                      />
-                      <div className="text-white/45 text-[11px] mt-1">
-                        Current source: <span className="text-white/70">{anchorFrom.toUpperCase()}</span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-white/60 text-xs mb-1">Tick size</label>
-                      <input
-                        value={String(tickSize)}
-                        onChange={(e) => setTickSize(Number(e.target.value))}
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none"
-                        inputMode="decimal"
-                      />
-                      <div className="text-white/45 text-[11px] mt-1">We snap targets + auto-fill to this.</div>
-                    </div>
-
-                    <div className="flex items-end">
-                      <label className="inline-flex items-center gap-2 text-white/70 text-sm select-none">
-                        <input
-                          type="checkbox"
-                          checked={includeDownside}
-                          onChange={(e) => setIncludeDownside(e.target.checked)}
-                        />
-                        Include downside targets
-                      </label>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-white/60 text-xs mb-1">
-                      <Tooltip
-                        label="Angles (structure lines)"
-                        tip="Comma-separated degrees. Keep it simple: 0,45,90... We'll use these as time boundaries + price target labels."
-                      />
-                    </label>
+                  <Field label="Pivot date/time (local)">
                     <input
-                      value={anglesCsv}
-                      onChange={(e) => setAnglesCsv(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-white outline-none"
+                      type="datetime-local"
+                      value={pivotDateTime}
+                      onChange={(e) => setPivotDateTime(e.target.value)}
+                      style={inputStyle}
                     />
-                  </div>
+                  </Field>
 
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={loadPivotEvidence}
-                      className="px-3 py-2 rounded-xl border border-white/15 bg-white/10 text-white hover:bg-white/15"
-                    >
-                      {evidenceLoading ? "Loading..." : "Load pivot evidence (3 candles)"}
-                    </button>
+                  <Field label="Market cycle length (days)">
+                    <input
+                      value={marketCycleDays}
+                      onChange={(e) => setMarketCycleDays(e.target.value)}
+                      inputMode="decimal"
+                      style={inputStyle}
+                    />
+                  </Field>
 
-                    <div className="flex items-center gap-2 text-white/60 text-xs">
-                      <span>Auto-fill anchor:</span>
+                  {/* Pivot → anchor autofill */}
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontSize: 12, opacity: 0.85 }}>Auto-fill anchor from pivot (1D candle)</div>
+
                       <button
-                        onClick={() => applyAnchorFromEvidence("low")}
-                        className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-white/80"
-                        title="Low = conservative anchor. Targets sit closer to price."
+                        type="button"
+                        onClick={autofillAnchorFromPivot}
+                        style={buttonStyle}
+                        disabled={loadingCandle}
                       >
-                        Low
-                      </button>
-                      <button
-                        onClick={() => applyAnchorFromEvidence("high")}
-                        className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-white/80"
-                        title="High = aggressive anchor. Targets shift higher."
-                      >
-                        High
-                      </button>
-                      <button
-                        onClick={() => applyAnchorFromEvidence("open")}
-                        className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-white/80"
-                        title="Open = session start anchor."
-                      >
-                        Open
-                      </button>
-                      <button
-                        onClick={() => applyAnchorFromEvidence("close")}
-                        className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-white/80"
-                        title="Close = session settlement anchor."
-                      >
-                        Close
+                        {loadingCandle ? "Fetching…" : "Auto-fill"}
                       </button>
                     </div>
-                  </div>
 
-                  <div className="mt-3">
-                    <div className="text-white/70 text-sm font-medium mb-2">Cycles (learning mode)</div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <label className="inline-flex items-center gap-2 text-white/70 text-sm select-none">
-                        <input
-                          type="checkbox"
-                          checked={cycle45On}
-                          onChange={(e) => setCycle45On(e.target.checked)}
-                        />
-                        45-day
-                      </label>
-                      <label className="inline-flex items-center gap-2 text-white/70 text-sm select-none">
-                        <input
-                          type="checkbox"
-                          checked={cycle90On}
-                          onChange={(e) => setCycle90On(e.target.checked)}
-                        />
-                        90-day
-                      </label>
-                      <div className="text-white/45 text-[11px]">
-                        Same model twice → compare timing + targets without adding new concepts.
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>Use</div>
+                      <Segmented
+                        value={pivotAnchorMode}
+                        options={[
+                          { value: "low", label: "Low" },
+                          { value: "high", label: "High" },
+                          { value: "close", label: "Close" },
+                          { value: "open", label: "Open" },
+                        ]}
+                        onChange={(v) => setPivotAnchorMode(v as PivotAnchorMode)}
+                      />
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>(Low = swing-low pivot, High = swing-high pivot)</div>
+                    </div>
+
+                    {candleRes?.ok && pivotCandleForCard ? (
+                      <div style={miniCardStyle}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
+                          <div style={{ fontWeight: 700 }}>
+                            {candleRes.symbol} • 1D
+                          </div>
+                          <div style={{ opacity: 0.85 }}>
+                            {candleRes.provider} • {candleRes.sessionDayYMD} ({candleRes.timezoneUsed})
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+                          {candleRes.bucketRule}
+                        </div>
+
+                        <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
+                          <div>
+                            O: <strong>{formatNum(pivotCandleForCard.o)}</strong>
+                          </div>
+                          <div>
+                            H: <strong>{formatNum(pivotCandleForCard.h)}</strong>
+                          </div>
+                          <div>
+                            L: <strong>{formatNum(pivotCandleForCard.l)}</strong>
+                          </div>
+                          <div>
+                            C: <strong>{formatNum(pivotCandleForCard.c)}</strong>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                          Selected anchor source: <strong>{pivotAnchorMode.toUpperCase()}</strong>
+                        </div>
                       </div>
+                    ) : candleRes && !candleRes.ok ? (
+                      <div style={{ ...errorStyle }}>Candle fetch error: {candleRes.error}</div>
+                    ) : null}
+
+                    <div style={helpStyle}>
+                      Marker maps <em>time since pivot</em> into the 360° ring:
+                      <br />
+                      <code style={codeStyle}>deg = ((now - pivot)/cycleDays mod 1) × 360</code>
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div className="mt-4 text-white/70 text-sm">
-                  Personal mode stays minimal for now. When you’re ready, we’ll define what “pivot” and “anchor” mean in
-                  a personal timeline without mixing in extra Gann components.
+
+                <div style={helpStyle}>
+                  Price targets use classic Square-of-9 sqrt step:
+                  <br />
+                  <code style={codeStyle}>target = (sqrt(anchor) ± (angle/180))²</code>
                 </div>
-              )}
-            </div>
+              </>
+            ) : (
+              <>
+                <Field label="Anchor date/time (local)">
+                  <input
+                    type="datetime-local"
+                    value={anchorDateTime}
+                    onChange={(e) => setAnchorDateTime(e.target.value)}
+                    style={inputStyle}
+                  />
+                </Field>
 
-            <div className={panelClass()}>{orientationCopy}</div>
+                <Field label="Cycle length (days)">
+                  <input
+                    value={cycleDays}
+                    onChange={(e) => setCycleDays(e.target.value)}
+                    inputMode="decimal"
+                    style={inputStyle}
+                  />
+                </Field>
 
-            {/* Pivot evidence panel */}
-            <div className={panelClass()}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-white font-medium">Pivot evidence</div>
-                <div className="text-white/50 text-xs">1 pivot day + prior + next</div>
+                <Field label="Angles (degrees, CSV)">
+                  <input
+                    value={personalAnglesCsv}
+                    onChange={(e) => setPersonalAnglesCsv(e.target.value)}
+                    style={inputStyle}
+                  />
+                </Field>
+
+                <div style={helpStyle}>
+                  Personal mode maps time → angle:
+                  <br />
+                  <code style={codeStyle}>deg = ((now - anchor)/cycleDays mod 1) × 360</code>
+                </div>
+              </>
+            )}
+
+            {res && !res.ok && (
+              <div style={{ ...errorStyle, marginTop: 12 }}>
+                Error: {res.error}
+                {res.retryAfterSeconds ? ` (retry after ${res.retryAfterSeconds}s)` : null}
               </div>
-
-              {!evidence ? (
-                <div className="mt-3 text-white/60 text-sm">
-                  Load this to sanity-check your pivot choice. If the pivot candle doesn’t “look like a pivot,” your
-                  whole model starts wobbly.
-                </div>
-              ) : !evidence.ok ? (
-                <div className="mt-3 text-red-300 text-sm">{evidence.error}</div>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  <div className="text-white/70 text-sm">
-                    <div>
-                      Provider: <span className="text-white/85">{evidence.provider}</span>
-                    </div>
-                    <div>
-                      Bucket rule: <span className="text-white/85">{evidence.bucketRule}</span>
-                    </div>
-                    <div>
-                      Candle timezone: <span className="text-white/85">{evidence.timezoneUsed}</span>
-                    </div>
-                    <div>
-                      Session day: <span className="text-white/85">{evidence.sessionDayYMD}</span>
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[520px]">
-                      <thead>
-                        <tr className="border-b border-white/10">
-                          <th className="text-left py-2 pr-3 text-white/50 text-xs font-medium">Role</th>
-                          <th className="text-left py-2 pr-3 text-white/50 text-xs font-medium">Day</th>
-                          <th className="text-left py-2 pr-3 text-white/50 text-xs font-medium">Open</th>
-                          <th className="text-left py-2 pr-3 text-white/50 text-xs font-medium">High</th>
-                          <th className="text-left py-2 pr-3 text-white/50 text-xs font-medium">Low</th>
-                          <th className="text-left py-2 text-white/50 text-xs font-medium">Close</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {evidence.candles.map((c) => (
-                          <CandleRow key={`${c.label}-${c.dayKey}`} c={c} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="text-white/60 text-sm leading-relaxed">
-                    <div className="text-white/80 font-medium mb-1">Why OHLC choice changes the model</div>
-                    <div>
-                      The anchor is your <span className="text-white/80">price origin</span>. If you anchor on{" "}
-                      <span className="text-white/80">Low</span>, targets sit “tighter” under price. If you anchor on{" "}
-                      <span className="text-white/80">High</span>, the entire ladder shifts up.{" "}
-                      <span className="text-white/80">Open/Close</span> are useful when you want the day’s “start” or
-                      “settlement” to define your baseline.
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
           </div>
 
-          {/* Right column: Outputs (wider, stacked cards; cycles side-by-side on xl) */}
-          <div className="lg:col-span-7 space-y-4">
-            <div className={panelClass()}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-white font-medium">Outputs</div>
-                <div className="text-white/50 text-xs">
-                  Marker uses: {liveNow.toLocaleString()}
-                </div>
-              </div>
+          {/* Visualization */}
+          <div style={panelStyle}>
+            <div style={panelHeaderStyle}>Angle Ring</div>
 
-              {mode !== "market" ? (
-                <div className="mt-3 text-white/60 text-sm">
-                  Personal mode output will come later. We’ll keep the same 3 primitives (pivot/anchor/cycle) so you’re
-                  not learning two different systems.
-                </div>
-              ) : enabledCycles.length === 0 ? (
-                <div className="mt-3 text-white/60 text-sm">Enable at least one cycle (45 or 90) to see outputs.</div>
-              ) : anchorPrice <= 0 ? (
-                <div className="mt-3 text-white/60 text-sm">
-                  Set an anchor price (or load pivot evidence and auto-fill from OHLC).
-                </div>
+            {res?.ok ? (
+              <AngleRing
+                angles={angles}
+                markerDeg={res.data?.markerDeg ?? null}
+                subtitle={
+                  mode === "market"
+                    ? `Anchor: ${formatNum(res.data.anchor)}${res.input.symbol ? ` (${res.input.symbol})` : ""}`
+                    : `Now @ ${formatNum(res.data.markerDeg)}° of cycle`
+                }
+              />
+            ) : (
+              <div style={{ opacity: 0.8, padding: 12 }}>Run to generate the ring and outputs.</div>
+            )}
+          </div>
+
+          {/* Outputs */}
+          <div style={panelStyle}>
+            <div style={panelHeaderStyle}>Outputs</div>
+
+            {res?.ok ? (
+              mode === "market" ? (
+                <TargetsPanel data={res.data} />
               ) : (
-                <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-3">
-                  {cycleOutputs.map((co) => (
-                    <div key={co.cycleDays} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-white/90 font-medium">
-                          {co.cycleDays}-day cycle
-                        </div>
-                        <div className="text-white/60 text-xs tabular-nums">
-                          Marker: {fmt(co.markerDeg, 2)}°
-                        </div>
-                      </div>
-
-                      <div className="mt-3">
-                        <div className="text-white/70 text-sm font-medium mb-2">
-                          Next angle boundaries (timing)
-                        </div>
-                        <div className="space-y-1">
-                          {co.nextAngles.slice(0, Math.min(6, co.nextAngles.length)).map((x) => (
-                            <div
-                              key={`${co.cycleDays}-${x.angle}`}
-                              className="flex items-center justify-between gap-3 text-sm"
-                            >
-                              <div className="text-white/75">
-                                {x.angle}°
-                              </div>
-                              <div className="text-white/55 tabular-nums">
-                                in {fmt(x.inDays, 2)}d
-                              </div>
-                              <div className="text-white/75">
-                                {x.when.toLocaleString()}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        {co.nextAngles.length > 6 && (
-                          <div className="text-white/45 text-[11px] mt-2">
-                            Showing first 6. Keep it uncluttered.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-4">
-                        <div className="text-white/70 text-sm font-medium mb-2">
-                          Square-of-9 targets (levels)
-                        </div>
-                        <div className="space-y-1">
-                          {co.targets.slice(0, Math.min(8, co.targets.length)).map((t) => (
-                            <div
-                              key={`${co.cycleDays}-t-${t.angle}`}
-                              className="flex items-center justify-between gap-3 text-sm"
-                            >
-                              <div className="text-white/75">{t.angle}°</div>
-                              <div className="text-white/80 tabular-nums">
-                                Up: {fmt(t.up, 4)}
-                              </div>
-                              {includeDownside ? (
-                                <div className="text-white/60 tabular-nums">
-                                  Down: {t.down != null ? fmt(t.down, 4) : "—"}
-                                </div>
-                              ) : (
-                                <div className="text-white/45 text-xs">Downside off</div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                        {co.targets.length > 8 && (
-                          <div className="text-white/45 text-[11px] mt-2">
-                            Showing first 8. Expand later only if needed.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-4 text-white/55 text-[12px] leading-relaxed">
-                        <span className="text-white/75">How to use this card:</span>{" "}
-                        Watch the next boundary times as “attention points” (timing), then check whether price is
-                        reacting near the target stack (levels). Same angles, two cycles — compare which one aligns
-                        cleaner before adding anything new.
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Minimal “what to do next” guidance, still learning-first */}
-            <div className={panelClass()}>
-              <div className="text-white font-medium">Next steps (strict, basic)</div>
-              <div className="mt-2 text-white/70 text-sm leading-relaxed">
-                1) Pick a pivot you can defend with evidence (the 3-candle strip should “make sense”).{" "}
-                <br />
-                2) Choose an anchor on purpose (Low/High/Open/Close) and say why.{" "}
-                <br />
-                3) Run 45 vs 90 side-by-side. Don’t chase both — pick the one that behaves cleaner.
-              </div>
-            </div>
+                <PersonalPanel data={res.data} />
+              )
+            ) : (
+              <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+/* -------------------- UI Components -------------------- */
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+      <div style={{ fontSize: 12, opacity: 0.85 }}>{label}</div>
+      {children}
+    </label>
+  );
+}
+
+function Segmented({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div style={segWrapStyle}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            style={{ ...segBtnStyle, ...(active ? segBtnActiveStyle : null) }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AngleRing({
+  angles,
+  markerDeg,
+  subtitle,
+}: {
+  angles: number[];
+  markerDeg: number | null;
+  subtitle?: string;
+}) {
+  const size = 320;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 120;
+
+  // Quadrant shading (subtle, 4 wedges: 0–90, 90–180, 180–270, 270–360)
+  // Oriented with 0° at WEST, increasing clockwise.
+  const quadrantWedges = [
+    { start: 0, end: 90, opacity: 0.10 },
+    { start: 90, end: 180, opacity: 0.06 },
+    { start: 180, end: 270, opacity: 0.10 },
+    { start: 270, end: 360, opacity: 0.06 },
+  ];
+
+  const spokes = angles.map((deg) => {
+    const p = polarToXY_West0_CW(cx, cy, r, deg);
+    return { deg, x2: p.x, y2: p.y };
+  });
+
+  const marker = markerDeg == null ? null : polarToXY_West0_CW(cx, cy, r, markerDeg);
+
+  return (
+    <div style={{ padding: 12 }}>
+      {subtitle ? <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>{subtitle}</div> : null}
+
+      <svg width={size} height={size} style={{ display: "block", margin: "0 auto" }}>
+        {/* Quadrant wedges */}
+        {quadrantWedges.map((q) => (
+          <path
+            key={`${q.start}-${q.end}`}
+            d={wedgePath(cx, cy, r, q.start, q.end)}
+            fill={`rgba(237,227,204,${q.opacity})`}
+            stroke="none"
+          />
+        ))}
+
+        {/* Outer circle */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(237,227,204,0.25)" strokeWidth={2} />
+
+        {/* spokes + labels */}
+        {spokes.map((s) => (
+          <g key={s.deg}>
+            <line x1={cx} y1={cy} x2={s.x2} y2={s.y2} stroke="rgba(237,227,204,0.15)" strokeWidth={2} />
+            <text
+              x={cx + (s.x2 - cx) * 1.12}
+              y={cy + (s.y2 - cy) * 1.12}
+              fill="rgba(237,227,204,0.8)"
+              fontSize={11}
+              textAnchor="middle"
+              dominantBaseline="middle"
+            >
+              {s.deg}°
+            </text>
+          </g>
+        ))}
+
+        {/* marker */}
+        {marker ? (
+          <>
+            <circle cx={marker.x} cy={marker.y} r={6} fill="rgba(237,227,204,0.95)" />
+            <circle cx={marker.x} cy={marker.y} r={10} fill="none" stroke="rgba(237,227,204,0.35)" />
+          </>
+        ) : null}
+
+        {/* center */}
+        <circle cx={cx} cy={cy} r={3} fill="rgba(237,227,204,0.55)" />
+      </svg>
+
+      <div style={{ fontSize: 12, opacity: 0.85, textAlign: "center", marginTop: 10 }}>
+        {markerDeg == null ? "Marker appears after run." : `Marker: ${formatNum(markerDeg)}°`}
+      </div>
+
+      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 6 }}>
+        0° West • 90° North • 180° East • 270° South
+      </div>
+    </div>
+  );
+}
+
+function TargetsPanel({ data }: { data: any }) {
+  const markerOk = typeof data.markerDeg === "number" && Number.isFinite(data.markerDeg);
+
+  return (
+    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontSize: 12, opacity: 0.85 }}>
+        Anchor: <strong>{formatNum(data.anchor)}</strong>
+      </div>
+
+      {markerOk ? (
+        <div style={miniCardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ fontWeight: 600 }}>Market marker</div>
+            <div style={{ opacity: 0.85 }}>{formatNum(data.markerDeg)}°</div>
+          </div>
+
+          {Array.isArray(data.nextBoundaries) && data.nextBoundaries.length ? (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+              {data.nextBoundaries.slice(0, 4).map((b: any) => (
+                <div
+                  key={b.angle}
+                  style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between", gap: 10 }}
+                >
+                  <span>{b.angle}° next</span>
+                  <span>
+                    {String(b.at).slice(0, 19).replace("T", " ")} ({b.inHours}h)
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {(data.targets ?? []).map((t: any) => (
+          <div key={t.angle} style={miniCardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ fontWeight: 600 }}>{t.angle}°</div>
+              <div style={{ opacity: 0.85 }}>Δ√ = {formatNum(t.deltaSqrt)}</div>
+            </div>
+
+            <div style={{ marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
+              <div>
+                Up: <strong>{formatNum(t.up)}</strong>
+              </div>
+              {t.down != null ? (
+                <div>
+                  Down: <strong>{formatNum(t.down)}</strong>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={helpStyle}>
+        Basic read: angles are “structure.” The marker is “timing.” Targets are “levels.” You’re watching where timing +
+        levels converge.
+      </div>
+    </div>
+  );
+}
+
+function PersonalPanel({ data }: { data: any }) {
+  return (
+    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontSize: 12, opacity: 0.85 }}>
+        Anchor: <strong>{String(data.anchorDateTime)}</strong>
+      </div>
+      <div style={{ fontSize: 12, opacity: 0.85 }}>
+        Cycle: <strong>{formatNum(data.cycleDays)}</strong> days
+      </div>
+
+      <div style={miniCardStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ fontWeight: 600 }}>Now position</div>
+          <div style={{ opacity: 0.85 }}>{formatNum(data.markerDeg)}°</div>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
+          Cycle progress: <strong>{Math.round((data.progress01 ?? 0) * 100)}%</strong>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {(data.nextBoundaries ?? []).map((b: any) => (
+          <div key={b.angle} style={miniCardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ fontWeight: 600 }}>{b.angle}° next</div>
+              <div style={{ opacity: 0.85 }}>{String(b.at)}</div>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
+              In: <strong>{b.inHours}</strong> hours
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={helpStyle}>Personal use: you’re tracking context shifts as you cross key angles.</div>
+    </div>
+  );
+}
+
+/* -------------------- Helpers -------------------- */
+
+function parseAnglesCsv(csv: string): number[] {
+  const parts = String(csv || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const nums = parts
+    .map((p) => Number(p))
+    .filter((n) => Number.isFinite(n))
+    .map((n) => ((n % 360) + 360) % 360);
+
+  return Array.from(new Set(nums)).sort((a, b) => a - b);
+}
+
+/**
+ * ✅ 0° at WEST, increasing clockwise:
+ * 0° West, 90° North, 180° East, 270° South
+ */
+function polarToXY_West0_CW(cx: number, cy: number, r: number, deg: number) {
+  const a = ((deg + 180) * Math.PI) / 180;
+  return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+}
+
+function wedgePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
+  const p1 = polarToXY_West0_CW(cx, cy, r, startDeg);
+  const p2 = polarToXY_West0_CW(cx, cy, r, endDeg);
+  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+
+  return [`M ${cx} ${cy}`, `L ${p1.x} ${p1.y}`, `A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`, "Z"].join(" ");
+}
+
+function formatNum(n: any) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return String(n);
+  return x.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+function decimalsFromTick(tick: number) {
+  const s = String(tick);
+  const i = s.indexOf(".");
+  return i === -1 ? 0 : Math.min(12, s.length - i - 1);
+}
+
+/* -------------------- Styles -------------------- */
+
+const pageStyle: CSSProperties = {
+  minHeight: "100vh",
+  background: "#1B1F24",
+  padding: "24px 12px",
+  display: "flex",
+  justifyContent: "center",
+  color: "#EDE3CC",
+  fontFamily: "system-ui",
+};
+
+const wrapStyle: CSSProperties = {
+  width: "100%",
+  maxWidth: 1100,
+  display: "flex",
+  flexDirection: "column",
+  gap: 16,
+};
+
+const topBarStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  background: "#222933",
+  borderRadius: 16,
+  padding: "12px 14px",
+  border: "1px solid rgba(58,69,80,0.9)",
+};
+
+const gridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1.2fr 1fr",
+  gap: 14,
+};
+
+const panelStyle: CSSProperties = {
+  background: "#243039",
+  borderRadius: 20,
+  border: "1px solid rgba(58,69,80,0.9)",
+  boxShadow: "0 12px 30px rgba(0,0,0,0.4)",
+  overflow: "hidden",
+  minHeight: 420,
+};
+
+const panelHeaderStyle: CSSProperties = {
+  padding: "12px 14px",
+  borderBottom: "1px solid rgba(58,69,80,0.6)",
+  fontWeight: 700,
+  letterSpacing: 0.2,
+};
+
+const inputStyle: CSSProperties = {
+  background: "#1B1F24",
+  border: "1px solid #3a4550",
+  borderRadius: 8,
+  padding: "8px 10px",
+  color: "#EDE3CC",
+  fontSize: 13,
+  outline: "none",
+};
+
+const buttonStyle: CSSProperties = {
+  background: "transparent",
+  border: "1px solid #3a4550",
+  borderRadius: 999,
+  padding: "7px 12px",
+  color: "#EDE3CC",
+  fontSize: 12,
+  cursor: "pointer",
+};
+
+const segWrapStyle: CSSProperties = {
+  display: "inline-flex",
+  border: "1px solid rgba(58,69,80,0.9)",
+  borderRadius: 999,
+  overflow: "hidden",
+};
+
+const segBtnStyle: CSSProperties = {
+  background: "transparent",
+  border: "none",
+  color: "#EDE3CC",
+  padding: "8px 12px",
+  fontSize: 12,
+  cursor: "pointer",
+  opacity: 0.8,
+};
+
+const segBtnActiveStyle: CSSProperties = {
+  background: "rgba(237,227,204,0.12)",
+  opacity: 1,
+};
+
+const helpStyle: CSSProperties = {
+  marginTop: 12,
+  fontSize: 12,
+  lineHeight: 1.4,
+  opacity: 0.85,
+};
+
+const codeStyle: CSSProperties = {
+  background: "rgba(0,0,0,0.25)",
+  padding: "2px 6px",
+  borderRadius: 6,
+  border: "1px solid rgba(58,69,80,0.6)",
+};
+
+const checkRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginTop: 12,
+  fontSize: 12,
+};
+
+const miniCardStyle: CSSProperties = {
+  background: "rgba(0,0,0,0.18)",
+  border: "1px solid rgba(58,69,80,0.6)",
+  borderRadius: 14,
+  padding: 12,
+};
+
+const errorStyle: CSSProperties = {
+  background: "rgba(255, 80, 80, 0.12)",
+  border: "1px solid rgba(255, 80, 80, 0.35)",
+  borderRadius: 12,
+  padding: 10,
+  color: "#FFB0B0",
+};
