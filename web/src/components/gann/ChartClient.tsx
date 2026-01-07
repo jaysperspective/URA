@@ -21,40 +21,31 @@ type Candle = {
   h: number;
   l: number;
   c: number;
-  v?: number;
 };
 
 type CandleResponse =
   | {
       ok: true;
-      kind: "stock" | "crypto";
       provider: "polygon" | "coinbase";
       symbol: string;
-      pivotISO: string;
-      bucketRule: string;
-      timezoneUsed: "America/New_York" | "UTC";
       sessionDayYMD: string;
+      timezoneUsed: "America/New_York" | "UTC";
+      bucketRule: string;
       candles: Candle[];
-      rawCount: number;
     }
   | { ok: false; error: string };
 
 type MarketPriceResponse =
   | {
       ok: true;
-      kind: "stock" | "crypto";
       provider: "polygon" | "coinbase";
       symbol: string;
       price: number;
       asOfISO: string;
-      note?: string;
     }
   | { ok: false; error: string };
 
-/* -------------------- Constants -------------------- */
-
-const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
-const ALWAYS_INCLUDE_DOWNSIDE = true;
+const ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
 const SYNC_TOL_DEG = 12;
 
 /* -------------------- Component -------------------- */
@@ -62,45 +53,34 @@ const SYNC_TOL_DEG = 12;
 export default function ChartClient() {
   const [mode, setMode] = useState<Mode>("market");
 
-  // Market inputs
   const [symbol, setSymbol] = useState("SOL-USD");
   const [anchorPrice, setAnchorPrice] = useState("200");
   const [tickSize, setTickSize] = useState("0.01");
 
   const [pivotDateTime, setPivotDateTime] = useState(() => {
     const d = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-      d.getDate()
-    )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return d.toISOString().slice(0, 16);
   });
 
   const [marketCycleDays, setMarketCycleDays] = useState("90");
-  const [pivotAnchorMode, setPivotAnchorMode] =
-    useState<PivotAnchorMode>("close");
+  const [pivotAnchorMode, setPivotAnchorMode] = useState<PivotAnchorMode>("close");
 
   const [candleRes, setCandleRes] = useState<CandleResponse | null>(null);
   const [priceRes, setPriceRes] = useState<MarketPriceResponse | null>(null);
 
-  const [loading, setLoading] = useState(false);
-  const [loadingCandle, setLoadingCandle] = useState(false);
-  const [loadingPrice, setLoadingPrice] = useState(false);
-
-  // Personal
-  const [anchorDateTime, setAnchorDateTime] =
-    useState("1990-01-24T01:39");
-  const [cycleDays, setCycleDays] = useState("365.2425");
-
   const [res, setRes] = useState<GannResponse | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const angles = useMemo(() => [...DEFAULT_ANGLES], []);
+  /* -------------------- Derived -------------------- */
 
-  const marketKind = useMemo<"crypto" | "stock">(() => {
-    const s = symbol.toUpperCase();
-    if (s.includes("-USD") || s.includes("BTC") || s.includes("ETH"))
-      return "crypto";
-    return "stock";
-  }, [symbol]);
+  const priceMarkerDeg = useMemo(() => {
+    if (!priceRes?.ok) return null;
+    const a = Number(anchorPrice);
+    const p = Number(priceRes.price);
+    if (!a || !p) return null;
+    const raw = (Math.sqrt(p) - Math.sqrt(a)) * 180;
+    return ((raw % 360) + 360) % 360;
+  }, [priceRes, anchorPrice]);
 
   /* -------------------- Actions -------------------- */
 
@@ -109,228 +89,262 @@ export default function ChartClient() {
     setRes(null);
 
     try {
-      const payload =
-        mode === "market"
-          ? {
-              mode,
-              symbol: symbol.trim(),
-              anchor: Number(anchorPrice),
-              tickSize: Number(tickSize),
-              angles,
-              includeDownside: ALWAYS_INCLUDE_DOWNSIDE,
-              pivotDateTime,
-              cycleDays: Number(marketCycleDays),
-            }
-          : {
-              mode,
-              anchorDateTime,
-              cycleDays: Number(cycleDays),
-              angles,
-            };
-
       const r = await fetch("/api/gann", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          mode,
+          symbol,
+          anchor: Number(anchorPrice),
+          tickSize: Number(tickSize),
+          pivotDateTime,
+          cycleDays: Number(marketCycleDays),
+          angles: ANGLES,
+        }),
       });
 
       setRes(await r.json());
-    } catch (e: any) {
-      setRes({ ok: false, error: e?.message ?? "Unknown error" });
     } finally {
       setLoading(false);
     }
   }
 
-  async function autofillAnchorFromPivot() {
-    setLoadingCandle(true);
-    setCandleRes(null);
-
-    try {
-      const r = await fetch("/api/market-candle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbol: symbol.trim(),
-          pivotISO: new Date(pivotDateTime).toISOString(),
-        }),
-      });
-
-      const json = (await r.json()) as CandleResponse;
-      setCandleRes(json);
-
-      if (!json.ok) return;
-
-      const pivot = json.candles.find((c) => c.label === "Pivot");
-      if (!pivot) return;
-
-      const picked =
-        pivotAnchorMode === "low"
-          ? pivot.l
-          : pivotAnchorMode === "high"
-          ? pivot.h
-          : pivotAnchorMode === "open"
-          ? pivot.o
-          : pivot.c;
-
-      const t = Number(tickSize) || 0.01;
-      const rounded = Math.round(picked / t) * t;
-
-      setAnchorPrice(
-        rounded.toFixed(decimalsFromTick(t))
-      );
-    } finally {
-      setLoadingCandle(false);
-    }
-  }
-
   async function refreshCurrentPrice() {
-    setLoadingPrice(true);
-    setPriceRes(null);
-
-    try {
-      const r = await fetch("/api/market-price", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: symbol.trim() }),
-      });
-
-      setPriceRes(await r.json());
-    } finally {
-      setLoadingPrice(false);
-    }
+    const r = await fetch("/api/market-price", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol }),
+    });
+    setPriceRes(await r.json());
   }
-
-  const priceMarkerDeg = useMemo(() => {
-    if (!priceRes?.ok) return null;
-    const a = Number(anchorPrice);
-    const p = priceRes.price;
-    if (a <= 0 || p <= 0) return null;
-    return (((Math.sqrt(p) - Math.sqrt(a)) * 180) % 360 + 360) % 360;
-  }, [priceRes, anchorPrice]);
 
   /* -------------------- Render -------------------- */
 
   return (
     <div style={pageStyle}>
       <div style={wrapStyle}>
-        {/* Top bar */}
+        {/* Top Bar */}
         <div style={topBarStyle}>
-          <div>
-            Mode:&nbsp;
-            <button onClick={() => setMode("market")}>Market</button>
-            <button onClick={() => setMode("personal")}>Personal</button>
-          </div>
-          <button onClick={run}>
+          <Segmented
+            value={mode}
+            options={[
+              { value: "market", label: "Market" },
+              { value: "personal", label: "Personal" },
+            ]}
+            onChange={(v) => setMode(v as Mode)}
+          />
+          <button onClick={run} style={buttonStyle}>
             {loading ? "Running…" : "Run"}
           </button>
         </div>
 
+        {/* Main Grid */}
         <div style={gridStyle}>
           {/* Inputs */}
           <div style={panelStyle}>
-            <h3>Inputs</h3>
+            <PanelHeader title="Inputs" />
+            <Field label="Symbol">
+              <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
+            </Field>
 
-            {mode === "market" && (
-              <>
-                <input value={symbol} onChange={(e) => setSymbol(e.target.value)} />
-                <input value={anchorPrice} onChange={(e) => setAnchorPrice(e.target.value)} />
-                <input value={tickSize} onChange={(e) => setTickSize(e.target.value)} />
+            <Field label="Anchor Price">
+              <input value={anchorPrice} onChange={(e) => setAnchorPrice(e.target.value)} style={inputStyle} />
+            </Field>
 
-                <input
-                  type="datetime-local"
-                  value={pivotDateTime}
-                  onChange={(e) => setPivotDateTime(e.target.value)}
-                />
+            <Field label="Tick Size">
+              <input value={tickSize} onChange={(e) => setTickSize(e.target.value)} style={inputStyle} />
+            </Field>
 
-                <button onClick={autofillAnchorFromPivot}>
-                  Auto-fill from pivot
-                </button>
+            <Field label="Pivot Date / Time">
+              <input
+                type="datetime-local"
+                value={pivotDateTime}
+                onChange={(e) => setPivotDateTime(e.target.value)}
+                style={inputStyle}
+              />
+            </Field>
 
-                <button onClick={refreshCurrentPrice}>
-                  Refresh price
-                </button>
-              </>
-            )}
+            <button onClick={refreshCurrentPrice} style={buttonStyle}>
+              Refresh Price
+            </button>
           </div>
 
-          {/* Visuals */}
+          {/* Angle Ring */}
           <div style={panelStyle}>
-            <h3>Visuals</h3>
-
-            {res?.ok && mode === "market" && (
-              <SquareOfNinePanel
-                anchor={Number(anchorPrice)}
-                tickSize={Number(tickSize)}
-                targets={res.data.targets ?? []}
-                currentPrice={priceRes?.ok ? priceRes.price : null}
-              />
+            <PanelHeader title="Angle Ring" />
+            {res?.ok ? (
+              <div style={{ padding: 12, textAlign: "center" }}>
+                <div>Time Angle: {res.data.markerDeg?.toFixed(2)}°</div>
+                {priceMarkerDeg != null && <div>Price Angle: {priceMarkerDeg.toFixed(2)}°</div>}
+              </div>
+            ) : (
+              <div style={emptyStyle}>Run to generate</div>
             )}
           </div>
 
           {/* Outputs */}
           <div style={panelStyle}>
-            <h3>Outputs</h3>
-            <pre style={{ fontSize: 11 }}>
-              {JSON.stringify(res, null, 2)}
-            </pre>
+            <PanelHeader title="Outputs" />
+            <pre style={jsonStyle}>{res?.ok ? JSON.stringify(res.data, null, 2) : "—"}</pre>
           </div>
         </div>
 
+        {/* ✅ Square of 9 — FULL WIDTH MODULE */}
+        {mode === "market" && res?.ok && (
+          <div style={{ ...panelStyle, marginTop: 16 }}>
+            <PanelHeader title="Square of 9" />
+            <SquareOfNinePanel
+              anchor={Number(anchorPrice)}
+              tickSize={Number(tickSize)}
+              targets={res.data.targets ?? []}
+              currentPrice={priceRes?.ok ? priceRes.price : null}
+            />
+          </div>
+        )}
+
+        {/* Auto Pivot Finder */}
         {mode === "market" && (
-          <PivotAutoAnchorPanel
-            kind={marketKind}
-            symbol={symbol}
-            tickSize={Number(tickSize)}
-            onApply={(p) => {
-              if (p?.pivotLocalInput) setPivotDateTime(p.pivotLocalInput);
-              if (p?.anchorSource) setPivotAnchorMode(p.anchorSource);
-              setAnchorPrice(String(p.anchorPrice));
-            }}
-          />
+          <div style={{ marginTop: 16 }}>
+            <PivotAutoAnchorPanel kind="crypto" symbol={symbol} tickSize={Number(tickSize)} />
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-/* -------------------- Helpers -------------------- */
+/* -------------------- Small UI Helpers -------------------- */
 
-function decimalsFromTick(tick: number) {
-  if (!Number.isFinite(tick)) return 0;
-  const s = String(tick);
-  const i = s.indexOf(".");
-  return i === -1 ? 0 : Math.min(12, s.length - i - 1);
+function PanelHeader({ title }: { title: string }) {
+  return <div style={panelHeaderStyle}>{title}</div>;
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+      <div style={{ fontSize: 12, opacity: 0.85 }}>{label}</div>
+      {children}
+    </label>
+  );
+}
+
+function Segmented({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div style={segWrapStyle}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          style={{
+            ...segBtnStyle,
+            ...(o.value === value ? segBtnActiveStyle : {}),
+          }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /* -------------------- Styles -------------------- */
 
 const pageStyle: CSSProperties = {
-  background: "#1B1F24",
   minHeight: "100vh",
+  background: "#1B1F24",
   padding: 20,
   color: "#EDE3CC",
 };
 
 const wrapStyle: CSSProperties = {
-  maxWidth: 1100,
+  maxWidth: 1200,
   margin: "0 auto",
+  display: "flex",
+  flexDirection: "column",
+  gap: 16,
 };
 
 const topBarStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  marginBottom: 12,
+  alignItems: "center",
+  background: "#222933",
+  padding: 12,
+  borderRadius: 14,
 };
 
 const gridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
-  gap: 12,
+  gridTemplateColumns: "320px 1fr 360px",
+  gap: 14,
 };
 
 const panelStyle: CSSProperties = {
   background: "#243039",
-  borderRadius: 12,
+  borderRadius: 18,
+  border: "1px solid #3a4550",
+  overflow: "hidden",
+};
+
+const panelHeaderStyle: CSSProperties = {
+  padding: "10px 14px",
+  borderBottom: "1px solid #3a4550",
+  fontWeight: 700,
+};
+
+const inputStyle: CSSProperties = {
+  background: "#1B1F24",
+  border: "1px solid #3a4550",
+  borderRadius: 8,
+  padding: "8px 10px",
+  color: "#EDE3CC",
+};
+
+const buttonStyle: CSSProperties = {
+  marginTop: 10,
+  padding: "8px 12px",
+  borderRadius: 999,
+  border: "1px solid #3a4550",
+  background: "transparent",
+  color: "#EDE3CC",
+  cursor: "pointer",
+};
+
+const segWrapStyle: CSSProperties = {
+  display: "flex",
+  borderRadius: 999,
+  overflow: "hidden",
+};
+
+const segBtnStyle: CSSProperties = {
+  padding: "8px 14px",
+  border: "none",
+  background: "transparent",
+  color: "#EDE3CC",
+  opacity: 0.7,
+};
+
+const segBtnActiveStyle: CSSProperties = {
+  background: "rgba(237,227,204,0.15)",
+  opacity: 1,
+};
+
+const emptyStyle: CSSProperties = {
+  padding: 20,
+  opacity: 0.6,
+};
+
+const jsonStyle: CSSProperties = {
   padding: 12,
+  fontSize: 11,
+  maxHeight: 400,
+  overflow: "auto",
 };
