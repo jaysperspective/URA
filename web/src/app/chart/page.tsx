@@ -236,12 +236,30 @@ export default function ChartPage() {
     return deg;
   }, [mode, priceRes, anchorPrice]);
 
-  // Kind hint for PivotAutoAnchorPanel (simple)
   const inferredKind: "stock" | "crypto" = useMemo(() => {
     const s = symbol.trim().toUpperCase();
-    // You can refine later (or make a dropdown).
     return s.includes("-USD") ? "crypto" : "stock";
   }, [symbol]);
+
+  function applyPivotFromScan(p: {
+    pivotLocalInput: string;
+    anchorSource: "low" | "high";
+    anchorPrice: number;
+  }) {
+    // 1) set the market pivot datetime-local (local)
+    setPivotDateTime(p.pivotLocalInput);
+
+    // 2) align the anchor mode (low for swing-low, high for swing-high)
+    setPivotAnchorMode(p.anchorSource);
+
+    // 3) set anchor price, rounded to tick
+    const t = Number(tickSize) || 0.01;
+    const rounded = Math.round(p.anchorPrice / t) * t;
+    setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
+
+    // We intentionally do NOT auto-run /api/gann.
+    // You’ll click Run when ready.
+  }
 
   return (
     <div style={pageStyle}>
@@ -324,12 +342,7 @@ export default function ChartPage() {
                 </Field>
 
                 <Field label="Tick size (rounding)">
-                  <input
-                    value={tickSize}
-                    onChange={(e) => setTickSize(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
+                  <input value={tickSize} onChange={(e) => setTickSize(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
 
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
@@ -338,21 +351,11 @@ export default function ChartPage() {
                   </div>
 
                   <Field label="Pivot date/time (local)">
-                    <input
-                      type="datetime-local"
-                      value={pivotDateTime}
-                      onChange={(e) => setPivotDateTime(e.target.value)}
-                      style={inputStyle}
-                    />
+                    <input type="datetime-local" value={pivotDateTime} onChange={(e) => setPivotDateTime(e.target.value)} style={inputStyle} />
                   </Field>
 
                   <Field label="Market cycle length (days)">
-                    <input
-                      value={marketCycleDays}
-                      onChange={(e) => setMarketCycleDays(e.target.value)}
-                      inputMode="decimal"
-                      style={inputStyle}
-                    />
+                    <input value={marketCycleDays} onChange={(e) => setMarketCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
                   </Field>
 
                   {/* Pivot → anchor autofill */}
@@ -419,12 +422,7 @@ export default function ChartPage() {
             ) : (
               <>
                 <Field label="Anchor date/time (local)">
-                  <input
-                    type="datetime-local"
-                    value={anchorDateTime}
-                    onChange={(e) => setAnchorDateTime(e.target.value)}
-                    style={inputStyle}
-                  />
+                  <input type="datetime-local" value={anchorDateTime} onChange={(e) => setAnchorDateTime(e.target.value)} style={inputStyle} />
                 </Field>
 
                 <Field label="Cycle length (days)">
@@ -464,7 +462,6 @@ export default function ChartPage() {
                   </div>
                 ) : null}
 
-                {/* Bottom note for the whole middle section */}
                 <div style={midNoteStyle}>
                   <div style={{ opacity: 0.9, fontWeight: 700, marginBottom: 6 }}>Time vs Price alignment</div>
                   <div>
@@ -491,9 +488,21 @@ export default function ChartPage() {
           </div>
         </div>
 
-        {/* Under the 3 pillars: horizontal pivot finder module (manual run only) */}
+        {/* Under the 3 pillars: pivot finder module */}
         {mode === "market" ? (
-          <PivotAutoAnchorPanel kind={inferredKind} symbol={symbol.trim()} defaultTimeframe="1d" />
+          <PivotAutoAnchorPanel
+            kind={inferredKind}
+            symbol={symbol.trim()}
+            defaultTimeframe="1d"
+            tickSize={Number(tickSize) || 0.01}
+            onApply={(p) =>
+              applyPivotFromScan({
+                pivotLocalInput: p.pivotLocalInput,
+                anchorSource: p.anchorSource,
+                anchorPrice: p.anchorPrice,
+              })
+            }
+          />
         ) : null}
       </div>
     </div>
@@ -578,12 +587,7 @@ function AngleRing({
 
       <svg width={size} height={size} style={{ display: "block", margin: "0 auto" }}>
         {quadrantWedges.map((q) => (
-          <path
-            key={`${q.start}-${q.end}`}
-            d={wedgePath(cx, cy, r, q.start, q.end)}
-            fill={`rgba(237,227,204,${q.opacity})`}
-            stroke="none"
-          />
+          <path key={`${q.start}-${q.end}`} d={wedgePath(cx, cy, r, q.start, q.end)} fill={`rgba(237,227,204,${q.opacity})`} stroke="none" />
         ))}
 
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(237,227,204,0.25)" strokeWidth={2} />
@@ -625,9 +629,7 @@ function AngleRing({
       </div>
 
       {priceDeg != null ? (
-        <div style={{ fontSize: 12, opacity: 0.75, textAlign: "center", marginTop: 6 }}>
-          Price: {formatNum(priceDeg)}°
-        </div>
+        <div style={{ fontSize: 12, opacity: 0.75, textAlign: "center", marginTop: 6 }}>Price: {formatNum(priceDeg)}°</div>
       ) : null}
 
       {lead ? (
@@ -640,9 +642,7 @@ function AngleRing({
         </div>
       ) : null}
 
-      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 8 }}>
-        0° West • 90° North • 180° East • 270° South
-      </div>
+      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 8 }}>0° West • 90° North • 180° East • 270° South</div>
     </div>
   );
 }
@@ -666,10 +666,7 @@ function TargetsPanel({ data }: { data: any }) {
           {Array.isArray(data.nextBoundaries) && data.nextBoundaries.length ? (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
               {data.nextBoundaries.slice(0, 4).map((b: any) => (
-                <div
-                  key={b.angle}
-                  style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between", gap: 10 }}
-                >
+                <div key={b.angle} style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between", gap: 10 }}>
                   <span>{b.angle}° next</span>
                   <span>
                     {String(b.at).slice(0, 19).replace("T", " ")} ({b.inHours}h)
