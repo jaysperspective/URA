@@ -10,7 +10,6 @@ type GannResponse =
   | { ok: true; mode: Mode; input: any; data: any }
   | { ok: false; error: string; retryAfterSeconds?: number };
 
-// UPDATED: matches new /api/market-candle response
 type Candle = {
   dayKey: string;
   label: "Prior" | "Pivot" | "Next";
@@ -129,7 +128,6 @@ export default function ChartPage() {
     setCandleRes(null);
 
     try {
-      // Convert datetime-local (local time) into full ISO so the server can bucket correctly
       const pivotISO = new Date(pivotDateTime).toISOString();
 
       const r = await fetch("/api/market-candle", {
@@ -137,7 +135,7 @@ export default function ChartPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           symbol: symbol.trim(),
-          pivotISO, // UPDATED key name
+          pivotISO,
         }),
       });
 
@@ -161,7 +159,6 @@ export default function ChartPage() {
           ? pivot.o
           : pivot.c;
 
-      // Round to tick size
       const t = Number(tickSize) || 0.01;
       const rounded = Math.round(picked / t) * t;
 
@@ -175,9 +172,18 @@ export default function ChartPage() {
 
   const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
 
-  // For mini-card display (keep your UI)
   const pivotCandleForCard =
     candleRes && candleRes.ok ? candleRes.candles.find((x) => x.label === "Pivot") ?? null : null;
+
+  // NEW: fixed 90-day ring marker (market mode only)
+  const fixed90MarkerDeg = useMemo(() => {
+    if (mode !== "market") return null;
+
+    const pivot = new Date(pivotDateTime); // local datetime-local string => local Date
+    if (Number.isNaN(pivot.getTime())) return null;
+
+    return markerDegFromNowPivotCycle(new Date(), pivot, 90);
+  }, [mode, pivotDateTime]);
 
   return (
     <div style={pageStyle}>
@@ -308,9 +314,7 @@ export default function ChartPage() {
                           </div>
                         </div>
 
-                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-                          {candleRes.bucketRule}
-                        </div>
+                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>{candleRes.bucketRule}</div>
 
                         <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
                           <div>
@@ -361,20 +365,11 @@ export default function ChartPage() {
                 </Field>
 
                 <Field label="Cycle length (days)">
-                  <input
-                    value={cycleDays}
-                    onChange={(e) => setCycleDays(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
+                  <input value={cycleDays} onChange={(e) => setCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
 
                 <Field label="Angles (degrees, CSV)">
-                  <input
-                    value={personalAnglesCsv}
-                    onChange={(e) => setPersonalAnglesCsv(e.target.value)}
-                    style={inputStyle}
-                  />
+                  <input value={personalAnglesCsv} onChange={(e) => setPersonalAnglesCsv(e.target.value)} style={inputStyle} />
                 </Field>
 
                 <div style={helpStyle}>
@@ -398,15 +393,29 @@ export default function ChartPage() {
             <div style={panelHeaderStyle}>Angle Ring</div>
 
             {res?.ok ? (
-              <AngleRing
-                angles={angles}
-                markerDeg={res.data?.markerDeg ?? null}
-                subtitle={
-                  mode === "market"
-                    ? `Anchor: ${formatNum(res.data.anchor)}${res.input.symbol ? ` (${res.input.symbol})` : ""}`
-                    : `Now @ ${formatNum(res.data.markerDeg)}° of cycle`
-                }
-              />
+              <div style={{ padding: 0 }}>
+                {/* Primary ring (whatever the run produced) */}
+                <AngleRing
+                  angles={angles}
+                  markerDeg={res.data?.markerDeg ?? null}
+                  subtitle={
+                    mode === "market"
+                      ? `Primary (run): Anchor ${formatNum(res.data.anchor)}${res.input.symbol ? ` (${res.input.symbol})` : ""}`
+                      : `Primary (run): Now @ ${formatNum(res.data.markerDeg)}° of cycle`
+                  }
+                />
+
+                {/* Fixed 90-day ring (market only) */}
+                {mode === "market" ? (
+                  <div style={{ borderTop: "1px solid rgba(58,69,80,0.6)" }}>
+                    <AngleRing
+                      angles={angles}
+                      markerDeg={fixed90MarkerDeg}
+                      subtitle={`Fixed reference: 90-day ring (same pivot)`}
+                    />
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div style={{ opacity: 0.8, padding: 12 }}>Run to generate the ring and outputs.</div>
             )}
@@ -676,6 +685,20 @@ function parseAnglesCsv(csv: string): number[] {
     .map((n) => ((n % 360) + 360) % 360);
 
   return Array.from(new Set(nums)).sort((a, b) => a - b);
+}
+
+/**
+ * Basic marker formula:
+ * deg = ((now - pivot)/cycleDays mod 1) × 360
+ */
+function markerDegFromNowPivotCycle(now: Date, pivot: Date, cycleDays: number) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const dtDays = (now.getTime() - pivot.getTime()) / msPerDay;
+  const cycle = Number(cycleDays);
+  if (!Number.isFinite(cycle) || cycle <= 0) return null;
+
+  const frac = ((dtDays / cycle) % 1 + 1) % 1; // normalize to [0,1)
+  return frac * 360;
 }
 
 /**
