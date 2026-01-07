@@ -3,7 +3,7 @@
 
 import React, { useMemo, useState, type CSSProperties } from "react";
 import PivotAutoAnchorPanel from "@/components/PivotAutoAnchorPanel";
-import SquareOfNinePanel from "@/components/gann/SquareOfNinePanel";
+import SquareOfNinePanel from "@/components/SquareOfNinePanel";
 
 type Mode = "market" | "personal";
 type PivotAnchorMode = "low" | "high" | "close" | "open";
