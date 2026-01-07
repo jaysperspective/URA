@@ -5,6 +5,15 @@ function isCryptoSymbol(symbolRaw: string) {
   return symbolRaw.toUpperCase().trim().includes("-");
 }
 
+async function safeJson(r: Response) {
+  const text = await r.text().catch(() => "");
+  try {
+    return { ok: true as const, json: JSON.parse(text), text };
+  } catch {
+    return { ok: false as const, json: null as any, text };
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -13,8 +22,8 @@ export async function POST(req: Request) {
 
     const symbol = symbolRaw.toUpperCase();
 
+    // --- CRYPTO (Coinbase Exchange) ---
     if (isCryptoSymbol(symbol)) {
-      // Coinbase Exchange ticker
       const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(symbol)}/ticker`;
       const r = await fetch(url, {
         headers: { Accept: "application/json", "User-Agent": "URA-Gann-Chart/1.0" },
@@ -22,16 +31,18 @@ export async function POST(req: Request) {
       });
 
       if (!r.ok) {
-        const text = await r.text().catch(() => "");
+        const t = await r.text().catch(() => "");
         return NextResponse.json(
-          { ok: false, error: `Coinbase error (${r.status}): ${text || r.statusText}` },
+          { ok: false, error: `Coinbase error (${r.status}): ${t || r.statusText}` },
           { status: 502 }
         );
       }
 
       const j: any = await r.json();
       const price = Number(j?.price);
-      if (!Number.isFinite(price)) return NextResponse.json({ ok: false, error: "Invalid price from Coinbase" }, { status: 502 });
+      if (!Number.isFinite(price)) {
+        return NextResponse.json({ ok: false, error: "Invalid price from Coinbase" }, { status: 502 });
+      }
 
       return NextResponse.json({
         ok: true,
@@ -40,27 +51,46 @@ export async function POST(req: Request) {
         symbol,
         price,
         asOfISO: new Date().toISOString(),
+        note: "Spot ticker price (Coinbase Exchange).",
       });
     }
 
-    // Stock: Polygon last trade
+    // --- STOCK (Polygon) ---
     const apiKey = process.env.POLYGON_API_KEY;
-    if (!apiKey) return NextResponse.json({ ok: false, error: "Missing POLYGON_API_KEY in .env.local" }, { status: 500 });
+    if (!apiKey) {
+      return NextResponse.json({ ok: false, error: "Missing POLYGON_API_KEY in .env.local" }, { status: 500 });
+    }
 
-    const url = `https://api.polygon.io/v2/last/trade/${encodeURIComponent(symbol)}?apiKey=${encodeURIComponent(apiKey)}`;
+    // Use PREV daily aggregate: reliable on most plans and consistent with 1D workflow
+    const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/prev?adjusted=true&apiKey=${encodeURIComponent(
+      apiKey
+    )}`;
+
     const r = await fetch(url, { next: { revalidate: 0 } });
 
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
+    const parsed = await safeJson(r);
+    if (!r.ok || !parsed.ok) {
+      const snippet = (parsed.text || "").slice(0, 180);
       return NextResponse.json(
-        { ok: false, error: `Polygon error (${r.status}): ${text || r.statusText}` },
+        {
+          ok: false,
+          error: `Polygon prev-agg failed (${r.status}). ${parsed.ok ? "" : "Non-JSON response. "}${snippet}`,
+        },
         { status: 502 }
       );
     }
 
-    const j: any = await r.json();
-    const price = Number(j?.results?.p);
-    if (!Number.isFinite(price)) return NextResponse.json({ ok: false, error: "Invalid price from Polygon" }, { status: 502 });
+    const j: any = parsed.json;
+    const row = Array.isArray(j?.results) ? j.results[0] : null;
+    const price = Number(row?.c); // previous close
+    const t = Number(row?.t); // ms timestamp
+
+    if (!Number.isFinite(price)) {
+      return NextResponse.json(
+        { ok: false, error: "Polygon prev-agg returned no close price (c)." },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,
@@ -68,7 +98,8 @@ export async function POST(req: Request) {
       provider: "polygon",
       symbol,
       price,
-      asOfISO: new Date().toISOString(),
+      asOfISO: Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString(),
+      note: "Most recent completed session close (Polygon prev daily agg).",
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });
