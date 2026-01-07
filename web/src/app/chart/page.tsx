@@ -1,7 +1,7 @@
 // src/app/chart/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 
 type Mode = "market" | "personal";
 type PivotAnchorMode = "low" | "high" | "close" | "open";
@@ -36,7 +36,15 @@ type CandleResponse =
   | { ok: false; error: string };
 
 type MarketPriceResponse =
-  | { ok: true; kind: "stock" | "crypto"; provider: "polygon" | "coinbase"; symbol: string; price: number; asOfISO: string; note?: string }
+  | {
+      ok: true;
+      kind: "stock" | "crypto";
+      provider: "polygon" | "coinbase";
+      symbol: string;
+      price: number;
+      asOfISO: string;
+      note?: string;
+    }
   | { ok: false; error: string };
 
 const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -44,7 +52,7 @@ const FIXED_ANGLES = DEFAULT_ANGLES;
 const ALWAYS_INCLUDE_DOWNSIDE = true;
 
 // “In sync” tolerance (degrees) for time-vs-price comparison
-const SYNC_TOL_DEG = 12; // keep basic; we can tune later
+const SYNC_TOL_DEG = 12;
 
 export default function ChartPage() {
   const [mode, setMode] = useState<Mode>("market");
@@ -69,7 +77,7 @@ export default function ChartPage() {
   const [candleRes, setCandleRes] = useState<CandleResponse | null>(null);
   const [loadingCandle, setLoadingCandle] = useState(false);
 
-  // Current price
+  // Current price (manual refresh only)
   const [priceRes, setPriceRes] = useState<MarketPriceResponse | null>(null);
   const [loadingPrice, setLoadingPrice] = useState(false);
 
@@ -199,14 +207,6 @@ export default function ChartPage() {
     }
   }
 
-  // Auto-refresh current price when in market mode + symbol changes
-  useEffect(() => {
-    if (mode !== "market") return;
-    if (!symbol.trim()) return;
-    refreshCurrentPrice();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, symbol]);
-
   const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
 
   const pivotCandleForCard =
@@ -220,7 +220,7 @@ export default function ChartPage() {
     return markerDegFromNowPivotCycle(new Date(), pivot, 90);
   }, [mode, pivotDateTime]);
 
-  // Price marker: inverse of the Square-of-9 mapping used for targets (keeps it coherent)
+  // Price marker: inverse of the Square-of-9 mapping used for targets (coherent)
   const priceMarkerDeg = useMemo(() => {
     if (mode !== "market") return null;
     if (!priceRes || !priceRes.ok) return null;
@@ -269,7 +269,7 @@ export default function ChartPage() {
                   <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
                 </Field>
 
-                {/* Current price */}
+                {/* Current price (manual) */}
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                     <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9 }}>Current Price</div>
@@ -301,7 +301,7 @@ export default function ChartPage() {
                     <div style={{ ...errorStyle, marginTop: 10 }}>Price fetch error: {priceRes.error}</div>
                   ) : (
                     <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-                      Fetching price will show a second marker on the ring.
+                      Change the symbol, then hit Refresh to fetch the price.
                     </div>
                   )}
                 </div>
@@ -450,6 +450,20 @@ export default function ChartPage() {
                     />
                   </div>
                 ) : null}
+
+                {/* Bottom note for the whole middle section */}
+                <div style={midNoteStyle}>
+                  <div style={{ opacity: 0.9, fontWeight: 700, marginBottom: 6 }}>Time vs Price alignment</div>
+                  <div>
+                    Positive gap = <strong>time</strong> is ahead of <strong>price</strong> around the ring.
+                  </div>
+                  <div>
+                    Negative gap = <strong>price</strong> is ahead of <strong>time</strong> around the ring.
+                  </div>
+                  <div style={{ marginTop: 6, opacity: 0.8 }}>
+                    (If the gap is small, we label it <strong>IN SYNC</strong>.)
+                  </div>
+                </div>
               </div>
             ) : (
               <div style={{ opacity: 0.8, padding: 12 }}>Run to generate the ring and outputs.</div>
@@ -605,7 +619,6 @@ function AngleRing({
         </div>
       ) : null}
 
-      {/* NEW: Time-vs-Price lead/lag readout */}
       {lead ? (
         <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
           <div style={leadPillStyle}>
@@ -748,14 +761,8 @@ function getLeadReadout(timeDeg: number | null, priceDeg: number | null | undefi
   const d = signedAngleDiffDeg(timeDeg, priceDeg); // + means time ahead of price (clockwise)
   const abs = Math.abs(d);
 
-  if (abs <= tolDeg) {
-    return { label: "IN SYNC", gapDeg: abs };
-  }
-
-  if (d > 0) {
-    return { label: "TIME LEADS", gapDeg: abs };
-  }
-
+  if (abs <= tolDeg) return { label: "IN SYNC", gapDeg: abs };
+  if (d > 0) return { label: "TIME LEADS", gapDeg: abs };
   return { label: "PRICE LEADS", gapDeg: abs };
 }
 
@@ -916,4 +923,16 @@ const leadPillStyle: CSSProperties = {
   background: "rgba(0,0,0,0.16)",
   fontSize: 12,
   color: "#EDE3CC",
+};
+
+const midNoteStyle: CSSProperties = {
+  margin: 12,
+  padding: 12,
+  borderRadius: 14,
+  border: "1px solid rgba(58,69,80,0.6)",
+  background: "rgba(0,0,0,0.14)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  color: "#EDE3CC",
+  opacity: 0.9,
 };
