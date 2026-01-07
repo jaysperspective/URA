@@ -12,15 +12,11 @@ type Candle = {
 };
 
 function isCryptoSymbol(symbolRaw: string) {
-  // Simple heuristic:
-  // - If it contains "-" assume BASE-QUOTE (e.g., SOL-USD) => crypto
-  // - If it ends with "USD" and has no letters? not reliable, keep simple.
   const s = symbolRaw.toUpperCase().trim();
   return s.includes("-");
 }
 
 function ymdInTimeZone(date: Date, timeZone: string) {
-  // Safe way to get YYYY-MM-DD in a specific TZ (no external libs)
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
@@ -35,7 +31,6 @@ function ymdInTimeZone(date: Date, timeZone: string) {
 }
 
 function addDaysUTC(ymd: string, deltaDays: number) {
-  // ymd treated as UTC midnight anchor
   const [y, m, d] = ymd.split("-").map((n) => parseInt(n, 10));
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + deltaDays);
@@ -48,15 +43,9 @@ async function fetchPolygon3Day(symbol: string, sessionYMD: string) {
     return { ok: false as const, error: "Missing POLYGON_API_KEY in .env.local" };
   }
 
-  // sessionYMD is the NY session day for pivot.
-  // We'll request a 3-day window around it to populate prior/pivot/next.
-  // Polygon aggregates supports from/to dates in YYYY-MM-DD.
-  // We'll use sessionYMD-1 to sessionYMD+1.
   const from = addDaysUTC(sessionYMD, -1);
   const to = addDaysUTC(sessionYMD, +1);
 
-  // Polygon v2 daily aggregates:
-  // /v2/aggs/ticker/{ticker}/range/1/day/{from}/{to}?adjusted=true&sort=asc&limit=50000&apiKey=...
   const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(
     symbol.toUpperCase().trim()
   )}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
@@ -71,13 +60,10 @@ async function fetchPolygon3Day(symbol: string, sessionYMD: string) {
   }
   const j = await r.json();
 
-  // Polygon format: results[] each has o,h,l,c,v,t (ms)
   const rows: Array<any> = Array.isArray(j?.results) ? j.results : [];
   const byYMD = new Map<string, any>();
 
-  // IMPORTANT: Polygon "t" is UTC ms; TradingView day label is session-based.
-  // But we are already anchoring by session day; we map each bar's UTC timestamp
-  // into America/New_York to get the session day label.
+  // Map each bar to NY session day
   for (const row of rows) {
     const t = typeof row?.t === "number" ? row.t : null;
     if (!t) continue;
@@ -85,17 +71,11 @@ async function fetchPolygon3Day(symbol: string, sessionYMD: string) {
     byYMD.set(ymdNY, row);
   }
 
-  const priorKey = addDaysUTC(sessionYMD, -1); // a UTC add, but used as a *date string*
-  const pivotKey = sessionYMD;
-  const nextKey = addDaysUTC(sessionYMD, +1);
-
-  // However priorKey/nextKey computed in UTC; we want NY day keys.
-  // So compute NY keys directly:
   const priorNY = ymdInTimeZone(
     new Date(Date.parse(`${sessionYMD}T00:00:00Z`) - 24 * 3600 * 1000),
     "America/New_York"
   );
-  const pivotNY = sessionYMD; // already NY
+  const pivotNY = sessionYMD;
   const nextNY = ymdInTimeZone(
     new Date(Date.parse(`${sessionYMD}T00:00:00Z`) + 24 * 3600 * 1000),
     "America/New_York"
@@ -128,12 +108,8 @@ async function fetchPolygon3Day(symbol: string, sessionYMD: string) {
 }
 
 async function fetchCoinbase3Day(productId: string, pivotUTCYMD: string) {
-  // Coinbase Exchange candles (public):
-  // GET /products/{product-id}/candles?granularity=86400&start=...&end=...
-  // Returns arrays: [ time, low, high, open, close, volume ]
-  // time is epoch seconds for the candle bucket start (UTC).
   const startUTC = `${addDaysUTC(pivotUTCYMD, -1)}T00:00:00Z`;
-  const endUTC = `${addDaysUTC(pivotUTCYMD, +2)}T00:00:00Z`; // end is exclusive-ish; give it room
+  const endUTC = `${addDaysUTC(pivotUTCYMD, +2)}T00:00:00Z`;
 
   const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(
     productId.toUpperCase().trim()
@@ -160,7 +136,6 @@ async function fetchCoinbase3Day(productId: string, pivotUTCYMD: string) {
     return { ok: false as const, error: "Coinbase returned non-array candles" };
   }
 
-  // Coinbase returns newest-first typically. Normalize by time asc.
   const norm = rows
     .map((a) => ({
       t: typeof a?.[0] === "number" ? a[0] : null,
@@ -222,13 +197,12 @@ export async function POST(req: Request) {
     const crypto = isCryptoSymbol(symbolRaw);
 
     if (crypto) {
-      // Crypto: we are explicit that 1D candles are UTC buckets.
       const pivotUTCYMD = ymdInTimeZone(pivotDate, "UTC");
       const res = await fetchCoinbase3Day(symbolRaw, pivotUTCYMD);
       if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: 502 });
 
+      // NOTE: no duplicate ok key — res already includes ok:true
       return NextResponse.json({
-        ok: true,
         kind: "crypto",
         symbol: symbolRaw.toUpperCase(),
         pivotISO,
@@ -236,13 +210,12 @@ export async function POST(req: Request) {
         ...res,
       });
     } else {
-      // Stocks: bucket by America/New_York session date to match TradingView day labels.
       const sessionYMD = ymdInTimeZone(pivotDate, "America/New_York");
       const res = await fetchPolygon3Day(symbolRaw, sessionYMD);
       if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: 502 });
 
+      // NOTE: no duplicate ok key — res already includes ok:true
       return NextResponse.json({
-        ok: true,
         kind: "stock",
         symbol: symbolRaw.toUpperCase(),
         pivotISO,
