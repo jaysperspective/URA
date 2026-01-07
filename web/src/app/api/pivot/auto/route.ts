@@ -13,42 +13,25 @@ function ymd(d: Date) {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
+
     const market = (url.searchParams.get("market") ?? "stock") as Market;
     const tf = (url.searchParams.get("tf") ?? "1d") as Timeframe;
     const symbol = (url.searchParams.get("symbol") ?? "").trim();
 
-    const lookbackDays = Math.max(30, Math.min(1500, Number(url.searchParams.get("lookbackDays") ?? 365)));
+    const lookbackDays = Math.max(60, Math.min(1500, Number(url.searchParams.get("lookbackDays") ?? 365)));
 
-    if (!symbol) {
-      return NextResponse.json({ ok: false, error: "Missing symbol." }, { status: 400 });
-    }
+    if (!symbol) return NextResponse.json({ ok: false, error: "Missing symbol." }, { status: 400 });
 
     const now = new Date();
     const from = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
 
-    let bars;
-    if (market === "stock") {
-      bars = await fetchStockOHLCV({
-        symbol,
-        timeframe: tf,
-        fromYMD: ymd(from),
-        toYMD: ymd(now),
-      });
-    } else {
-      // for crypto, treat symbol as productId like BTC-USD
-      bars = await fetchCryptoOHLCV({
-        productId: symbol,
-        timeframe: tf,
-        startISO: from.toISOString(),
-        endISO: now.toISOString(),
-      });
-    }
+    const bars =
+      market === "stock"
+        ? await fetchStockOHLCV({ symbol, timeframe: tf, fromYMD: ymd(from), toYMD: ymd(now) })
+        : await fetchCryptoOHLCV({ productId: symbol, timeframe: tf, startISO: from.toISOString(), endISO: now.toISOString() });
 
-    if (!bars || bars.length < 60) {
-      return NextResponse.json(
-        { ok: false, error: "Not enough data (need at least ~60 bars)." },
-        { status: 400 }
-      );
+    if (!bars || bars.length < 80) {
+      return NextResponse.json({ ok: false, error: "Not enough data (need at least ~80 bars)." }, { status: 400 });
     }
 
     const res = autoPickPivot({ bars, evalBars: 120, structureBars: 10 });
