@@ -36,12 +36,15 @@ type CandleResponse =
   | { ok: false; error: string };
 
 type MarketPriceResponse =
-  | { ok: true; kind: "stock" | "crypto"; provider: "polygon" | "coinbase"; symbol: string; price: number; asOfISO: string }
+  | { ok: true; kind: "stock" | "crypto"; provider: "polygon" | "coinbase"; symbol: string; price: number; asOfISO: string; note?: string }
   | { ok: false; error: string };
 
 const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
-const FIXED_ANGLES = DEFAULT_ANGLES; // fixed choice now
+const FIXED_ANGLES = DEFAULT_ANGLES;
 const ALWAYS_INCLUDE_DOWNSIDE = true;
+
+// “In sync” tolerance (degrees) for time-vs-price comparison
+const SYNC_TOL_DEG = 12; // keep basic; we can tune later
 
 export default function ChartPage() {
   const [mode, setMode] = useState<Mode>("market");
@@ -196,7 +199,7 @@ export default function ChartPage() {
     }
   }
 
-  // Auto-refresh current price when in market mode + symbol changes (basic)
+  // Auto-refresh current price when in market mode + symbol changes
   useEffect(() => {
     if (mode !== "market") return;
     if (!symbol.trim()) return;
@@ -217,8 +220,7 @@ export default function ChartPage() {
     return markerDegFromNowPivotCycle(new Date(), pivot, 90);
   }, [mode, pivotDateTime]);
 
-  // Price marker: map current price to an “angle on Square-of-9” relative to anchor
-  // Invert: price = (sqrt(anchor) ± angle/180)^2  => angle ≈ (sqrt(price) - sqrt(anchor)) * 180
+  // Price marker: inverse of the Square-of-9 mapping used for targets (keeps it coherent)
   const priceMarkerDeg = useMemo(() => {
     if (mode !== "market") return null;
     if (!priceRes || !priceRes.ok) return null;
@@ -267,7 +269,7 @@ export default function ChartPage() {
                   <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
                 </Field>
 
-                {/* NEW: Current price section (uses the freed space) */}
+                {/* Current price */}
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                     <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9 }}>Current Price</div>
@@ -283,9 +285,7 @@ export default function ChartPage() {
                         <div style={{ opacity: 0.85 }}>{priceRes.provider}</div>
                       </div>
 
-                      <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800 }}>
-                        {formatNum(priceRes.price)}
-                      </div>
+                      <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800 }}>{formatNum(priceRes.price)}</div>
 
                       <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
                         As of {String(priceRes.asOfISO).slice(0, 19).replace("T", " ")}
@@ -540,6 +540,8 @@ function AngleRing({
   const marker = markerDeg == null ? null : polarToXY_West0_CW(cx, cy, r, markerDeg);
   const priceMarker = priceDeg == null ? null : polarToXY_West0_CW(cx, cy, r, priceDeg);
 
+  const lead = getLeadReadout(markerDeg, priceDeg, SYNC_TOL_DEG);
+
   return (
     <div style={{ padding: 12 }}>
       {subtitle ? <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>{subtitle}</div> : null}
@@ -582,14 +584,12 @@ function AngleRing({
 
         {/* price marker (diamond) */}
         {priceMarker ? (
-          <>
-            <path
-              d={diamondPath(priceMarker.x, priceMarker.y, 7)}
-              fill="rgba(237,227,204,0.35)"
-              stroke="rgba(237,227,204,0.85)"
-              strokeWidth={1.5}
-            />
-          </>
+          <path
+            d={diamondPath(priceMarker.x, priceMarker.y, 7)}
+            fill="rgba(237,227,204,0.35)"
+            stroke="rgba(237,227,204,0.85)"
+            strokeWidth={1.5}
+          />
         ) : null}
 
         <circle cx={cx} cy={cy} r={3} fill="rgba(237,227,204,0.55)" />
@@ -605,7 +605,18 @@ function AngleRing({
         </div>
       ) : null}
 
-      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 6 }}>
+      {/* NEW: Time-vs-Price lead/lag readout */}
+      {lead ? (
+        <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
+          <div style={leadPillStyle}>
+            <span style={{ fontWeight: 800 }}>{lead.label}</span>
+            <span style={{ opacity: 0.85 }}> • gap </span>
+            <span style={{ fontWeight: 800 }}>{formatNum(lead.gapDeg)}°</span>
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 8 }}>
         0° West • 90° North • 180° East • 270° South
       </div>
     </div>
@@ -658,7 +669,6 @@ function TargetsPanel({ data }: { data: any }) {
               <div>
                 Up: <strong>{formatNum(t.up)}</strong>
               </div>
-              {/* downside always included now */}
               <div>
                 Down: <strong>{formatNum(t.down)}</strong>
               </div>
@@ -725,24 +735,30 @@ function markerDegFromNowPivotCycle(now: Date, pivot: Date, cycleDays: number) {
   return frac * 360;
 }
 
-function parseAnglesCsv(csv: string): number[] {
-  const parts = String(csv || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const nums = parts
-    .map((p) => Number(p))
-    .filter((n) => Number.isFinite(n))
-    .map((n) => ((n % 360) + 360) % 360);
-
-  return Array.from(new Set(nums)).sort((a, b) => a - b);
+// shortest signed diff a-b in (-180,180]
+function signedAngleDiffDeg(a: number, b: number) {
+  const d = ((a - b + 540) % 360) - 180;
+  return d === -180 ? 180 : d;
 }
 
-/**
- * ✅ 0° at WEST, increasing clockwise:
- * 0° West, 90° North, 180° East, 270° South
- */
+function getLeadReadout(timeDeg: number | null, priceDeg: number | null | undefined, tolDeg: number) {
+  if (timeDeg == null || priceDeg == null) return null;
+  if (!Number.isFinite(timeDeg) || !Number.isFinite(priceDeg)) return null;
+
+  const d = signedAngleDiffDeg(timeDeg, priceDeg); // + means time ahead of price (clockwise)
+  const abs = Math.abs(d);
+
+  if (abs <= tolDeg) {
+    return { label: "IN SYNC", gapDeg: abs };
+  }
+
+  if (d > 0) {
+    return { label: "TIME LEADS", gapDeg: abs };
+  }
+
+  return { label: "PRICE LEADS", gapDeg: abs };
+}
+
 function polarToXY_West0_CW(cx: number, cy: number, r: number, deg: number) {
   const a = ((deg + 180) * Math.PI) / 180;
   return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
@@ -757,7 +773,6 @@ function wedgePath(cx: number, cy: number, r: number, startDeg: number, endDeg: 
 }
 
 function diamondPath(x: number, y: number, r: number) {
-  // a simple diamond centered at (x,y)
   return `M ${x} ${y - r} L ${x + r} ${y} L ${x} ${y + r} L ${x - r} ${y} Z`;
 }
 
@@ -889,4 +904,16 @@ const errorStyle: CSSProperties = {
   borderRadius: 12,
   padding: 10,
   color: "#FFB0B0",
+};
+
+const leadPillStyle: CSSProperties = {
+  display: "inline-flex",
+  gap: 6,
+  alignItems: "center",
+  padding: "6px 10px",
+  borderRadius: 999,
+  border: "1px solid rgba(237,227,204,0.22)",
+  background: "rgba(0,0,0,0.16)",
+  fontSize: 12,
+  color: "#EDE3CC",
 };
