@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import PivotPrecheckPanel from "@/components/PivotPrecheckPanel";
+import PivotPrecheckPanel, { type PivotPrecheckResult } from "@/components/PivotPrecheckPanel";
 
 type Timeframe = "1d" | "4h" | "1h";
 type PivotType = "SWING_LOW" | "SWING_HIGH";
@@ -74,6 +74,7 @@ export default function PivotAutoAnchorPanel({
   const [loading, setLoading] = useState(false);
 
   const [selectedISO, setSelectedISO] = useState<string | null>(null);
+  const [precheck, setPrecheck] = useState<PivotPrecheckResult | null>(null);
 
   async function runScan() {
     if (!symbol.trim()) {
@@ -123,6 +124,13 @@ export default function PivotAutoAnchorPanel({
     return res.candidates.find((c) => c.pivotISO === selectedISO) ?? res.recommended;
   }, [res, selectedISO]);
 
+  const verdict = useMemo(() => {
+    if (!precheck) return null;
+    const tone = precheck.recommendedAction === "USE" ? "good" : precheck.recommendedAction === "MARGINAL" ? "warn" : "bad";
+    const label = precheck.recommendedAction === "USE" ? "USE" : precheck.recommendedAction === "MARGINAL" ? "MARGINAL" : "REJECT";
+    return { tone, label, total: precheck.total };
+  }, [precheck]);
+
   function apply(c: Candidate) {
     const pivotLocalInput = isoToLocalInput(c.pivotISO);
     onApply?.({
@@ -134,6 +142,14 @@ export default function PivotAutoAnchorPanel({
       pivotType: c.pivotType,
     });
   }
+
+  const canApply = useMemo(() => {
+    // Ironclad: don’t apply if the manual check says reject.
+    // If you want “override allowed,” we’ll add a toggle.
+    if (!selected) return false;
+    if (!precheck) return true; // allow if user hasn’t scored yet
+    return precheck.recommendedAction !== "REJECT";
+  }, [precheck, selected]);
 
   return (
     <div style={panel}>
@@ -251,7 +267,16 @@ export default function PivotAutoAnchorPanel({
                           <div style={{ fontWeight: 900, fontSize: 12 }}>Score {c.score}/10</div>
                         </div>
 
-                        <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, opacity: 0.85 }}>
+                        <div
+                          style={{
+                            marginTop: 6,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 10,
+                            fontSize: 12,
+                            opacity: 0.85,
+                          }}
+                        >
                           <div>{dt}</div>
                           <div>
                             Anchor {c.anchorSource.toUpperCase()}: <strong>{formatNum(price)}</strong>
@@ -259,7 +284,8 @@ export default function PivotAutoAnchorPanel({
                         </div>
 
                         <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
-                          Leg {c.breakdown.legBirth} • Struct {c.breakdown.structure} • Follow {c.breakdown.followThrough} • Time {c.breakdown.timeFit} • Sanity {c.breakdown.sanity}
+                          Leg {c.breakdown.legBirth} • Struct {c.breakdown.structure} • Follow {c.breakdown.followThrough} • Time{" "}
+                          {c.breakdown.timeFit} • Sanity {c.breakdown.sanity}
                         </div>
                       </button>
                     );
@@ -271,10 +297,18 @@ export default function PivotAutoAnchorPanel({
             </div>
           </div>
 
-          {/* Right: Recommended + Apply + Precheck */}
+          {/* Right: Selected + Apply + Precheck */}
           <div style={stackCol}>
             <div style={miniCard}>
-              <div style={miniHeader}>Selected pivot</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <div style={miniHeader}>Selected pivot</div>
+
+                {verdict ? (
+                  <div style={{ ...verdictPill, ...(verdict.tone === "good" ? verdictGood : verdict.tone === "warn" ? verdictWarn : verdictBad) }}>
+                    {verdict.label} • {verdict.total}/10
+                  </div>
+                ) : null}
+              </div>
 
               {selected ? (
                 <>
@@ -285,13 +319,21 @@ export default function PivotAutoAnchorPanel({
                     <div style={{ opacity: 0.85 }}>{isoToLocalLabel(selected.pivotISO)}</div>
                   </div>
 
-                  <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, opacity: 0.9 }}>
+                  <div
+                    style={{
+                      marginTop: 10,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      fontSize: 12,
+                      opacity: 0.9,
+                    }}
+                  >
                     <div>
                       Anchor source: <strong>{selected.anchorSource.toUpperCase()}</strong>
                     </div>
                     <div>
-                      Anchor price:{" "}
-                      <strong>{formatNum(roundToTick(selected.anchorPrice, tickSize))}</strong>
+                      Anchor price: <strong>{formatNum(roundToTick(selected.anchorPrice, tickSize))}</strong>
                     </div>
                   </div>
 
@@ -304,7 +346,13 @@ export default function PivotAutoAnchorPanel({
                   ) : null}
 
                   <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button type="button" style={btn} onClick={() => apply(selected)}>
+                    <button
+                      type="button"
+                      style={{ ...btn, ...(canApply ? null : btnDisabled) }}
+                      onClick={() => apply(selected)}
+                      disabled={!canApply}
+                      title={!canApply ? "Pre-check is REJECT. Raise the pre-check or pick a different pivot." : undefined}
+                    >
                       Apply to Market Inputs
                     </button>
                   </div>
@@ -319,7 +367,7 @@ export default function PivotAutoAnchorPanel({
               <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
                 This does not auto-apply. Use it to sanity-check the pivot you chose.
               </div>
-              <PivotPrecheckPanel onChange={() => void 0} />
+              <PivotPrecheckPanel onChange={(r) => setPrecheck(r)} />
             </div>
           </div>
         </div>
@@ -475,6 +523,11 @@ const btn: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const btnDisabled: React.CSSProperties = {
+  opacity: 0.45,
+  cursor: "not-allowed",
+};
+
 const pillMuted: React.CSSProperties = {
   border: "1px solid rgba(58,69,80,0.9)",
   borderRadius: 999,
@@ -568,4 +621,25 @@ const candRow: React.CSSProperties = {
 const candRowActive: React.CSSProperties = {
   background: "rgba(237,227,204,0.08)",
   border: "1px solid rgba(237,227,204,0.22)",
+};
+
+const verdictPill: React.CSSProperties = {
+  borderRadius: 999,
+  padding: "6px 10px",
+  fontSize: 12,
+  fontWeight: 900,
+  letterSpacing: 0.2,
+  border: "1px solid rgba(237,227,204,0.22)",
+};
+
+const verdictGood: React.CSSProperties = {
+  background: "rgba(46, 204, 113, 0.14)",
+};
+
+const verdictWarn: React.CSSProperties = {
+  background: "rgba(241, 196, 15, 0.14)",
+};
+
+const verdictBad: React.CSSProperties = {
+  background: "rgba(231, 76, 60, 0.16)",
 };
