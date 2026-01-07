@@ -236,7 +236,12 @@ export default function ChartPage() {
     return deg;
   }, [mode, priceRes, anchorPrice]);
 
-  const inferredMarketKind: "stock" | "crypto" = symbol.includes("-") ? "crypto" : "stock";
+  // Kind hint for PivotAutoAnchorPanel (simple)
+  const inferredKind: "stock" | "crypto" = useMemo(() => {
+    const s = symbol.trim().toUpperCase();
+    // You can refine later (or make a dropdown).
+    return s.includes("-USD") ? "crypto" : "stock";
+  }, [symbol]);
 
   return (
     <div style={pageStyle}>
@@ -355,12 +360,7 @@ export default function ChartPage() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                       <div style={{ fontSize: 12, opacity: 0.85 }}>Auto-fill anchor from pivot (1D candle)</div>
 
-                      <button
-                        type="button"
-                        onClick={autofillAnchorFromPivot}
-                        style={buttonStyle}
-                        disabled={loadingCandle}
-                      >
+                      <button type="button" onClick={autofillAnchorFromPivot} style={buttonStyle} disabled={loadingCandle}>
                         {loadingCandle ? "Fetching…" : "Auto-fill"}
                       </button>
                     </div>
@@ -428,12 +428,7 @@ export default function ChartPage() {
                 </Field>
 
                 <Field label="Cycle length (days)">
-                  <input
-                    value={cycleDays}
-                    onChange={(e) => setCycleDays(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
+                  <input value={cycleDays} onChange={(e) => setCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
               </>
             )}
@@ -469,6 +464,7 @@ export default function ChartPage() {
                   </div>
                 ) : null}
 
+                {/* Bottom note for the whole middle section */}
                 <div style={midNoteStyle}>
                   <div style={{ opacity: 0.9, fontWeight: 700, marginBottom: 6 }}>Time vs Price alignment</div>
                   <div>
@@ -490,37 +486,14 @@ export default function ChartPage() {
           {/* Outputs */}
           <div style={panelStyle}>
             <div style={panelHeaderStyle}>Outputs</div>
-            {res?.ok ? (mode === "market" ? <TargetsPanel data={res.data} /> : <PersonalPanel data={res.data} />) : (
-              <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>
-            )}
+
+            {res?.ok ? mode === "market" ? <TargetsPanel data={res.data} /> : <PersonalPanel data={res.data} /> : <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>}
           </div>
         </div>
 
-        {/* AUTO PIVOT MODULE (full-width under the 3 pillars) */}
+        {/* Under the 3 pillars: horizontal pivot finder module (manual run only) */}
         {mode === "market" ? (
-          <PivotAutoAnchorPanel
-            market={inferredMarketKind}
-            symbol={symbol.trim()}
-            tf="1d"
-            lookbackDays={365}
-            onPickPivot={(p) => {
-              // set pivot datetime-local from chosen pivot
-              const d = new Date(p.t);
-              const pad = (n: number) => String(n).padStart(2, "0");
-              const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-                d.getMinutes()
-              )}`;
-              setPivotDateTime(local);
-
-              // set anchor price from chosen pivot price (rounded to tick)
-              const t = Number(tickSize) || 0.01;
-              const rounded = Math.round(p.price / t) * t;
-              setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
-
-              // set anchor mode (low/high) for transparency
-              setPivotAnchorMode(p.type === "swingLow" ? "low" : "high");
-            }}
-          />
+          <PivotAutoAnchorPanel kind={inferredKind} symbol={symbol.trim()} defaultTimeframe="1d" />
         ) : null}
       </div>
     </div>
@@ -641,12 +614,7 @@ function AngleRing({
 
         {/* price marker (diamond) */}
         {priceMarker ? (
-          <path
-            d={diamondPath(priceMarker.x, priceMarker.y, 7)}
-            fill="rgba(237,227,204,0.35)"
-            stroke="rgba(237,227,204,0.85)"
-            strokeWidth={1.5}
-          />
+          <path d={diamondPath(priceMarker.x, priceMarker.y, 7)} fill="rgba(237,227,204,0.35)" stroke="rgba(237,227,204,0.85)" strokeWidth={1.5} />
         ) : null}
 
         <circle cx={cx} cy={cy} r={3} fill="rgba(237,227,204,0.55)" />
@@ -734,8 +702,7 @@ function TargetsPanel({ data }: { data: any }) {
       </div>
 
       <div style={helpStyle}>
-        Basic read: angles are “structure.” The marker is “timing.” Targets are “levels.” You’re watching where timing +
-        levels converge.
+        Basic read: angles are “structure.” The marker is “timing.” Targets are “levels.” You’re watching where timing + levels converge.
       </div>
     </div>
   );
