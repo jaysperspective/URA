@@ -58,18 +58,17 @@ function CalendarIcon() {
 }
 
 /* ============================================================
-   REALISTIC MOON DISK (no useId)
+   REALISTIC MOON DISK (DETERMINISTIC IDS — no random, no useId)
 ============================================================ */
 function MoonDisk({
   phaseAngleDeg,
   size = 44,
+  idSeed,
 }: {
   phaseAngleDeg: number;
   size?: number;
+  idSeed: string; // must be stable (e.g., dateISO)
 }) {
-  // Stable unique id per component instance (client-only)
-  const uid = useMemo(() => `moon-${Math.random().toString(36).slice(2, 10)}`, []);
-
   const a = normalize360(phaseAngleDeg);
   const rad = (a * Math.PI) / 180;
 
@@ -84,34 +83,37 @@ function MoonDisk({
   const waxing = a < 180;
   const terminatorX = waxing ? cx - shift : cx + shift;
 
+  // IMPORTANT: SVG ids must be stable across SSR + client hydration
+  const baseId = `moon-${idSeed.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" className="block" aria-hidden="true">
       <defs>
-        <radialGradient id={`base-${uid}`} cx="35%" cy="30%" r="75%">
+        <radialGradient id={`${baseId}-base`} cx="35%" cy="30%" r="75%">
           <stop offset="0%" stopColor="#ffffff" />
           <stop offset="55%" stopColor="#f2eee6" />
           <stop offset="100%" stopColor="#d6cec4" />
         </radialGradient>
 
-        <radialGradient id={`shadow-${uid}`} cx="60%" cy="50%" r="80%">
+        <radialGradient id={`${baseId}-shadow`} cx="60%" cy="50%" r="80%">
           <stop offset="0%" stopColor="rgba(10,14,24,0.25)" />
           <stop offset="100%" stopColor="rgba(10,14,24,0.95)" />
         </radialGradient>
 
-        <filter id={`blur-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
+        <filter id={`${baseId}-blur`} x="-40%" y="-40%" width="180%" height="180%">
           <feGaussianBlur stdDeviation="1.4" />
         </filter>
 
-        <clipPath id={`clip-${uid}`}>
+        <clipPath id={`${baseId}-clip`}>
           <circle cx={cx} cy={cy} r={r} />
         </clipPath>
       </defs>
 
       {/* Base sphere */}
-      <circle cx={cx} cy={cy} r={r} fill={`url(#base-${uid})`} />
+      <circle cx={cx} cy={cy} r={r} fill={`url(#${baseId}-base)`} />
 
       {/* Texture */}
-      <g clipPath={`url(#clip-${uid})`} opacity={0.9}>
+      <g clipPath={`url(#${baseId}-clip)`} opacity={0.9}>
         <g opacity="0.2">
           <circle cx="18" cy="18" r="2.2" fill="rgba(60,62,70,0.6)" />
           <circle cx="30" cy="16" r="1.6" fill="rgba(60,62,70,0.5)" />
@@ -125,9 +127,9 @@ function MoonDisk({
       </g>
 
       {/* Shadow + terminator */}
-      <g clipPath={`url(#clip-${uid})`}>
-        <g filter={`url(#blur-${uid})`}>
-          <circle cx={terminatorX} cy={cy} r={r} fill={`url(#shadow-${uid})`} />
+      <g clipPath={`url(#${baseId}-clip)`}>
+        <g filter={`url(#${baseId}-blur)`}>
+          <circle cx={terminatorX} cy={cy} r={r} fill={`url(#${baseId}-shadow)`} />
         </g>
       </g>
 
@@ -342,7 +344,11 @@ export default function MoonCalendarControl() {
                   </div>
 
                   <div className="mt-1">
-                    <MoonDisk phaseAngleDeg={r?.phaseAngleDeg ?? 0} size={42} />
+                    <MoonDisk
+                      phaseAngleDeg={r?.phaseAngleDeg ?? 0}
+                      size={42}
+                      idSeed={r?.dateISO ?? `blank-${year}-${month}-${cell.day}`}
+                    />
                   </div>
 
                   <div className="text-white/80 text-[12px] font-medium">
