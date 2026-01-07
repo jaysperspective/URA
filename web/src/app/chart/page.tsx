@@ -1,7 +1,7 @@
 // src/app/chart/page.tsx
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 type Mode = "market" | "personal";
 
@@ -10,6 +10,25 @@ type GannResponse =
   | { ok: false; error: string; retryAfterSeconds?: number };
 
 const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
+
+/* -------------------- Pivot Precheck Types -------------------- */
+
+type PivotScoreState = {
+  legBirth: 0 | 1 | 2 | 3; // 0–3
+  structure: 0 | 1 | 2; // 0–2
+  followThrough: 0 | 1 | 2; // 0–2
+  timeFit: 0 | 1 | 2; // 0–2
+  sanity: 0 | 1; // 0–1
+};
+
+type PivotPrecheckResult = {
+  total: number; // 0–10
+  autoFail: boolean;
+  hardPass: boolean; // strict rule
+  recommendedAction: "USE" | "MARGINAL" | "REJECT";
+  reasons: string[];
+  state: PivotScoreState;
+};
 
 export default function ChartPage() {
   const [mode, setMode] = useState<Mode>("market");
@@ -36,6 +55,9 @@ export default function ChartPage() {
   const [cycleDays, setCycleDays] = useState("365.2425");
   const [personalAnglesCsv, setPersonalAnglesCsv] = useState(DEFAULT_ANGLES.join(","));
 
+  // Pivot pre-check (market mode only)
+  const [precheck, setPrecheck] = useState<PivotPrecheckResult | null>(null);
+
   const [res, setRes] = useState<GannResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -44,7 +66,14 @@ export default function ChartPage() {
     [mode, anglesCsv, personalAnglesCsv]
   );
 
+  // Strict: only allow Run when pivot is USE (hardPass)
+  const runDisabled =
+    loading ||
+    (mode === "market" && precheck != null && precheck.recommendedAction !== "USE");
+
   async function run() {
+    if (runDisabled) return;
+
     setLoading(true);
     setRes(null);
 
@@ -85,6 +114,11 @@ export default function ChartPage() {
 
   const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
 
+  const topBarVerdict =
+    mode === "market" && precheck
+      ? `${precheck.recommendedAction} (${precheck.total}/10)`
+      : null;
+
   return (
     <div style={pageStyle}>
       <div style={wrapStyle}>
@@ -101,9 +135,30 @@ export default function ChartPage() {
               ]}
               onChange={(v) => setMode(v as Mode)}
             />
+
+            {topBarVerdict ? (
+              <span style={{ fontSize: 12, opacity: 0.85 }}>
+                Pivot: <strong>{topBarVerdict}</strong>
+              </span>
+            ) : null}
           </div>
 
-          <button type="button" onClick={run} style={{ ...buttonStyle, paddingInline: 14 }}>
+          <button
+            type="button"
+            onClick={run}
+            disabled={runDisabled}
+            style={{
+              ...buttonStyle,
+              paddingInline: 14,
+              opacity: runDisabled ? 0.45 : 1,
+              cursor: runDisabled ? "not-allowed" : "pointer",
+            }}
+            title={
+              mode === "market" && precheck && precheck.recommendedAction !== "USE"
+                ? "Pivot pre-check must be USE (hard pass) to run Market mode."
+                : undefined
+            }
+          >
             {loading ? "Running…" : "Run"}
           </button>
         </div>
@@ -113,121 +168,154 @@ export default function ChartPage() {
           <div style={panelStyle}>
             <div style={panelHeaderStyle}>{cardTitle} Inputs</div>
 
-            {mode === "market" ? (
-              <>
-                <Field label="Symbol (optional)">
-                  <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
-                </Field>
-
-                <Field label="Anchor price (required)">
-                  <input
-                    value={anchorPrice}
-                    onChange={(e) => setAnchorPrice(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
+            <div style={{ padding: 12 }}>
+              {mode === "market" ? (
+                <>
+                  {/* Pivot pre-check panel */}
+                  <PivotPrecheckPanel
+                    onChange={setPrecheck}
+                    initial={{
+                      legBirth: 2,
+                      structure: 2,
+                      followThrough: 1,
+                      timeFit: 1,
+                      sanity: 1,
+                    }}
                   />
-                </Field>
 
-                <Field label="Tick size (rounding)">
-                  <input
-                    value={tickSize}
-                    onChange={(e) => setTickSize(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <Field label="Angles (degrees, CSV)">
-                  <input value={anglesCsv} onChange={(e) => setAnglesCsv(e.target.value)} style={inputStyle} />
-                </Field>
-
-                <label style={checkRowStyle}>
-                  <input
-                    type="checkbox"
-                    checked={includeDownside}
-                    onChange={(e) => setIncludeDownside(e.target.checked)}
-                  />
-                  <span style={{ opacity: 0.9 }}>Include downside targets</span>
-                </label>
-
-                <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
-                  <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
-                    Market Marker (time → angle)
-                  </div>
-
-                  <Field label="Pivot date/time (local)">
-                    <input
-                      type="datetime-local"
-                      value={pivotDateTime}
-                      onChange={(e) => setPivotDateTime(e.target.value)}
-                      style={inputStyle}
-                    />
+                  <Field label="Symbol (optional)">
+                    <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
                   </Field>
 
-                  <Field label="Market cycle length (days)">
+                  <Field label="Anchor price (required)">
                     <input
-                      value={marketCycleDays}
-                      onChange={(e) => setMarketCycleDays(e.target.value)}
+                      value={anchorPrice}
+                      onChange={(e) => setAnchorPrice(e.target.value)}
                       inputMode="decimal"
                       style={inputStyle}
                     />
                   </Field>
 
-                  <div style={helpStyle}>
-                    Marker maps <em>time since pivot</em> into the 360° ring:
-                    <br />
-                    <code style={codeStyle}>deg = ((now - pivot)/cycleDays mod 1) × 360</code>
+                  <Field label="Tick size (rounding)">
+                    <input
+                      value={tickSize}
+                      onChange={(e) => setTickSize(e.target.value)}
+                      inputMode="decimal"
+                      style={inputStyle}
+                    />
+                  </Field>
+
+                  <Field label="Angles (degrees, CSV)">
+                    <input value={anglesCsv} onChange={(e) => setAnglesCsv(e.target.value)} style={inputStyle} />
+                  </Field>
+
+                  <label style={checkRowStyle}>
+                    <input
+                      type="checkbox"
+                      checked={includeDownside}
+                      onChange={(e) => setIncludeDownside(e.target.checked)}
+                    />
+                    <span style={{ opacity: 0.9 }}>Include downside targets</span>
+                  </label>
+
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
+                      Market Marker (time → angle)
+                    </div>
+
+                    <Field label="Pivot date/time (local)">
+                      <input
+                        type="datetime-local"
+                        value={pivotDateTime}
+                        onChange={(e) => setPivotDateTime(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </Field>
+
+                    <Field label="Market cycle length (days)">
+                      <input
+                        value={marketCycleDays}
+                        onChange={(e) => setMarketCycleDays(e.target.value)}
+                        inputMode="decimal"
+                        style={inputStyle}
+                      />
+                    </Field>
+
+                    <div style={helpStyle}>
+                      Marker maps <em>time since pivot</em> into the 360° ring:
+                      <br />
+                      <code style={codeStyle}>deg = ((now - pivot)/cycleDays mod 1) × 360</code>
+                    </div>
                   </div>
+
+                  <div style={helpStyle}>
+                    Price targets use classic Square-of-9 sqrt step:
+                    <br />
+                    <code style={codeStyle}>target = (sqrt(anchor) ± (angle/180))²</code>
+                  </div>
+
+                  {precheck && precheck.recommendedAction !== "USE" ? (
+                    <div style={{ ...warnStyle, marginTop: 12 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>Pivot pre-check not passing</div>
+                      <div style={{ opacity: 0.9, fontSize: 12, lineHeight: 1.4 }}>
+                        Market mode is locked until the pre-check is <strong>USE</strong> (hard pass).
+                        {precheck.reasons.length ? (
+                          <>
+                            <div style={{ marginTop: 8, fontWeight: 700, fontSize: 12 }}>Why:</div>
+                            <ul style={{ margin: 0, paddingLeft: 18 }}>
+                              {precheck.reasons.slice(0, 4).map((r, i) => (
+                                <li key={i}>{r}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Field label="Anchor date/time (local)">
+                    <input
+                      type="datetime-local"
+                      value={anchorDateTime}
+                      onChange={(e) => setAnchorDateTime(e.target.value)}
+                      style={inputStyle}
+                    />
+                  </Field>
+
+                  <Field label="Cycle length (days)">
+                    <input
+                      value={cycleDays}
+                      onChange={(e) => setCycleDays(e.target.value)}
+                      inputMode="decimal"
+                      style={inputStyle}
+                    />
+                  </Field>
+
+                  <Field label="Angles (degrees, CSV)">
+                    <input
+                      value={personalAnglesCsv}
+                      onChange={(e) => setPersonalAnglesCsv(e.target.value)}
+                      style={inputStyle}
+                    />
+                  </Field>
+
+                  <div style={helpStyle}>
+                    Personal mode maps time → angle:
+                    <br />
+                    <code style={codeStyle}>deg = ((now - anchor)/cycleDays mod 1) × 360</code>
+                  </div>
+                </>
+              )}
+
+              {res && !res.ok && (
+                <div style={{ ...errorStyle, marginTop: 12 }}>
+                  Error: {res.error}
+                  {res.retryAfterSeconds ? ` (retry after ${res.retryAfterSeconds}s)` : null}
                 </div>
-
-                <div style={helpStyle}>
-                  Price targets use classic Square-of-9 sqrt step:
-                  <br />
-                  <code style={codeStyle}>target = (sqrt(anchor) ± (angle/180))²</code>
-                </div>
-              </>
-            ) : (
-              <>
-                <Field label="Anchor date/time (local)">
-                  <input
-                    type="datetime-local"
-                    value={anchorDateTime}
-                    onChange={(e) => setAnchorDateTime(e.target.value)}
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <Field label="Cycle length (days)">
-                  <input
-                    value={cycleDays}
-                    onChange={(e) => setCycleDays(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <Field label="Angles (degrees, CSV)">
-                  <input
-                    value={personalAnglesCsv}
-                    onChange={(e) => setPersonalAnglesCsv(e.target.value)}
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <div style={helpStyle}>
-                  Personal mode maps time → angle:
-                  <br />
-                  <code style={codeStyle}>deg = ((now - anchor)/cycleDays mod 1) × 360</code>
-                </div>
-              </>
-            )}
-
-            {res && !res.ok && (
-              <div style={{ ...errorStyle, marginTop: 12 }}>
-                Error: {res.error}
-                {res.retryAfterSeconds ? ` (retry after ${res.retryAfterSeconds}s)` : null}
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Visualization */}
@@ -304,6 +392,187 @@ function Segmented({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function PivotPrecheckPanel({
+  initial,
+  onChange,
+}: {
+  initial?: Partial<PivotScoreState>;
+  onChange?: (result: PivotPrecheckResult) => void;
+}) {
+  const DEFAULTS: PivotScoreState = {
+    legBirth: 2,
+    structure: 2,
+    followThrough: 1,
+    timeFit: 1,
+    sanity: 1,
+  };
+
+  const [s, setS] = useState<PivotScoreState>({ ...DEFAULTS, ...(initial ?? {}) } as PivotScoreState);
+
+  const result = useMemo<PivotPrecheckResult>(() => {
+    const total = s.legBirth + s.structure + s.followThrough + s.timeFit + s.sanity;
+
+    const autoFail = s.legBirth === 0 || s.structure === 0 || s.timeFit === 0;
+
+    const reasons: string[] = [];
+    if (s.legBirth === 0) reasons.push("Leg Birth = 0 (bounce/spike/continuation).");
+    if (s.structure === 0) reasons.push("Structure = 0 (pivot violated / no confirmation).");
+    if (s.timeFit === 0) reasons.push("Time Fit = 0 (cycle doesn’t express cleanly).");
+
+    const hardPass = !autoFail && s.legBirth >= 2 && s.structure === 2 && total >= 7;
+
+    let recommendedAction: PivotPrecheckResult["recommendedAction"] = "REJECT";
+
+    if (hardPass) {
+      recommendedAction = "USE";
+    } else if (!autoFail && total >= 5) {
+      recommendedAction = "MARGINAL";
+      if (total < 7) reasons.push("Total < 7 (not strong enough to anchor a 45/90-day cycle).");
+      if (s.legBirth < 2) reasons.push("Leg Birth < 2 (not a clear new leg).");
+      if (s.structure < 2) reasons.push("Structure < 2 (not fully confirmed).");
+    } else {
+      if (!autoFail) reasons.push("Total < 5 (insufficient evidence).");
+    }
+
+    return { total, autoFail, hardPass, recommendedAction, reasons, state: s };
+  }, [s]);
+
+  useEffect(() => {
+    onChange?.(result);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result.total, result.autoFail, result.hardPass, result.recommendedAction, s]);
+
+  const badge =
+    result.recommendedAction === "USE"
+      ? { text: "USE PIVOT", tone: "good" as const }
+      : result.recommendedAction === "MARGINAL"
+      ? { text: "MARGINAL", tone: "warn" as const }
+      : { text: "REJECT", tone: "bad" as const };
+
+  return (
+    <div style={precheckPanelStyle}>
+      <div style={precheckHeaderRow}>
+        <div>
+          <div style={precheckTitle}>Pivot Pre-Check</div>
+          <div style={precheckSubtitle}>
+            Score the candidate pivot before you anchor the cycle (1D · 45/90-day).
+          </div>
+        </div>
+
+        <div style={precheckScoreBox}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>Total</div>
+            <div style={{ fontSize: 26, fontWeight: 800 }}>{result.total}</div>
+            <div style={{ fontSize: 12, opacity: 0.6 }}>/10</div>
+          </div>
+          <div style={{ ...precheckBadgeStyle, ...precheckBadgeTone(badge.tone) }}>{badge.text}</div>
+        </div>
+      </div>
+
+      <div style={precheckGrid}>
+        <ScoreRow
+          label="1) Leg Birth"
+          hint="Did a new directional leg begin here?"
+          value={s.legBirth}
+          options={[0, 1, 2, 3]}
+          onChange={(v) => setS((p) => ({ ...p, legBirth: v as PivotScoreState["legBirth"] }))}
+        />
+
+        <ScoreRow
+          label="2) Structure"
+          hint="Higher-low / lower-high confirmation within ~5–10 days?"
+          value={s.structure}
+          options={[0, 1, 2]}
+          onChange={(v) => setS((p) => ({ ...p, structure: v as PivotScoreState["structure"] }))}
+        />
+
+        <ScoreRow
+          label="3) Follow-Through"
+          hint="Did price travel meaningfully away (energy / commitment)?"
+          value={s.followThrough}
+          options={[0, 1, 2]}
+          onChange={(v) => setS((p) => ({ ...p, followThrough: v as PivotScoreState["followThrough"] }))}
+        />
+
+        <ScoreRow
+          label="4) Time Symmetry Fit"
+          hint="Does early base → mid expansion → late exhaustion express cleanly?"
+          value={s.timeFit}
+          options={[0, 1, 2]}
+          onChange={(v) => setS((p) => ({ ...p, timeFit: v as PivotScoreState["timeFit"] }))}
+        />
+
+        <ScoreRow
+          label="5) Sanity"
+          hint="Does this pivot tell the truth without excuses?"
+          value={s.sanity}
+          options={[0, 1]}
+          onChange={(v) => setS((p) => ({ ...p, sanity: v as PivotScoreState["sanity"] }))}
+        />
+      </div>
+
+      <div style={precheckRules}>
+        <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>Strict pass rule</div>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.5, opacity: 0.85 }}>
+          <li>Auto-fail if <b>Leg Birth = 0</b> or <b>Structure = 0</b> or <b>Time Fit = 0</b></li>
+          <li>Hard pass requires <b>Leg Birth ≥ 2</b>, <b>Structure = 2</b>, and <b>Total ≥ 7</b></li>
+        </ul>
+      </div>
+
+      <div style={precheckFooterRow}>
+        <button type="button" onClick={() => setS(DEFAULTS)} style={btnGhost}>
+          Reset
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(JSON.stringify(result, null, 2))}
+          style={btnGhost}
+        >
+          Copy verdict
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ScoreRow(props: {
+  label: string;
+  hint: string;
+  value: number;
+  options: number[];
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div style={precheckRow}>
+      <div>
+        <div style={precheckRowLabel}>{props.label}</div>
+        <div style={precheckRowHint}>{props.hint}</div>
+      </div>
+
+      <div style={precheckSegWrap}>
+        {props.options.map((opt) => {
+          const active = opt === props.value;
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => props.onChange(opt)}
+              style={{
+                ...precheckSegBtn,
+                ...(active ? precheckSegBtnActive : null),
+              }}
+              aria-pressed={active}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -525,23 +794,23 @@ function polarToXY_West0_CW(cx: number, cy: number, r: number, deg: number) {
 }
 
 function wedgePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  // Uses the same mapping as polarToXY_West0_CW
   const p1 = polarToXY_West0_CW(cx, cy, r, startDeg);
   const p2 = polarToXY_West0_CW(cx, cy, r, endDeg);
   const largeArc = endDeg - startDeg > 180 ? 1 : 0;
 
-  return [
-    `M ${cx} ${cy}`,
-    `L ${p1.x} ${p1.y}`,
-    `A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`,
-    "Z",
-  ].join(" ");
+  return [`M ${cx} ${cy}`, `L ${p1.x} ${p1.y}`, `A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`, "Z"].join(" ");
 }
 
 function formatNum(n: any) {
   const x = Number(n);
   if (!Number.isFinite(x)) return String(n);
   return x.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+function precheckBadgeTone(tone: "good" | "warn" | "bad"): React.CSSProperties {
+  if (tone === "good") return { background: "rgba(46, 204, 113, 0.12)", color: "rgba(255,255,255,0.92)" };
+  if (tone === "warn") return { background: "rgba(241, 196, 15, 0.14)", color: "rgba(255,255,255,0.92)" };
+  return { background: "rgba(231, 76, 60, 0.14)", color: "rgba(255,255,255,0.92)" };
 }
 
 /* -------------------- Styles -------------------- */
@@ -615,7 +884,6 @@ const buttonStyle: CSSProperties = {
   padding: "7px 12px",
   color: "#EDE3CC",
   fontSize: 12,
-  cursor: "pointer",
 };
 
 const segWrapStyle: CSSProperties = {
@@ -675,4 +943,141 @@ const errorStyle: CSSProperties = {
   borderRadius: 12,
   padding: 10,
   color: "#FFB0B0",
+};
+
+const warnStyle: CSSProperties = {
+  background: "rgba(241, 196, 15, 0.12)",
+  border: "1px solid rgba(241, 196, 15, 0.35)",
+  borderRadius: 12,
+  padding: 10,
+  color: "rgba(237,227,204,0.95)",
+};
+
+/* -------------------- Pivot Precheck Styles -------------------- */
+
+const precheckPanelStyle: CSSProperties = {
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.10)",
+  borderRadius: 16,
+  padding: 12,
+  marginBottom: 10,
+};
+
+const precheckHeaderRow: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 10,
+};
+
+const precheckTitle: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  letterSpacing: 0.2,
+};
+
+const precheckSubtitle: CSSProperties = {
+  fontSize: 12,
+  opacity: 0.7,
+  marginTop: 4,
+  lineHeight: 1.35,
+  maxWidth: 520,
+};
+
+const precheckScoreBox: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+  gap: 8,
+};
+
+const precheckBadgeStyle: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: 0.6,
+  borderRadius: 999,
+  padding: "6px 10px",
+  border: "1px solid rgba(255,255,255,0.12)",
+};
+
+const precheckGrid: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+};
+
+const precheckRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  background: "rgba(0,0,0,0.18)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 12,
+  padding: "10px 10px",
+};
+
+const precheckRowLabel: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const precheckRowHint: CSSProperties = {
+  fontSize: 11,
+  opacity: 0.7,
+  marginTop: 3,
+  lineHeight: 1.35,
+  maxWidth: 520,
+};
+
+const precheckSegWrap: CSSProperties = {
+  display: "flex",
+  gap: 6,
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+};
+
+const precheckSegBtn: CSSProperties = {
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  color: "rgba(237,227,204,0.95)",
+  borderRadius: 10,
+  padding: "6px 10px",
+  fontSize: 12,
+  cursor: "pointer",
+  minWidth: 38,
+  textAlign: "center",
+};
+
+const precheckSegBtnActive: CSSProperties = {
+  background: "rgba(255,255,255,0.10)",
+  border: "1px solid rgba(255,255,255,0.22)",
+};
+
+const precheckRules: CSSProperties = {
+  marginTop: 10,
+  background: "rgba(0,0,0,0.14)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 12,
+  padding: 10,
+};
+
+const precheckFooterRow: CSSProperties = {
+  marginTop: 10,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const btnGhost: CSSProperties = {
+  background: "transparent",
+  border: "1px solid rgba(255,255,255,0.14)",
+  color: "rgba(237,227,204,0.95)",
+  borderRadius: 999,
+  padding: "8px 12px",
+  fontSize: 12,
+  cursor: "pointer",
 };
