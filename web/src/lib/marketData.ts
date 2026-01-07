@@ -20,7 +20,6 @@ function assertEnv(name: string) {
 }
 
 function tfToPolygon(tf: Timeframe) {
-  // Polygon aggregates use multiplier+timespan
   if (tf === "1d") return { multiplier: 1, timespan: "day" as const };
   if (tf === "4h") return { multiplier: 4, timespan: "hour" as const };
   return { multiplier: 1, timespan: "hour" as const };
@@ -30,12 +29,11 @@ export async function fetchStockOHLCV(params: {
   symbol: string;
   timeframe: Timeframe;
   fromYMD: string; // YYYY-MM-DD
-  toYMD: string;   // YYYY-MM-DD
+  toYMD: string; // YYYY-MM-DD
 }): Promise<OHLCV[]> {
   const POLYGON_API_KEY = assertEnv("POLYGON_API_KEY");
   const { multiplier, timespan } = tfToPolygon(params.timeframe);
 
-  // Polygon v2 aggregates
   const url =
     `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(params.symbol)}` +
     `/range/${multiplier}/${timespan}/${params.fromYMD}/${params.toYMD}` +
@@ -57,22 +55,16 @@ export async function fetchStockOHLCV(params: {
 }
 
 function tfToCoinbaseGranularity(tf: Timeframe) {
-  // Coinbase Advanced Trade candles granularity is in seconds
-  // Common granularities: 3600 (1h), 14400 (4h), 86400 (1d)
   if (tf === "1d") return 86400;
   if (tf === "4h") return 14400;
   return 3600;
 }
 
-/**
- * Coinbase candles endpoint (public) typically uses product_id like BTC-USD.
- * Response often comes newest-first; we sort asc.
- */
 export async function fetchCryptoOHLCV(params: {
-  productId: string; // e.g. "BTC-USD"
+  productId: string; // e.g. BTC-USD
   timeframe: Timeframe;
-  startISO: string; // ISO string
-  endISO: string;   // ISO string
+  startISO: string;
+  endISO: string;
 }): Promise<OHLCV[]> {
   const granularity = tfToCoinbaseGranularity(params.timeframe);
 
