@@ -3,6 +3,7 @@
 
 import React, { useMemo, useState, type CSSProperties } from "react";
 import PivotAutoAnchorPanel from "@/components/PivotAutoAnchorPanel";
+import SquareOfNinePanel from "@/components/gann/SquareOfNinePanel";
 
 type Mode = "market" | "personal";
 type PivotAnchorMode = "low" | "high" | "close" | "open";
@@ -74,7 +75,7 @@ export default function ChartClient() {
   const [marketCycleDays, setMarketCycleDays] = useState("90");
 
   // Pivot → anchor autofill
-  const [pivotAnchorMode, setPivotAnchorMode] = useState<PivotAnchorMode>("low");
+  const [pivotAnchorMode, setPivotAnchorMode] = useState<PivotAnchorMode>("close");
   const [candleRes, setCandleRes] = useState<CandleResponse | null>(null);
   const [loadingCandle, setLoadingCandle] = useState(false);
 
@@ -94,7 +95,6 @@ export default function ChartClient() {
   // Infer market kind from symbol. Adjust later if you add an explicit toggle.
   const marketKind = useMemo<"crypto" | "stock">(() => {
     const s = (symbol || "").toUpperCase();
-    // your symbols look like SOL-USD, BTC-USD etc → treat as crypto
     if (s.includes("BTC") || s.includes("ETH") || s.includes("SOL") || s.includes("-USD")) return "crypto";
     return "stock";
   }, [symbol]);
@@ -231,7 +231,7 @@ export default function ChartClient() {
     if (!Number.isFinite(a) || a <= 0) return null;
     if (!Number.isFinite(p) || p <= 0) return null;
 
-    const raw = (Math.sqrt(p) - Math.sqrt(a)) * 180; // can be negative
+    const raw = (Math.sqrt(p) - Math.sqrt(a)) * 180;
     const deg = ((raw % 360) + 360) % 360;
     return deg;
   }, [mode, priceRes, anchorPrice]);
@@ -363,14 +363,16 @@ export default function ChartClient() {
                       <Segmented
                         value={pivotAnchorMode}
                         options={[
-                          { value: "low", label: "Low" },
-                          { value: "high", label: "High" },
                           { value: "close", label: "Close" },
                           { value: "open", label: "Open" },
+                          { value: "low", label: "Low" },
+                          { value: "high", label: "High" },
                         ]}
                         onChange={(v) => setPivotAnchorMode(v as PivotAnchorMode)}
                       />
-                      <div style={{ fontSize: 12, opacity: 0.75 }}>(Low = swing-low pivot, High = swing-high pivot)</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>
+                        Close/Open balance the read; High/Low are “extremes”.
+                      </div>
                     </div>
 
                     {candleRes?.ok && pivotCandleForCard ? (
@@ -421,7 +423,12 @@ export default function ChartClient() {
                 </Field>
 
                 <Field label="Cycle length (days)">
-                  <input value={cycleDays} onChange={(e) => setCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
+                  <input
+                    value={cycleDays}
+                    onChange={(e) => setCycleDays(e.target.value)}
+                    inputMode="decimal"
+                    style={inputStyle}
+                  />
                 </Field>
               </>
             )}
@@ -434,9 +441,9 @@ export default function ChartClient() {
             )}
           </div>
 
-          {/* Visualization */}
+          {/* Visualization (Angle Ring + Square of 9) */}
           <div style={panelStyle}>
-            <div style={panelHeaderStyle}>Angle Ring</div>
+            <div style={panelHeaderStyle}>Visuals</div>
 
             {res?.ok ? (
               <div style={{ padding: 0 }}>
@@ -450,6 +457,18 @@ export default function ChartClient() {
                       : `Primary: Now @ ${formatNum(res.data.markerDeg)}° of cycle`
                   }
                 />
+
+                {/* Square of 9 replaces the “second wheel” */}
+                {mode === "market" ? (
+                  <div style={{ padding: 12, paddingTop: 0 }}>
+                    <SquareOfNinePanel
+                      anchor={Number(anchorPrice)}
+                      tickSize={Number(tickSize) || 0.01}
+                      targets={Array.isArray(res.data?.targets) ? res.data.targets : []}
+                      currentPrice={priceRes?.ok ? priceRes.price : null}
+                    />
+                  </div>
+                ) : null}
 
                 <div style={midNoteStyle}>
                   <div style={{ opacity: 0.9, fontWeight: 700, marginBottom: 6 }}>Time vs Price alignment</div>
@@ -487,19 +506,16 @@ export default function ChartClient() {
               symbol={symbol}
               tickSize={Number(tickSize) || 0.01}
               onApply={(p) => {
-                // 1) Set pivot datetime-local value
                 if (p?.pivotLocalInput) setPivotDateTime(p.pivotLocalInput);
 
-                // 2) Match the pivot's anchor source (low/high)
-                //    (You can still manually switch to Close/Open if you want.)
+                // IMPORTANT: only “low/high” can be auto-selected from the scan result.
+                // You can still choose Close/Open in the UI anytime.
                 if (p?.anchorSource) setPivotAnchorMode(p.anchorSource);
 
-                // 3) Set anchor price (rounded using tick size)
                 const t = Number(tickSize) || 0.01;
                 const rounded = Math.round(Number(p.anchorPrice) / t) * t;
                 setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
 
-                // 4) Clear candle readout so you don’t confuse “previous pivot candle” with the new pivot
                 setCandleRes(null);
               }}
             />
@@ -510,446 +526,4 @@ export default function ChartClient() {
   );
 }
 
-/* -------------------- UI Components -------------------- */
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>{label}</div>
-      {children}
-    </label>
-  );
-}
-
-function Segmented({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div style={segWrapStyle}>
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            style={{ ...segBtnStyle, ...(active ? segBtnActiveStyle : null) }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function AngleRing({
-  angles,
-  markerDeg,
-  priceDeg,
-  subtitle,
-}: {
-  angles: number[];
-  markerDeg: number | null;
-  priceDeg?: number | null;
-  subtitle?: string;
-}) {
-  const size = 320;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = 120;
-
-  const quadrantWedges = [
-    { start: 0, end: 90, opacity: 0.10 },
-    { start: 90, end: 180, opacity: 0.06 },
-    { start: 180, end: 270, opacity: 0.10 },
-    { start: 270, end: 360, opacity: 0.06 },
-  ];
-
-  const spokes = angles.map((deg) => {
-    const p = polarToXY_West0_CW(cx, cy, r, deg);
-    return { deg, x2: p.x, y2: p.y };
-  });
-
-  const marker = markerDeg == null ? null : polarToXY_West0_CW(cx, cy, r, markerDeg);
-  const priceMarker = priceDeg == null ? null : polarToXY_West0_CW(cx, cy, r, priceDeg);
-
-  const lead = getLeadReadout(markerDeg, priceDeg, SYNC_TOL_DEG);
-
-  return (
-    <div style={{ padding: 12 }}>
-      {subtitle ? <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>{subtitle}</div> : null}
-
-      <svg width={size} height={size} style={{ display: "block", margin: "0 auto" }}>
-        {quadrantWedges.map((q) => (
-          <path
-            key={`${q.start}-${q.end}`}
-            d={wedgePath(cx, cy, r, q.start, q.end)}
-            fill={`rgba(237,227,204,${q.opacity})`}
-            stroke="none"
-          />
-        ))}
-
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(237,227,204,0.25)" strokeWidth={2} />
-
-        {spokes.map((s) => (
-          <g key={s.deg}>
-            <line x1={cx} y1={cy} x2={s.x2} y2={s.y2} stroke="rgba(237,227,204,0.15)" strokeWidth={2} />
-            <text
-              x={cx + (s.x2 - cx) * 1.12}
-              y={cy + (s.y2 - cy) * 1.12}
-              fill="rgba(237,227,204,0.8)"
-              fontSize={11}
-              textAnchor="middle"
-              dominantBaseline="middle"
-            >
-              {s.deg}°
-            </text>
-          </g>
-        ))}
-
-        {/* time marker (circle) */}
-        {marker ? (
-          <>
-            <circle cx={marker.x} cy={marker.y} r={6} fill="rgba(237,227,204,0.95)" />
-            <circle cx={marker.x} cy={marker.y} r={10} fill="none" stroke="rgba(237,227,204,0.35)" />
-          </>
-        ) : null}
-
-        {/* price marker (diamond) */}
-        {priceMarker ? (
-          <path
-            d={diamondPath(priceMarker.x, priceMarker.y, 7)}
-            fill="rgba(237,227,204,0.35)"
-            stroke="rgba(237,227,204,0.85)"
-            strokeWidth={1.5}
-          />
-        ) : null}
-
-        <circle cx={cx} cy={cy} r={3} fill="rgba(237,227,204,0.55)" />
-      </svg>
-
-      <div style={{ fontSize: 12, opacity: 0.85, textAlign: "center", marginTop: 10 }}>
-        {markerDeg == null ? "Time appears after run." : `Time: ${formatNum(markerDeg)}°`}
-      </div>
-
-      {priceDeg != null ? (
-        <div style={{ fontSize: 12, opacity: 0.75, textAlign: "center", marginTop: 6 }}>
-          Price: {formatNum(priceDeg)}°
-        </div>
-      ) : null}
-
-      {lead ? (
-        <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
-          <div style={leadPillStyle}>
-            <span style={{ fontWeight: 800 }}>{lead.label}</span>
-            <span style={{ opacity: 0.85 }}> • gap </span>
-            <span style={{ fontWeight: 800 }}>{formatNum(lead.gapDeg)}°</span>
-          </div>
-        </div>
-      ) : null}
-
-      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 8 }}>
-        0° West • 90° North • 180° East • 270° South
-      </div>
-    </div>
-  );
-}
-
-function TargetsPanel({ data }: { data: any }) {
-  const markerOk = typeof data.markerDeg === "number" && Number.isFinite(data.markerDeg);
-
-  return (
-    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Anchor: <strong>{formatNum(data.anchor)}</strong>
-      </div>
-
-      {markerOk ? (
-        <div style={miniCardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ fontWeight: 600 }}>Market marker</div>
-            <div style={{ opacity: 0.85 }}>{formatNum(data.markerDeg)}°</div>
-          </div>
-
-          {Array.isArray(data.nextBoundaries) && data.nextBoundaries.length ? (
-            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-              {data.nextBoundaries.slice(0, 4).map((b: any) => (
-                <div
-                  key={b.angle}
-                  style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between", gap: 10 }}
-                >
-                  <span>{b.angle}° next</span>
-                  <span>
-                    {String(b.at).slice(0, 19).replace("T", " ")} ({b.inHours}h)
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {(data.targets ?? []).map((t: any) => (
-          <div key={t.angle} style={miniCardStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ fontWeight: 600 }}>{t.angle}°</div>
-              <div style={{ opacity: 0.85 }}>Δ√ = {formatNum(t.deltaSqrt)}</div>
-            </div>
-
-            <div style={{ marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
-              <div>
-                Up: <strong>{formatNum(t.up)}</strong>
-              </div>
-              <div>
-                Down: <strong>{formatNum(t.down)}</strong>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={helpStyle}>
-        Basic read: angles are “structure.” The marker is “timing.” Targets are “levels.” You’re watching where timing +
-        levels converge.
-      </div>
-    </div>
-  );
-}
-
-function PersonalPanel({ data }: { data: any }) {
-  return (
-    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Anchor: <strong>{String(data.anchorDateTime)}</strong>
-      </div>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Cycle: <strong>{formatNum(data.cycleDays)}</strong> days
-      </div>
-
-      <div style={miniCardStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ fontWeight: 600 }}>Now position</div>
-          <div style={{ opacity: 0.85 }}>{formatNum(data.markerDeg)}°</div>
-        </div>
-        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-          Cycle progress: <strong>{Math.round((data.progress01 ?? 0) * 100)}%</strong>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {(data.nextBoundaries ?? []).map((b: any) => (
-          <div key={b.angle} style={miniCardStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ fontWeight: 600 }}>{b.angle}° next</div>
-              <div style={{ opacity: 0.85 }}>{String(b.at)}</div>
-            </div>
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-              In: <strong>{b.inHours}</strong> hours
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={helpStyle}>Personal use: you’re tracking context shifts as you cross key angles.</div>
-    </div>
-  );
-}
-
-/* -------------------- Helpers -------------------- */
-
-// shortest signed diff a-b in (-180,180]
-function signedAngleDiffDeg(a: number, b: number) {
-  const d = ((a - b + 540) % 360) - 180;
-  return d === -180 ? 180 : d;
-}
-
-function getLeadReadout(timeDeg: number | null, priceDeg: number | null | undefined, tolDeg: number) {
-  if (timeDeg == null || priceDeg == null) return null;
-  if (!Number.isFinite(timeDeg) || !Number.isFinite(priceDeg)) return null;
-
-  const d = signedAngleDiffDeg(timeDeg, priceDeg); // + means time ahead of price (clockwise)
-  const abs = Math.abs(d);
-
-  if (abs <= tolDeg) return { label: "IN SYNC", gapDeg: abs };
-  if (d > 0) return { label: "TIME LEADS", gapDeg: abs };
-  return { label: "PRICE LEADS", gapDeg: abs };
-}
-
-function polarToXY_West0_CW(cx: number, cy: number, r: number, deg: number) {
-  const a = ((deg + 180) * Math.PI) / 180;
-  return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
-}
-
-function wedgePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  const p1 = polarToXY_West0_CW(cx, cy, r, startDeg);
-  const p2 = polarToXY_West0_CW(cx, cy, r, endDeg);
-  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-
-  return [`M ${cx} ${cy}`, `L ${p1.x} ${p1.y}`, `A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`, "Z"].join(" ");
-}
-
-function diamondPath(x: number, y: number, r: number) {
-  return `M ${x} ${y - r} L ${x + r} ${y} L ${x} ${y + r} L ${x - r} ${y} Z`;
-}
-
-function formatNum(n: any) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return String(n);
-  return x.toLocaleString(undefined, { maximumFractionDigits: 6 });
-}
-
-function decimalsFromTick(tick: number) {
-  const s = String(tick);
-  const i = s.indexOf(".");
-  return i === -1 ? 0 : Math.min(12, s.length - i - 1);
-}
-
-/* -------------------- Styles -------------------- */
-
-const pageStyle: CSSProperties = {
-  minHeight: "100vh",
-  background: "#1B1F24",
-  padding: "24px 12px",
-  display: "flex",
-  justifyContent: "center",
-  color: "#EDE3CC",
-  fontFamily: "system-ui",
-};
-
-const wrapStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: 1100,
-  display: "flex",
-  flexDirection: "column",
-  gap: 16,
-};
-
-const topBarStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-  background: "#222933",
-  borderRadius: 16,
-  padding: "12px 14px",
-  border: "1px solid rgba(58,69,80,0.9)",
-};
-
-const gridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1.2fr 1fr",
-  gap: 14,
-};
-
-const panelStyle: CSSProperties = {
-  background: "#243039",
-  borderRadius: 20,
-  border: "1px solid rgba(58,69,80,0.9)",
-  boxShadow: "0 12px 30px rgba(0,0,0,0.4)",
-  overflow: "hidden",
-  minHeight: 420,
-};
-
-const panelHeaderStyle: CSSProperties = {
-  padding: "12px 14px",
-  borderBottom: "1px solid rgba(58,69,80,0.6)",
-  fontWeight: 700,
-  letterSpacing: 0.2,
-};
-
-const inputStyle: CSSProperties = {
-  background: "#1B1F24",
-  border: "1px solid #3a4550",
-  borderRadius: 8,
-  padding: "8px 10px",
-  color: "#EDE3CC",
-  fontSize: 13,
-  outline: "none",
-};
-
-const buttonStyle: CSSProperties = {
-  background: "transparent",
-  border: "1px solid #3a4550",
-  borderRadius: 999,
-  padding: "7px 12px",
-  color: "#EDE3CC",
-  fontSize: 12,
-  cursor: "pointer",
-};
-
-const segWrapStyle: CSSProperties = {
-  display: "inline-flex",
-  border: "1px solid rgba(58,69,80,0.9)",
-  borderRadius: 999,
-  overflow: "hidden",
-};
-
-const segBtnStyle: CSSProperties = {
-  background: "transparent",
-  border: "none",
-  color: "#EDE3CC",
-  padding: "8px 12px",
-  fontSize: 12,
-  cursor: "pointer",
-  opacity: 0.8,
-};
-
-const segBtnActiveStyle: CSSProperties = {
-  background: "rgba(237,227,204,0.12)",
-  opacity: 1,
-};
-
-const helpStyle: CSSProperties = {
-  marginTop: 12,
-  fontSize: 12,
-  lineHeight: 1.4,
-  opacity: 0.85,
-};
-
-const miniCardStyle: CSSProperties = {
-  background: "rgba(0,0,0,0.18)",
-  border: "1px solid rgba(58,69,80,0.6)",
-  borderRadius: 14,
-  padding: 12,
-};
-
-const errorStyle: CSSProperties = {
-  background: "rgba(255, 80, 80, 0.12)",
-  border: "1px solid rgba(255, 80, 80, 0.35)",
-  borderRadius: 12,
-  padding: 10,
-  color: "#FFB0B0",
-};
-
-const leadPillStyle: CSSProperties = {
-  display: "inline-flex",
-  gap: 6,
-  alignItems: "center",
-  padding: "6px 10px",
-  borderRadius: 999,
-  border: "1px solid rgba(237,227,204,0.22)",
-  background: "rgba(0,0,0,0.16)",
-  fontSize: 12,
-  color: "#EDE3CC",
-};
-
-const midNoteStyle: CSSProperties = {
-  margin: 12,
-  padding: 12,
-  borderRadius: 14,
-  border: "1px solid rgba(58,69,80,0.6)",
-  background: "rgba(0,0,0,0.14)",
-  fontSize: 12,
-  lineHeight: 1.45,
-  color: "#EDE3CC",
-  opacity: 0.9,
-};
+/*
