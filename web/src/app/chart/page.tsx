@@ -1,7 +1,7 @@
 // src/app/chart/page.tsx
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 type Mode = "market" | "personal";
 type PivotAnchorMode = "low" | "high" | "close" | "open";
@@ -35,7 +35,13 @@ type CandleResponse =
     }
   | { ok: false; error: string };
 
+type MarketPriceResponse =
+  | { ok: true; kind: "stock" | "crypto"; provider: "polygon" | "coinbase"; symbol: string; price: number; asOfISO: string }
+  | { ok: false; error: string };
+
 const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
+const FIXED_ANGLES = DEFAULT_ANGLES; // fixed choice now
+const ALWAYS_INCLUDE_DOWNSIDE = true;
 
 export default function ChartPage() {
   const [mode, setMode] = useState<Mode>("market");
@@ -44,8 +50,6 @@ export default function ChartPage() {
   const [symbol, setSymbol] = useState("SOL-USD");
   const [anchorPrice, setAnchorPrice] = useState("200");
   const [tickSize, setTickSize] = useState("0.01");
-  const [anglesCsv, setAnglesCsv] = useState(DEFAULT_ANGLES.join(","));
-  const [includeDownside, setIncludeDownside] = useState(true);
 
   // Market marker: pivot datetime + cycle length
   const [pivotDateTime, setPivotDateTime] = useState<string>(() => {
@@ -62,18 +66,18 @@ export default function ChartPage() {
   const [candleRes, setCandleRes] = useState<CandleResponse | null>(null);
   const [loadingCandle, setLoadingCandle] = useState(false);
 
+  // Current price
+  const [priceRes, setPriceRes] = useState<MarketPriceResponse | null>(null);
+  const [loadingPrice, setLoadingPrice] = useState(false);
+
   // PERSONAL inputs
   const [anchorDateTime, setAnchorDateTime] = useState("1990-01-24T01:39");
   const [cycleDays, setCycleDays] = useState("365.2425");
-  const [personalAnglesCsv, setPersonalAnglesCsv] = useState(DEFAULT_ANGLES.join(","));
 
   const [res, setRes] = useState<GannResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const angles = useMemo(
-    () => parseAnglesCsv(mode === "market" ? anglesCsv : personalAnglesCsv),
-    [mode, anglesCsv, personalAnglesCsv]
-  );
+  const angles = useMemo(() => FIXED_ANGLES.slice(), []);
 
   async function run() {
     setLoading(true);
@@ -88,7 +92,7 @@ export default function ChartPage() {
               anchor: Number(anchorPrice),
               tickSize: Number(tickSize),
               angles,
-              includeDownside,
+              includeDownside: ALWAYS_INCLUDE_DOWNSIDE,
               pivotDateTime,
               cycleDays: Number(marketCycleDays),
             }
@@ -133,10 +137,7 @@ export default function ChartPage() {
       const r = await fetch("/api/market-candle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbol: symbol.trim(),
-          pivotISO,
-        }),
+        body: JSON.stringify({ symbol: symbol.trim(), pivotISO }),
       });
 
       const json = (await r.json()) as CandleResponse;
@@ -170,20 +171,67 @@ export default function ChartPage() {
     }
   }
 
+  async function refreshCurrentPrice() {
+    if (!symbol.trim()) {
+      setPriceRes({ ok: false, error: "Symbol is required for current price." });
+      return;
+    }
+
+    setLoadingPrice(true);
+    setPriceRes(null);
+
+    try {
+      const r = await fetch("/api/market-price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: symbol.trim() }),
+      });
+
+      const json = (await r.json()) as MarketPriceResponse;
+      setPriceRes(json);
+    } catch (e: any) {
+      setPriceRes({ ok: false, error: e?.message || "Price fetch failed" });
+    } finally {
+      setLoadingPrice(false);
+    }
+  }
+
+  // Auto-refresh current price when in market mode + symbol changes (basic)
+  useEffect(() => {
+    if (mode !== "market") return;
+    if (!symbol.trim()) return;
+    refreshCurrentPrice();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, symbol]);
+
   const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
 
   const pivotCandleForCard =
     candleRes && candleRes.ok ? candleRes.candles.find((x) => x.label === "Pivot") ?? null : null;
 
-  // NEW: fixed 90-day ring marker (market mode only)
+  // Fixed 90-day ring marker (market mode only)
   const fixed90MarkerDeg = useMemo(() => {
     if (mode !== "market") return null;
-
-    const pivot = new Date(pivotDateTime); // local datetime-local string => local Date
+    const pivot = new Date(pivotDateTime);
     if (Number.isNaN(pivot.getTime())) return null;
-
     return markerDegFromNowPivotCycle(new Date(), pivot, 90);
   }, [mode, pivotDateTime]);
+
+  // Price marker: map current price to an “angle on Square-of-9” relative to anchor
+  // Invert: price = (sqrt(anchor) ± angle/180)^2  => angle ≈ (sqrt(price) - sqrt(anchor)) * 180
+  const priceMarkerDeg = useMemo(() => {
+    if (mode !== "market") return null;
+    if (!priceRes || !priceRes.ok) return null;
+
+    const a = Number(anchorPrice);
+    const p = Number(priceRes.price);
+    if (!Number.isFinite(a) || a <= 0) return null;
+    if (!Number.isFinite(p) || p <= 0) return null;
+
+    const raw = (Math.sqrt(p) - Math.sqrt(a)) * 180; // can be negative
+    const deg = ((raw % 360) + 360) % 360;
+    return deg;
+  }, [mode, priceRes, anchorPrice]);
 
   return (
     <div style={pageStyle}>
@@ -219,6 +267,45 @@ export default function ChartPage() {
                   <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
                 </Field>
 
+                {/* NEW: Current price section (uses the freed space) */}
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9 }}>Current Price</div>
+                    <button type="button" onClick={refreshCurrentPrice} style={buttonStyle} disabled={loadingPrice}>
+                      {loadingPrice ? "Fetching…" : "Refresh"}
+                    </button>
+                  </div>
+
+                  {priceRes?.ok ? (
+                    <div style={{ ...miniCardStyle, marginTop: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
+                        <div style={{ fontWeight: 700 }}>{priceRes.symbol}</div>
+                        <div style={{ opacity: 0.85 }}>{priceRes.provider}</div>
+                      </div>
+
+                      <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800 }}>
+                        {formatNum(priceRes.price)}
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                        As of {String(priceRes.asOfISO).slice(0, 19).replace("T", " ")}
+                      </div>
+
+                      {priceMarkerDeg != null ? (
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                          Price angle (relative to anchor): <strong>{formatNum(priceMarkerDeg)}°</strong>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : priceRes && !priceRes.ok ? (
+                    <div style={{ ...errorStyle, marginTop: 10 }}>Price fetch error: {priceRes.error}</div>
+                  ) : (
+                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+                      Fetching price will show a second marker on the ring.
+                    </div>
+                  )}
+                </div>
+
                 <Field label="Anchor price (required)">
                   <input
                     value={anchorPrice}
@@ -229,26 +316,8 @@ export default function ChartPage() {
                 </Field>
 
                 <Field label="Tick size (rounding)">
-                  <input
-                    value={tickSize}
-                    onChange={(e) => setTickSize(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
+                  <input value={tickSize} onChange={(e) => setTickSize(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
-
-                <Field label="Angles (degrees, CSV)">
-                  <input value={anglesCsv} onChange={(e) => setAnglesCsv(e.target.value)} style={inputStyle} />
-                </Field>
-
-                <label style={checkRowStyle}>
-                  <input
-                    type="checkbox"
-                    checked={includeDownside}
-                    onChange={(e) => setIncludeDownside(e.target.checked)}
-                  />
-                  <span style={{ opacity: 0.9 }}>Include downside targets</span>
-                </label>
 
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
                   <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
@@ -265,12 +334,7 @@ export default function ChartPage() {
                   </Field>
 
                   <Field label="Market cycle length (days)">
-                    <input
-                      value={marketCycleDays}
-                      onChange={(e) => setMarketCycleDays(e.target.value)}
-                      inputMode="decimal"
-                      style={inputStyle}
-                    />
+                    <input value={marketCycleDays} onChange={(e) => setMarketCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
                   </Field>
 
                   {/* Pivot → anchor autofill */}
@@ -278,12 +342,7 @@ export default function ChartPage() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                       <div style={{ fontSize: 12, opacity: 0.85 }}>Auto-fill anchor from pivot (1D candle)</div>
 
-                      <button
-                        type="button"
-                        onClick={autofillAnchorFromPivot}
-                        style={buttonStyle}
-                        disabled={loadingCandle}
-                      >
+                      <button type="button" onClick={autofillAnchorFromPivot} style={buttonStyle} disabled={loadingCandle}>
                         {loadingCandle ? "Fetching…" : "Auto-fill"}
                       </button>
                     </div>
@@ -306,9 +365,7 @@ export default function ChartPage() {
                     {candleRes?.ok && pivotCandleForCard ? (
                       <div style={miniCardStyle}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
-                          <div style={{ fontWeight: 700 }}>
-                            {candleRes.symbol} • 1D
-                          </div>
+                          <div style={{ fontWeight: 700 }}>{candleRes.symbol} • 1D</div>
                           <div style={{ opacity: 0.85 }}>
                             {candleRes.provider} • {candleRes.sessionDayYMD} ({candleRes.timezoneUsed})
                           </div>
@@ -338,19 +395,7 @@ export default function ChartPage() {
                     ) : candleRes && !candleRes.ok ? (
                       <div style={{ ...errorStyle }}>Candle fetch error: {candleRes.error}</div>
                     ) : null}
-
-                    <div style={helpStyle}>
-                      Marker maps <em>time since pivot</em> into the 360° ring:
-                      <br />
-                      <code style={codeStyle}>deg = ((now - pivot)/cycleDays mod 1) × 360</code>
-                    </div>
                   </div>
-                </div>
-
-                <div style={helpStyle}>
-                  Price targets use classic Square-of-9 sqrt step:
-                  <br />
-                  <code style={codeStyle}>target = (sqrt(anchor) ± (angle/180))²</code>
                 </div>
               </>
             ) : (
@@ -367,16 +412,6 @@ export default function ChartPage() {
                 <Field label="Cycle length (days)">
                   <input value={cycleDays} onChange={(e) => setCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
-
-                <Field label="Angles (degrees, CSV)">
-                  <input value={personalAnglesCsv} onChange={(e) => setPersonalAnglesCsv(e.target.value)} style={inputStyle} />
-                </Field>
-
-                <div style={helpStyle}>
-                  Personal mode maps time → angle:
-                  <br />
-                  <code style={codeStyle}>deg = ((now - anchor)/cycleDays mod 1) × 360</code>
-                </div>
               </>
             )}
 
@@ -394,10 +429,10 @@ export default function ChartPage() {
 
             {res?.ok ? (
               <div style={{ padding: 0 }}>
-                {/* Primary ring (whatever the run produced) */}
                 <AngleRing
                   angles={angles}
                   markerDeg={res.data?.markerDeg ?? null}
+                  priceDeg={mode === "market" ? priceMarkerDeg : null}
                   subtitle={
                     mode === "market"
                       ? `Primary (run): Anchor ${formatNum(res.data.anchor)}${res.input.symbol ? ` (${res.input.symbol})` : ""}`
@@ -405,12 +440,12 @@ export default function ChartPage() {
                   }
                 />
 
-                {/* Fixed 90-day ring (market only) */}
                 {mode === "market" ? (
                   <div style={{ borderTop: "1px solid rgba(58,69,80,0.6)" }}>
                     <AngleRing
                       angles={angles}
                       markerDeg={fixed90MarkerDeg}
+                      priceDeg={priceMarkerDeg}
                       subtitle={`Fixed reference: 90-day ring (same pivot)`}
                     />
                   </div>
@@ -425,13 +460,7 @@ export default function ChartPage() {
           <div style={panelStyle}>
             <div style={panelHeaderStyle}>Outputs</div>
 
-            {res?.ok ? (
-              mode === "market" ? (
-                <TargetsPanel data={res.data} />
-              ) : (
-                <PersonalPanel data={res.data} />
-              )
-            ) : (
+            {res?.ok ? mode === "market" ? <TargetsPanel data={res.data} /> : <PersonalPanel data={res.data} /> : (
               <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>
             )}
           </div>
@@ -483,10 +512,12 @@ function Segmented({
 function AngleRing({
   angles,
   markerDeg,
+  priceDeg,
   subtitle,
 }: {
   angles: number[];
   markerDeg: number | null;
+  priceDeg?: number | null;
   subtitle?: string;
 }) {
   const size = 320;
@@ -494,8 +525,6 @@ function AngleRing({
   const cy = size / 2;
   const r = 120;
 
-  // Quadrant shading (subtle, 4 wedges: 0–90, 90–180, 180–270, 270–360)
-  // Oriented with 0° at WEST, increasing clockwise.
   const quadrantWedges = [
     { start: 0, end: 90, opacity: 0.10 },
     { start: 90, end: 180, opacity: 0.06 },
@@ -509,13 +538,13 @@ function AngleRing({
   });
 
   const marker = markerDeg == null ? null : polarToXY_West0_CW(cx, cy, r, markerDeg);
+  const priceMarker = priceDeg == null ? null : polarToXY_West0_CW(cx, cy, r, priceDeg);
 
   return (
     <div style={{ padding: 12 }}>
       {subtitle ? <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>{subtitle}</div> : null}
 
       <svg width={size} height={size} style={{ display: "block", margin: "0 auto" }}>
-        {/* Quadrant wedges */}
         {quadrantWedges.map((q) => (
           <path
             key={`${q.start}-${q.end}`}
@@ -525,10 +554,8 @@ function AngleRing({
           />
         ))}
 
-        {/* Outer circle */}
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(237,227,204,0.25)" strokeWidth={2} />
 
-        {/* spokes + labels */}
         {spokes.map((s) => (
           <g key={s.deg}>
             <line x1={cx} y1={cy} x2={s.x2} y2={s.y2} stroke="rgba(237,227,204,0.15)" strokeWidth={2} />
@@ -545,7 +572,7 @@ function AngleRing({
           </g>
         ))}
 
-        {/* marker */}
+        {/* time marker (circle) */}
         {marker ? (
           <>
             <circle cx={marker.x} cy={marker.y} r={6} fill="rgba(237,227,204,0.95)" />
@@ -553,13 +580,30 @@ function AngleRing({
           </>
         ) : null}
 
-        {/* center */}
+        {/* price marker (diamond) */}
+        {priceMarker ? (
+          <>
+            <path
+              d={diamondPath(priceMarker.x, priceMarker.y, 7)}
+              fill="rgba(237,227,204,0.35)"
+              stroke="rgba(237,227,204,0.85)"
+              strokeWidth={1.5}
+            />
+          </>
+        ) : null}
+
         <circle cx={cx} cy={cy} r={3} fill="rgba(237,227,204,0.55)" />
       </svg>
 
       <div style={{ fontSize: 12, opacity: 0.85, textAlign: "center", marginTop: 10 }}>
         {markerDeg == null ? "Marker appears after run." : `Marker: ${formatNum(markerDeg)}°`}
       </div>
+
+      {priceDeg != null ? (
+        <div style={{ fontSize: 12, opacity: 0.75, textAlign: "center", marginTop: 6 }}>
+          Price: {formatNum(priceDeg)}°
+        </div>
+      ) : null}
 
       <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 6 }}>
         0° West • 90° North • 180° East • 270° South
@@ -614,11 +658,10 @@ function TargetsPanel({ data }: { data: any }) {
               <div>
                 Up: <strong>{formatNum(t.up)}</strong>
               </div>
-              {t.down != null ? (
-                <div>
-                  Down: <strong>{formatNum(t.down)}</strong>
-                </div>
-              ) : null}
+              {/* downside always included now */}
+              <div>
+                Down: <strong>{formatNum(t.down)}</strong>
+              </div>
             </div>
           </div>
         ))}
@@ -673,6 +716,15 @@ function PersonalPanel({ data }: { data: any }) {
 
 /* -------------------- Helpers -------------------- */
 
+function markerDegFromNowPivotCycle(now: Date, pivot: Date, cycleDays: number) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const dtDays = (now.getTime() - pivot.getTime()) / msPerDay;
+  const cycle = Number(cycleDays);
+  if (!Number.isFinite(cycle) || cycle <= 0) return null;
+  const frac = ((dtDays / cycle) % 1 + 1) % 1;
+  return frac * 360;
+}
+
 function parseAnglesCsv(csv: string): number[] {
   const parts = String(csv || "")
     .split(",")
@@ -685,20 +737,6 @@ function parseAnglesCsv(csv: string): number[] {
     .map((n) => ((n % 360) + 360) % 360);
 
   return Array.from(new Set(nums)).sort((a, b) => a - b);
-}
-
-/**
- * Basic marker formula:
- * deg = ((now - pivot)/cycleDays mod 1) × 360
- */
-function markerDegFromNowPivotCycle(now: Date, pivot: Date, cycleDays: number) {
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const dtDays = (now.getTime() - pivot.getTime()) / msPerDay;
-  const cycle = Number(cycleDays);
-  if (!Number.isFinite(cycle) || cycle <= 0) return null;
-
-  const frac = ((dtDays / cycle) % 1 + 1) % 1; // normalize to [0,1)
-  return frac * 360;
 }
 
 /**
@@ -716,6 +754,11 @@ function wedgePath(cx: number, cy: number, r: number, startDeg: number, endDeg: 
   const largeArc = endDeg - startDeg > 180 ? 1 : 0;
 
   return [`M ${cx} ${cy}`, `L ${p1.x} ${p1.y}`, `A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`, "Z"].join(" ");
+}
+
+function diamondPath(x: number, y: number, r: number) {
+  // a simple diamond centered at (x,y)
+  return `M ${x} ${y - r} L ${x + r} ${y} L ${x} ${y + r} L ${x - r} ${y} Z`;
 }
 
 function formatNum(n: any) {
@@ -831,21 +874,6 @@ const helpStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: 1.4,
   opacity: 0.85,
-};
-
-const codeStyle: CSSProperties = {
-  background: "rgba(0,0,0,0.25)",
-  padding: "2px 6px",
-  borderRadius: 6,
-  border: "1px solid rgba(58,69,80,0.6)",
-};
-
-const checkRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  marginTop: 12,
-  fontSize: 12,
 };
 
 const miniCardStyle: CSSProperties = {
