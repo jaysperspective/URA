@@ -9,10 +9,10 @@ type Props = {
   solarProgress01: number | null;
   sunText: string;
 
+  // accepted for back-compat; not required for rendering
   ontology: any | null;
 
   phase6Aspect?: Phase6Aspect;
-
   asOfLabel?: string;
 };
 
@@ -38,6 +38,9 @@ export default function URAFoundationPanel({
 }: Props) {
   const pid = asPhaseId(solarPhaseId);
   const mc = pid ? microcopyForPhase(pid, pid === 6 ? { phase6Aspect } : undefined) : null;
+
+  // keep lint happy; ontology stays accepted
+  void ontology;
 
   return (
     <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
@@ -71,7 +74,7 @@ export default function URAFoundationPanel({
         <div className="mt-4 text-sm text-[#403A32]/75">Foundation unavailable.</div>
       ) : (
         <div className="mt-4 space-y-4">
-          {/* Phase Lens only (Journal UI removed) */}
+          {/* Phase Lens */}
           <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
             <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
               Phase lens
@@ -93,6 +96,19 @@ export default function URAFoundationPanel({
                 <span className="font-semibold">{mc.actionHint}</span>
               </div>
             ) : null}
+          </div>
+
+          {/* Journal (prompt only, no textbox) */}
+          <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
+            <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+              Journal prompt
+            </div>
+
+            <div className="mt-2 text-sm text-[#1F1B16]/90">
+              <span className="font-semibold">{mc.journalPrompt}</span>
+            </div>
+
+            <div className="mt-2 text-xs text-[#403A32]/75">{mc.journalHelper}</div>
           </div>
 
           {mc.footer ? (
