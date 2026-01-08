@@ -16,25 +16,20 @@ function clampPhaseId(v: any): PhaseId {
 export default function PhaseMicrocopyCard({
   copy,
   defaultExpanded = false,
-  showJournal = true,
+  // journaling UI is removed globally; keep prop for back-compat
+  showJournal = false,
   showActionHint = true,
   tone = "dark",
   showPhaseChip = true,
 }: {
   copy: PhaseMicrocopy;
   defaultExpanded?: boolean;
-  showJournal?: boolean;
+  showJournal?: boolean; // accepted but ignored
   showActionHint?: boolean;
   tone?: Tone;
   showPhaseChip?: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [journal, setJournal] = useState("");
-
-  const journalId = useMemo(
-    () => `journal-${copy.season}-${copy.id}-${copy.orisha}`.toLowerCase(),
-    [copy]
-  );
 
   const isDark = tone === "dark";
 
@@ -61,7 +56,6 @@ export default function PhaseMicrocopyCard({
     border: isDark ? "rgba(226,217,204,0.22)" : C.border,
     btnBg: isDark ? "rgba(255,255,255,0.06)" : "rgba(31,36,26,0.06)",
     btnBgHover: isDark ? "rgba(255,255,255,0.10)" : "rgba(31,36,26,0.10)",
-    inputBg: isDark ? "rgba(0,0,0,0.30)" : "rgba(244,235,221,0.70)",
   };
 
   // Phase accents: keep them subtle + calendar-native.
@@ -83,12 +77,17 @@ export default function PhaseMicrocopyCard({
   const detailsBtnStyle: React.CSSProperties = {
     color: text.muted,
     borderColor: isDark ? text.border : accent,
-    background: isDark ? text.btnBg : `linear-gradient(180deg, ${text.btnBg} 0%, ${accentSoft} 170%)`,
+    background: isDark
+      ? text.btnBg
+      : `linear-gradient(180deg, ${text.btnBg} 0%, ${accentSoft} 170%)`,
   };
 
   const detailsBtnHover = isDark
     ? text.btnBgHover
     : `linear-gradient(180deg, ${text.btnBgHover} 0%, ${accentSoft} 170%)`;
+
+  // showJournal is intentionally ignored now (journaling UI removed globally)
+  void showJournal;
 
   return (
     <section className={cardClass} style={cardStyle}>
@@ -106,10 +105,7 @@ export default function PhaseMicrocopyCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <div
-              className="text-sm font-semibold tracking-tight"
-              style={{ color: text.title }}
-            >
+            <div className="text-sm font-semibold tracking-tight" style={{ color: text.title }}>
               {copy.header}
             </div>
 
@@ -118,10 +114,7 @@ export default function PhaseMicrocopyCard({
                 className="inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px]"
                 style={phaseChipStyle}
               >
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ background: accent }}
-                />
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: accent }} />
                 <span style={{ letterSpacing: "0.14em", fontWeight: 800 }}>
                   PHASE {phaseId}
                 </span>
@@ -143,7 +136,8 @@ export default function PhaseMicrocopyCard({
             (e.currentTarget as HTMLButtonElement).style.background = detailsBtnHover;
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = detailsBtnStyle.background as string;
+            (e.currentTarget as HTMLButtonElement).style.background =
+              detailsBtnStyle.background as string;
           }}
           aria-expanded={expanded}
         >
@@ -164,39 +158,11 @@ export default function PhaseMicrocopyCard({
         </div>
       )}
 
-      {showJournal && (
-        <div className="mt-4">
-          <div className="text-sm font-medium" style={{ color: text.title }}>
-            {copy.journalPrompt}
-          </div>
-          <div className="text-xs mt-1" style={{ color: text.soft }}>
-            {copy.journalHelper}
-          </div>
-
-          <textarea
-            id={journalId}
-            value={journal}
-            onChange={(e) => setJournal(e.target.value)}
-            placeholder="Write here…"
-            className="mt-2 w-full min-h-[110px] rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-            style={{
-              color: text.title,
-              borderColor: isDark ? text.border : accent,
-              background: text.inputBg,
-              boxShadow: "0 1px 0 rgba(255,255,255,0.08) inset",
-              // Tailwind ring color override:
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              ["--tw-ring-color" as any]: isDark ? "rgba(226,217,204,0.40)" : accent,
-            }}
-          />
-
-          {copy.footer && (
-            <div className="mt-3 text-xs" style={{ color: text.soft }}>
-              {copy.footer}
-            </div>
-          )}
+      {copy.footer ? (
+        <div className="mt-3 text-xs" style={{ color: text.soft }}>
+          {copy.footer}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }
