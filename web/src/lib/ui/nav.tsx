@@ -7,6 +7,7 @@ export const NAV = [
   { href: "/moon", label: "Moon" },
   { href: "/profile", label: "Profile" },
   { href: "/lunation", label: "Lunation" },
+  { href: "/astrology", label: "Astrology" }, // ✅ added
   { href: "/about", label: "About" },
 ] as const;
 
