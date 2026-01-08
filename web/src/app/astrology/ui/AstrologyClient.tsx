@@ -81,7 +81,7 @@ export default function AstrologyClient() {
   const [miniInputs, setMiniInputs] = useState<string[]>([
     "Sun Capricorn 10th house",
     "Moon Cancer 4th house",
-    "Asc Scorpio 1st house", // NOTE: not supported by doctrine unless you add ASC as a body
+    "Venus  Scorpio 1st house", // NOTE: not supported by doctrine unless you add ASC as a body
   ]);
   const [miniLoading, setMiniLoading] = useState(false);
   const [miniCards, setMiniCards] = useState<{ key: string; card: any }[] | null>(null);
