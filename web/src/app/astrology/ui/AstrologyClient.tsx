@@ -345,7 +345,7 @@ export default function AstrologyClient() {
               <SectionTitle>Lived examples</SectionTitle>
               <ul className="mt-1 list-disc pl-5">
                 {(sx.output?.livedExamples ?? []).map((x: string) => (
-                  <li key={x}>{x}>{x}</li>
+                  <li key={x}>{x}</li>
                 ))}
               </ul>
             </div>
