@@ -4,7 +4,6 @@
 import Link from "next/link";
 import React, { useMemo, useState } from "react";
 
-import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 
@@ -93,21 +92,6 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function PlacementPill({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 min-w-[124px]">
-      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/65">{label}</div>
-      <div className="mt-1 text-sm text-[#F4EFE6] font-semibold">{value}</div>
-    </div>
-  );
-}
-
 function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const size = 760;
   const H = 260;
@@ -192,29 +176,35 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   );
 }
 
+type NatalPlanets = {
+  sun: number | null;
+  moon: number | null;
+  mercury: number | null;
+  venus: number | null;
+  mars: number | null;
+  jupiter: number | null;
+  saturn: number | null;
+  uranus: number | null;
+  neptune: number | null;
+  pluto: number | null;
+  chiron: number | null;
+  northNode: number | null;
+  southNode: number | null;
+};
+
 type Props = {
   name: string;
   locationLine: string;
   timezone: string;
   asOfISO: string | null;
 
-  // Natal (required in old version)
   natalAscLon: number | null;
+  natalMcLon?: number | null;
+
   natalSunLon: number | null;
   natalMoonLon: number | null;
 
-  // Natal (expanded set — optional so we don’t break existing callers)
-  natalMercuryLon?: number | null;
-  natalVenusLon?: number | null;
-  natalMarsLon?: number | null;
-  natalJupiterLon?: number | null;
-  natalSaturnLon?: number | null;
-  natalUranusLon?: number | null;
-  natalNeptuneLon?: number | null;
-  natalPlutoLon?: number | null;
-  natalChironLon?: number | null;
-  natalNorthNodeLon?: number | null;
-  natalSouthNodeLon?: number | null;
+  natalPlanets?: Partial<NatalPlanets> | null;
 
   currentSunLon: number | null;
 
@@ -271,6 +261,25 @@ function fmtAsOfLabel(asOfISO: string | null, tz: string) {
   }
 }
 
+function planetLabel(k: keyof NatalPlanets) {
+  const map: Record<keyof NatalPlanets, string> = {
+    sun: "Sun",
+    moon: "Moon",
+    mercury: "Mercury",
+    venus: "Venus",
+    mars: "Mars",
+    jupiter: "Jupiter",
+    saturn: "Saturn",
+    uranus: "Uranus",
+    neptune: "Neptune",
+    pluto: "Pluto",
+    chiron: "Chiron",
+    northNode: "North Node",
+    southNode: "South Node",
+  };
+  return map[k];
+}
+
 export default function ProfileClient(props: Props) {
   const {
     name,
@@ -279,20 +288,12 @@ export default function ProfileClient(props: Props) {
     asOfISO,
 
     natalAscLon,
+    natalMcLon,
+
     natalSunLon,
     natalMoonLon,
 
-    natalMercuryLon,
-    natalVenusLon,
-    natalMarsLon,
-    natalJupiterLon,
-    natalSaturnLon,
-    natalUranusLon,
-    natalNeptuneLon,
-    natalPlutoLon,
-    natalChironLon,
-    natalNorthNodeLon,
-    natalSouthNodeLon,
+    natalPlanets,
 
     currentSunLon,
 
@@ -305,9 +306,11 @@ export default function ProfileClient(props: Props) {
     ascYearDegreesIntoModality,
   } = props;
 
-  const [showAllNatal, setShowAllNatal] = useState(false);
+  const [showAllPlacements, setShowAllPlacements] = useState(false);
+  const [showPhaseDetails, setShowPhaseDetails] = useState(false);
 
   const natalAsc = fmtSignPos(natalAscLon);
+  const natalMc = fmtSignPos(typeof natalMcLon === "number" ? natalMcLon : null);
   const natalSun = fmtSignPos(natalSunLon);
   const natalMoon = fmtSignPos(natalMoonLon);
 
@@ -332,6 +335,13 @@ export default function ProfileClient(props: Props) {
     })}`;
   }, [asOfISO, timezone]);
 
+  /**
+   * ✅ SOURCE OF TRUTH:
+   * If we have natalAscLon + currentSunLon, compute cyclePos live:
+   *   cyclePos = asOfSunLon - natalAscLon
+   *
+   * Cached ascYearJson is fallback only.
+   */
   const cyclePosTruth = useMemo(() => {
     if (typeof natalAscLon === "number" && typeof currentSunLon === "number") {
       return norm360(currentSunLon - natalAscLon);
@@ -355,8 +365,8 @@ export default function ProfileClient(props: Props) {
       ok && withinSeason != null
         ? withinSeason % 30
         : typeof ascYearDegreesIntoModality === "number"
-          ? ascYearDegreesIntoModality
-          : null;
+        ? ascYearDegreesIntoModality
+        : null;
 
     const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
 
@@ -400,114 +410,107 @@ export default function ProfileClient(props: Props) {
     return { expected, got, diff: diffWrapped };
   }, [natalAscLon, currentSunLon, orientation.cyclePos]);
 
-  const natalAll = useMemo(
-    () =>
-      [
-        { key: "ASC", label: "Ascendant", value: fmtSignPos(natalAscLon) },
-        { key: "SUN", label: "Sun", value: fmtSignPos(natalSunLon) },
-        { key: "MOON", label: "Moon", value: fmtSignPos(natalMoonLon) },
-        { key: "MERC", label: "Mercury", value: fmtSignPos(natalMercuryLon ?? null) },
-        { key: "VEN", label: "Venus", value: fmtSignPos(natalVenusLon ?? null) },
-        { key: "MARS", label: "Mars", value: fmtSignPos(natalMarsLon ?? null) },
-        { key: "JUP", label: "Jupiter", value: fmtSignPos(natalJupiterLon ?? null) },
-        { key: "SAT", label: "Saturn", value: fmtSignPos(natalSaturnLon ?? null) },
-        { key: "URA", label: "Uranus", value: fmtSignPos(natalUranusLon ?? null) },
-        { key: "NEP", label: "Neptune", value: fmtSignPos(natalNeptuneLon ?? null) },
-        { key: "PLU", label: "Pluto", value: fmtSignPos(natalPlutoLon ?? null) },
-        { key: "CHI", label: "Chiron", value: fmtSignPos(natalChironLon ?? null) },
-        { key: "NN", label: "North Node", value: fmtSignPos(natalNorthNodeLon ?? null) },
-        { key: "SN", label: "South Node", value: fmtSignPos(natalSouthNodeLon ?? null) },
-      ].filter((x) => x.value !== "—"),
-    [
-      natalAscLon,
-      natalSunLon,
-      natalMoonLon,
-      natalMercuryLon,
-      natalVenusLon,
-      natalMarsLon,
-      natalJupiterLon,
-      natalSaturnLon,
-      natalUranusLon,
-      natalNeptuneLon,
-      natalPlutoLon,
-      natalChironLon,
-      natalNorthNodeLon,
-      natalSouthNodeLon,
-    ]
-  );
+  const allNatalList = useMemo(() => {
+    const p = natalPlanets ?? {};
+    const keys: (keyof NatalPlanets)[] = [
+      "sun",
+      "moon",
+      "mercury",
+      "venus",
+      "mars",
+      "jupiter",
+      "saturn",
+      "uranus",
+      "neptune",
+      "pluto",
+      "chiron",
+      "northNode",
+      "southNode",
+    ];
 
-  const natalCollapsed = useMemo(() => {
-    const preferred = ["ASC", "SUN", "MOON", "MERC", "VEN", "MARS"];
-    const map = new Map(natalAll.map((x) => [x.key, x]));
-    const out = preferred.map((k) => map.get(k)).filter(Boolean) as typeof natalAll;
-    // If we’re missing some of the preferred ones, just show first up to 6.
-    return out.length ? out.slice(0, 6) : natalAll.slice(0, 6);
-  }, [natalAll]);
+    return keys.map((k) => ({
+      key: k,
+      label: planetLabel(k),
+      value: fmtSignPos(typeof p[k] === "number" ? (p[k] as number) : null),
+    }));
+  }, [natalPlanets]);
 
   return (
     <div className="mt-8">
       {/* TOP STRIP */}
       <div className="mx-auto max-w-5xl">
-        <div className="flex flex-col gap-5">
-          {/* Identity row */}
-          <div className="flex items-start justify-between gap-6">
-            <div className="flex items-start gap-3">
-              <div className="mt-1 h-10 w-10 rounded-2xl bg-[#151515] border border-[#E2D9CC]/25 flex items-center justify-center text-[#F4EFE6]/70 text-xs">
-                +
-              </div>
-
-              <div>
-                <div className="text-[#F4EFE6]/80 text-sm">Profile</div>
-                <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">{name}</div>
-                <div className="text-[#F4EFE6]/65 text-sm">{locationLine}</div>
-              </div>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="mt-1 h-10 w-10 rounded-2xl bg-[#151515] border border-[#E2D9CC]/25 flex items-center justify-center text-[#F4EFE6]/70 text-xs">
+              +
             </div>
 
-            <div className="flex flex-wrap gap-6 justify-end">
-              <Chip k="Sun (Progressed)" v={progressedSun} />
-              <Chip k="Moon (Progressed)" v={progressedMoon} />
-              <Chip k="Timezone" v={timezone} />
+            <div>
+              <div className="text-[#F4EFE6]/80 text-sm">Profile</div>
+              <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">{name}</div>
+              <div className="text-[#F4EFE6]/65 text-sm">{locationLine}</div>
             </div>
           </div>
 
-          {/* ✅ Natal Placements Module (expandable) */}
-          <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">
-                  Natal placements
+          {/* ✅ New placements module (summary + expand) */}
+          <div className="w-full md:w-auto md:min-w-[520px]">
+            <div className="rounded-3xl border border-[#E2D9CC]/20 bg-black/20 backdrop-blur px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">
+                    Natal placements
+                  </div>
+                  <div className="mt-1 text-sm text-[#F4EFE6]/90">
+                    Tap expand to view all planets.
+                  </div>
                 </div>
-                <div className="mt-1 text-sm text-[#F4EFE6]/75">
-                  Tap expand to view the full natal set.
-                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAllPlacements((v) => !v)}
+                  className="rounded-full border px-3 py-1.5 text-xs hover:bg-white/10"
+                  style={{ borderColor: "rgba(226,217,204,0.28)", color: "rgba(244,239,230,0.85)" }}
+                >
+                  {showAllPlacements ? "Collapse" : "Expand"}
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowAllNatal((v) => !v)}
-                className="shrink-0 rounded-2xl border border-[#E2D9CC]/25 bg-[#151515]/60 px-4 py-2 text-xs text-[#F4EFE6]/85 hover:bg-[#151515]"
-              >
-                {showAllNatal ? "Collapse" : "Expand"}
-              </button>
-            </div>
+              <div className="mt-4 flex flex-wrap gap-6">
+                <Chip k="ASC" v={natalAsc} />
+                <Chip k="MC" v={natalMc} />
+                <Chip k="SUN" v={natalSun} />
+                <Chip k="MOON" v={natalMoon} />
+              </div>
 
-            <div className="mt-4 flex flex-wrap gap-3">
-              {(showAllNatal ? natalAll : natalCollapsed).map((p) => (
-                <PlacementPill key={p.key} label={p.label} value={p.value} />
-              ))}
+              {showAllPlacements ? (
+                <div className="mt-4 rounded-2xl border border-[#E2D9CC]/15 bg-black/15 px-4 py-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {allNatalList.map((row) => (
+                      <div
+                        key={row.key}
+                        className="rounded-xl border border-[#E2D9CC]/10 bg-black/10 px-3 py-2"
+                      >
+                        <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/55">
+                          {row.label}
+                        </div>
+                        <div className="mt-1 text-sm text-[#F4EFE6]/90 font-medium">
+                          {row.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
 
-              {/* Always ensure ASC/Sun/Moon show even if upstream hasn’t wired all planets yet */}
-              {!natalAll.length ? (
-                <>
-                  <PlacementPill label="Ascendant" value={natalAsc} />
-                  <PlacementPill label="Sun" value={natalSun} />
-                  <PlacementPill label="Moon" value={natalMoon} />
-                </>
+                  <div className="mt-3 text-[11px] text-[#F4EFE6]/55">
+                    Note: Nodes/Chiron show when present in the cached natal chart.
+                  </div>
+                </div>
               ) : null}
-            </div>
 
-            <div className="mt-3 text-xs text-[#F4EFE6]/55">
-              Note: if a planet is not wired into the server response yet, it simply won’t appear here.
+              <div className="mt-4 flex flex-wrap gap-6">
+                <Chip k="SUN (PROG)" v={progressedSun} />
+                <Chip k="MOON (PROG)" v={progressedMoon} />
+                <Chip k="TZ" v={timezone} />
+              </div>
             </div>
           </div>
         </div>
@@ -522,7 +525,6 @@ export default function ProfileClient(props: Props) {
                 Orientation (Asc-Year)
               </div>
 
-              {/* Season + Phase */}
               <div className="mt-2 text-3xl font-semibold tracking-tight text-[#1F1B16] leading-tight">
                 <div className="flex justify-center">
                   <div>{orientation.ok ? orientation.seasonText : "—"}</div>
@@ -618,25 +620,85 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* ✅ PHASE PANEL (Orisha microcopy) */}
+            {/* ✅ Phase note (no redundancy, journal prompt = text only) */}
             <div className="mt-4">
-              <PhaseMicrocopyCard
-                copy={phaseCopy}
-                tone="linen"
-                defaultExpanded={false}
-                showJournal={true}
-                showActionHint={true}
-              />
+              <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                      Phase lens
+                    </div>
+                    <div className="mt-2 text-lg font-semibold text-[#1F1B16]">
+                      {phaseCopy.header}
+                    </div>
+                    <div className="mt-1 text-sm text-[#403A32]/75">
+                      {phaseCopy.oneLine}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPhaseDetails((v) => !v)}
+                    className="rounded-full border px-3 py-1.5 text-xs hover:bg-black/5"
+                    style={{ borderColor: "rgba(0,0,0,0.12)", color: "rgba(31,27,22,0.75)" }}
+                  >
+                    {showPhaseDetails ? "Hide" : "Details"}
+                  </button>
+                </div>
+
+                {showPhaseDetails ? (
+                  <div className="mt-4">
+                    <div className="text-sm text-[#403A32]/80 leading-relaxed">
+                      {phaseCopy.description}
+                    </div>
+
+                    {phaseCopy.actionHint ? (
+                      <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
+                        <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                          Action
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-[#1F1B16]">
+                          {phaseCopy.actionHint}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
+                      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                        Journal prompt
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-[#1F1B16]">
+                        {phaseCopy.journalPrompt}
+                      </div>
+                      <div className="mt-2 text-sm text-[#403A32]/75">
+                        {phaseCopy.journalHelper}
+                      </div>
+                      <div className="mt-2 text-[11px] text-[#403A32]/60">
+                        Journal off-app. This is the prompt only.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 text-sm text-[#403A32]/75">
+                    <span className="font-semibold text-[#1F1B16]">Journal prompt:</span>{" "}
+                    {phaseCopy.journalPrompt}
+                  </div>
+                )}
+
+                <div className="mt-4 text-sm text-[#403A32]/65">
+                  You are here in the cycle.
+                </div>
+              </div>
             </div>
 
-            {/* ✅ URA FOUNDATION MOVED UNDER THE PHASE PANEL */}
+            {/* ✅ URA FOUNDATION (kept) */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
                 solarProgress01={orientation.uraProgress01}
                 sunText={sunTextForFoundation}
                 ontology={null}
-                asOfLabel={fmtAsOfLabel(asOfISO, timezone)}
+                asOfLabel={asOfLabelForFoundation}
               />
             </div>
 
