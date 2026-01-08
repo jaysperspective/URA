@@ -1,21 +1,31 @@
 // src/app/api/logout/route.ts
 import { NextResponse } from "next/server";
+import { clearSession } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const host = req.headers.get("host") || "";
-  // If host is subdomain, baseDomain becomes "airofuranus.com"
-  const parts = host.split(":")[0].split(".");
-  const baseDomain =
-    parts.length >= 2 ? parts.slice(-2).join(".") : parts[0] || undefined;
+  // 1) Delete DB session + expire primary cookie via Next cookie jar
+  await clearSession();
 
   const res = NextResponse.json({ ok: true }, { status: 200 });
 
-  // prevent any caching of "logged in" redirects
+  // 2) Prevent any caching of auth state
   res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
 
-  const CANDIDATES = [
+  // 3) Belt + suspenders: expire common cookie variants (domain/path)
+  const host = req.headers.get("host") || "";
+  const hostNoPort = host.split(":")[0];
+
+  const parts = hostNoPort.split(".");
+  const baseDomain = parts.length >= 2 ? parts.slice(-2).join(".") : hostNoPort;
+
+  const DOMAINS = [undefined, baseDomain, `.${baseDomain}`].filter(Boolean) as (string | undefined)[];
+  const PATHS = ["/", "/profile", "/logout", "/api"];
+
+  const NAMES = [
     "ura_session",
     "session",
     "sessionId",
@@ -27,23 +37,16 @@ export async function GET(req: Request) {
     "__Secure-next-auth.session-token",
   ];
 
-  const PATHS = ["/", "/profile", "/logout", "/api", "/chart", "/seasons", "/moon", "/lunation"];
-
-  // Try deleting with no domain, with base domain, and with dot-domain.
-  const DOMAINS = Array.from(
-    new Set(
-      [undefined, baseDomain, baseDomain ? `.${baseDomain}` : undefined].filter(Boolean)
-    )
-  ) as (string | undefined)[];
-
-  for (const name of CANDIDATES) {
+  for (const name of NAMES) {
     for (const path of PATHS) {
-      // no domain variant
+      // no-domain
       res.cookies.set(name, "", { path, expires: new Date(0), maxAge: 0 });
 
-      // domain variants (this is the key fix for “still logged in”)
+      // domain variants
       for (const domain of DOMAINS) {
-        res.cookies.set(name, "", { path, domain, expires: new Date(0), maxAge: 0 });
+        if (domain) {
+          res.cookies.set(name, "", { path, domain, expires: new Date(0), maxAge: 0 });
+        }
       }
     }
   }
