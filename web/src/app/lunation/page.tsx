@@ -43,7 +43,7 @@ type LunationResponse = {
   summary?: CoreSummary | null;
   lunation?: CoreLunation | null;
   input?: any;
-  core?: any; // only present on error from wrapper
+  core?: any;
 };
 
 // -----------------------------
@@ -216,7 +216,6 @@ function fmtSignLon(lon: number) {
 function moonstoneTheme() {
   return {
     pageBg: "bg-black",
-    text: "text-[#0f0f12]",
     shellBorder: "border-[#d9d4ca]",
     shellBg: "bg-gradient-to-b from-[#fbfaf7] to-[#ece7de]",
     shellSub: "text-[#3a3a44]",
@@ -227,8 +226,6 @@ function moonstoneTheme() {
     ring: "#bfb9b1",
     panelBg: "bg-[#fbfaf7]",
     panelBorder: "border-[#d9d4ca]",
-    panelInner: "bg-[#f3efe7]",
-    panelMuted: "text-[#6b6b76]",
     panelMono: { fontFamily: "Menlo, Monaco, Consolas, monospace" as const },
     dangerBg: "bg-[#fff2f2]",
     dangerBorder: "border-[#e4bcbc]",
@@ -237,7 +234,7 @@ function moonstoneTheme() {
 }
 
 // -----------------------------
-// UI pieces (moonstone variants)
+// UI pieces
 // -----------------------------
 
 function MoonDial({ separationDeg, ringColor }: { separationDeg: number | null; ringColor: string }) {
@@ -266,11 +263,9 @@ function MoonDial({ separationDeg, ringColor }: { separationDeg: number | null; 
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e6e1d8" strokeWidth="12" />
           <circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth="12" strokeDasharray="2 12" opacity="0.5" />
 
-          {/* crosshair */}
           <line x1={cx} y1={cy - r - 8} x2={cx} y2={cy + r + 8} stroke="#d9d4ca" strokeWidth="1" opacity="0.9" />
           <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#d9d4ca" strokeWidth="1" opacity="0.9" />
 
-          {/* labels */}
           <text x={cx} y={cy - r - 8} textAnchor="middle" dominantBaseline="hanging" fontSize="10" fill="#6b6b76" letterSpacing="2">
             NEW
           </text>
@@ -284,7 +279,6 @@ function MoonDial({ separationDeg, ringColor }: { separationDeg: number | null; 
             3Q
           </text>
 
-          {/* hand */}
           <circle cx={cx} cy={cy} r="3.5" fill={ringColor} />
           <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={ringColor} strokeWidth="2.6" strokeLinecap="round" />
           <circle cx={x2} cy={y2} r="3" fill={ringColor} opacity="0.95" />
@@ -452,7 +446,6 @@ export default function LunationPage() {
     setErrorOut("");
     setStatusLine("Computing lunation…");
 
-    // ✅ use wrapper
     const out = await postText("/api/lunation", payloadText);
 
     if (!out.res.ok || out.data?.ok === false) {
@@ -490,7 +483,7 @@ export default function LunationPage() {
                 <span style={theme.panelMono}>/api/lunation</span> (wraps <span style={theme.panelMono}>/api/core</span>).
               </div>
 
-              {/* NAV PILLS */}
+              {/* ✅ APP NAV BAR (home access included) */}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 {NAV.map((n) => (
                   <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/lunation"} />
@@ -500,6 +493,13 @@ export default function LunationPage() {
 
             <div className="flex flex-col items-end gap-3">
               <div className="flex items-center gap-3">
+                <Link
+                  href="/"
+                  className="rounded-xl border border-[#d9d4ca] bg-white/50 px-4 py-2 text-[12px] text-[#23232a] hover:bg-white/70"
+                >
+                  Home
+                </Link>
+
                 <Link
                   href="/input"
                   className="rounded-xl border border-[#d9d4ca] bg-white/40 px-4 py-2 text-[12px] text-[#23232a] hover:bg-white/60"
@@ -573,45 +573,22 @@ export default function LunationPage() {
               <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Details</div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <MiniCard
-                  label="Separation"
-                  value={typeof separation === "number" ? `${degNorm(separation).toFixed(2)}°` : "—"}
-                  note="Sun–Moon angular distance."
-                />
-
-                <MiniCard
-                  label="Progressed date (UTC)"
-                  value={progressedDateUTC ? fmtYMDHM(progressedDateUTC) : "—"}
-                  note="Secondary progression date used to compute the phase."
-                />
-
+                <MiniCard label="Separation" value={typeof separation === "number" ? `${degNorm(separation).toFixed(2)}°` : "—"} note="Sun–Moon angular distance." />
+                <MiniCard label="Progressed date (UTC)" value={progressedDateUTC ? fmtYMDHM(progressedDateUTC) : "—"} note="Secondary progression date used to compute the phase." />
                 <MiniCard
                   label="Progressed Sun"
                   value={typeof progressedSunLon === "number" ? `${fmtSignLon(progressedSunLon).text}` : "—"}
-                  note={
-                    typeof progressedSunLon === "number"
-                      ? `Raw ${fmtSignLon(progressedSunLon).raw}`
-                      : "Zodiac placement of progressed Sun."
-                  }
+                  note={typeof progressedSunLon === "number" ? `Raw ${fmtSignLon(progressedSunLon).raw}` : "Zodiac placement of progressed Sun."}
                 />
-
                 <MiniCard
                   label="Progressed Moon"
                   value={typeof progressedMoonLon === "number" ? `${fmtSignLon(progressedMoonLon).text}` : "—"}
-                  note={
-                    typeof progressedMoonLon === "number"
-                      ? `Raw ${fmtSignLon(progressedMoonLon).raw}`
-                      : "Zodiac placement of progressed Moon."
-                  }
+                  note={typeof progressedMoonLon === "number" ? `Raw ${fmtSignLon(progressedMoonLon).raw}` : "Zodiac placement of progressed Moon."}
                 />
               </div>
 
               <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-5">
-                <Meter
-                  value01={subProgress01}
-                  label="Sub-phase"
-                  note={subLabel ? `Within “${subLabel}” (visual meter).` : "Sub-phase meter (uses subPhase.within if available)."}
-                />
+                <Meter value01={subProgress01} label="Sub-phase" note={subLabel ? `Within “${subLabel}” (visual meter).` : "Sub-phase meter (uses subPhase.within if available)."} />
 
                 <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
                   <div className="flex items-center justify-between mb-2">
@@ -630,10 +607,7 @@ export default function LunationPage() {
               <div className="mt-7">
                 <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Cycle boundaries</div>
                 <div className="mt-3">
-                  <BoundariesList
-                    boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []}
-                    nextNewMoonUTC={lun?.nextNewMoonUTC}
-                  />
+                  <BoundariesList boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []} nextNewMoonUTC={lun?.nextNewMoonUTC} />
                 </div>
               </div>
             </div>
