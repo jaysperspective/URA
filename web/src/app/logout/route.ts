@@ -1,11 +1,9 @@
 // src/app/logout/route.ts
 import { NextResponse } from "next/server";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-
-  // Redirect to a valid page on the SAME origin (no hardcoded localhost)
-  const res = NextResponse.redirect(new URL("/", url), { status: 302 });
+export async function GET() {
+  // Relative redirect (prevents localhost/host header issues)
+  const res = NextResponse.redirect("/", { status: 302 });
 
   const CANDIDATES = [
     "ura_session",
@@ -19,7 +17,6 @@ export async function GET(req: Request) {
     "__Secure-next-auth.session-token",
   ];
 
-  // Expire cookies across common paths (covers most ways they might have been set)
   const PATHS = ["/", "/profile", "/logout", "/chart", "/seasons", "/moon", "/lunation"];
 
   for (const name of CANDIDATES) {
