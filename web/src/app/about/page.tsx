@@ -1,51 +1,5 @@
 // src/app/about/page.tsx
-import Link from "next/link";
-
-const NAV = [
-  { href: "/calendar", label: "Calendar" },
-  { href: "/moon", label: "Moon" },
-  { href: "/profile", label: "Profile" },
-  { href: "/lunation", label: "Lunation" },
-  { href: "/about", label: "About" },
-] as const;
-
-function NavPill({
-  href,
-  label,
-  active,
-}: {
-  href: (typeof NAV)[number]["href"];
-  label: string;
-  active?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
-      style={{
-        borderColor: active ? "rgba(31,36,26,0.30)" : "rgba(31,36,26,0.18)",
-        background: active ? "rgba(244,235,221,0.80)" : "rgba(244,235,221,0.62)",
-        color: "rgba(31,36,26,0.88)",
-        boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
-      }}
-    >
-      <span
-        className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
-        }}
-      />
-      <span className="relative flex items-center gap-2">
-        <span
-          className="inline-block h-2 w-2 rounded-full opacity-70"
-          style={{ background: active ? "rgba(31,36,26,0.60)" : "rgba(31,36,26,0.45)" }}
-        />
-        <span className="tracking-wide">{label}</span>
-      </span>
-    </Link>
-  );
-}
+import AppNav from "@/components/AppNav";
 
 function Card({
   children,
@@ -56,10 +10,7 @@ function Card({
 }) {
   return (
     <div
-      className={[
-        "rounded-3xl border p-6 md:p-7",
-        className,
-      ].join(" ")}
+      className={["rounded-3xl border p-6 md:p-7", className].join(" ")}
       style={{
         borderColor: "rgba(31,36,26,0.16)",
         background: "rgba(244,235,221,0.86)",
@@ -248,25 +199,16 @@ export default function AboutPage() {
         {/* Header + Nav */}
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-baseline justify-between md:block">
-            <div
-              className="text-xs tracking-[0.28em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)" }}
-            >
+            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
               URA
             </div>
-            <div
-              className="mt-1 text-lg font-semibold tracking-tight"
-              style={{ color: "rgba(31,36,26,0.90)" }}
-            >
+            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
               About
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {NAV.map((n) => (
-              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/about"} />
-            ))}
-          </div>
+          {/* ✅ unified nav (includes Astrology now, consistent across app) */}
+          <AppNav activePathOverride="/about" />
         </div>
 
         {/* Title */}
@@ -286,16 +228,13 @@ export default function AboutPage() {
               A Temporal–Ecological System for Human Orientation
             </div>
 
-            <div
-              className="mt-3 text-sm md:text-base"
-              style={{ color: "rgba(31,36,26,0.72)" }}
-            >
+            <div className="mt-3 text-sm md:text-base" style={{ color: "rgba(31,36,26,0.72)" }}>
               URA is a timing system. It restores coherence between effort, season, and meaning.
             </div>
           </div>
         </Card>
 
-        {/* I — What URA Is */}
+        {/* (Everything below unchanged) */}
         <div className="mt-4">
           <Card>
             <H2>I. What URA Is</H2>
@@ -309,26 +248,25 @@ export default function AboutPage() {
               </ul>
 
               <P>
-                URA orients the human nervous system in time. It restores the capacity to recognize
-                what kind of time one is in, and therefore what mode of engagement is appropriate.
-                Its function is not control, but coherence.
+                URA orients the human nervous system in time. It restores the capacity to recognize what
+                kind of time one is in, and therefore what mode of engagement is appropriate. Its
+                function is not control, but coherence.
               </P>
 
               <P>
                 URA treats time not as an abstract measurement, but as a living process—one that moves
-                cyclically through phases of emergence, stabilization, assertion, integration, dissolution,
-                and renewal.
+                cyclically through phases of emergence, stabilization, assertion, integration,
+                dissolution, and renewal.
               </P>
 
               <P>
-                Where modern systems emphasize constant output, URA restores temporal literacy: the ability
-                to perceive rhythm, seasonality, and phase-dependent behavior.
+                Where modern systems emphasize constant output, URA restores temporal literacy: the
+                ability to perceive rhythm, seasonality, and phase-dependent behavior.
               </P>
             </div>
           </Card>
         </div>
 
-        {/* II — Foundational Assumptions */}
         <div className="mt-4">
           <Card>
             <H2>II. Foundational Assumptions</H2>
@@ -342,74 +280,80 @@ export default function AboutPage() {
                 depends on participation in rhythms larger than the individual.
               </SubCard>
               <SubCard title="3. Symbols arise from embodiment">
-                Meaning does not originate in abstraction. It emerges from lived interaction between body,
-                environment, and time.
+                Meaning does not originate in abstraction. It emerges from lived interaction between
+                body, environment, and time.
               </SubCard>
               <SubCard title="4. Animals are participants, not metaphors">
-                Animals function simultaneously as ecological agents and symbolic interfaces. Their presence
-                reflects system health; their disappearance signals ecological and perceptual collapse.
+                Animals function simultaneously as ecological agents and symbolic interfaces. Their
+                presence reflects system health; their disappearance signals ecological and perceptual
+                collapse.
               </SubCard>
               <SubCard title="5. Wisdom emerges through pattern recognition">
-                Meaning is not immediate. It is generated retrospectively, through witnessing cycles across time.
+                Meaning is not immediate. It is generated retrospectively, through witnessing cycles
+                across time.
               </SubCard>
             </div>
           </Card>
         </div>
 
-        {/* III — Core Layers */}
         <div className="mt-4">
           <Card>
             <H2>III. Core Ontological Layers</H2>
             <div className="mt-3">
-              <P>
-                URA operates through five interlocking layers, each incomplete without the others.
-              </P>
+              <P>URA operates through five interlocking layers, each incomplete without the others.</P>
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <SubCard title="Layer 1 — Time">
-                Time is expressed as an 8-phase recurring cycle. Each phase is a qualitative state of motion,
-                not a duration.
+                Time is expressed as an 8-phase recurring cycle. Each phase is a qualitative state of
+                motion, not a duration.
               </SubCard>
               <SubCard title="Layer 2 — Ecology">
-                Each phase corresponds to an ecological function necessary for system stability. No phase is optional.
-                Suppression produces distortion.
+                Each phase corresponds to an ecological function necessary for system stability. No
+                phase is optional. Suppression produces distortion.
               </SubCard>
               <SubCard title="Layer 3 — Psyche">
-                Human psychological states mirror ecological functions. Mental coherence depends on phase-appropriate behavior.
+                Human psychological states mirror ecological functions. Mental coherence depends on
+                phase-appropriate behavior.
               </SubCard>
               <SubCard title="Layer 4 — Symbolic Interface">
-                Animals and natural processes serve as perceptual anchors. Symbols are tools for recognition, not objects of belief.
+                Animals and natural processes serve as perceptual anchors. Symbols are tools for
+                recognition, not objects of belief.
               </SubCard>
               <SubCard title="Layer 5 — Modality (Orisha)">
-                Orisha represent modes of life intelligence. They describe how energy moves, not who a person is.
+                Orisha represent modes of life intelligence. They describe how energy moves, not who a
+                person is.
               </SubCard>
             </div>
           </Card>
         </div>
 
-        {/* IV — Ascendant Year */}
         <div className="mt-4">
           <Card>
             <H2>IV. The Ascendant Year</H2>
             <div className="mt-3 space-y-3">
+              <P>At the center of the URA system is the Ascendant Year.</P>
               <P>
-                At the center of the URA system is the Ascendant Year.
+                The Ascendant is not symbolic. It is a precise astronomical degree—the point where the
+                ecliptic intersects the eastern horizon at birth. In URA, this degree functions as the
+                zero-point of the personal year.
               </P>
               <P>
-                The Ascendant is not symbolic. It is a precise astronomical degree—the point where the ecliptic
-                intersects the eastern horizon at birth. In URA, this degree functions as the zero-point of the personal year.
+                Each year, when the transiting Sun returns to this degree, a new internal year begins.
+                This is not calendar-based. It is geometric.
               </P>
               <P>
-                Each year, when the transiting Sun returns to this degree, a new internal year begins. This is not
-                calendar-based. It is geometric.
+                From that moment forward, the angular distance between the Sun and the natal Ascendant
+                defines where the individual is within their personal seasonal cycle. The Ascendant Year
+                is therefore measured by angular separation (0°–360°), not dates.
               </P>
-              <P>
-                From that moment forward, the angular distance between the Sun and the natal Ascendant defines where
-                the individual is within their personal seasonal cycle. The Ascendant Year is therefore measured by angular
-                separation (0°–360°), not dates.
-              </P>
-              <div className="mt-4 rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
+              <div
+                className="mt-4 rounded-2xl border px-5 py-4"
+                style={{
+                  borderColor: "rgba(31,36,26,0.14)",
+                  background: "rgba(248,242,232,0.72)",
+                }}
+              >
                 <div className="text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
                   The chart is a clock, not a label.
                 </div>
@@ -418,14 +362,13 @@ export default function AboutPage() {
           </Card>
         </div>
 
-        {/* V — Eight Phases */}
         <div className="mt-4">
           <Card>
             <H2>V. The Eight Phases of the Ascendant Year</H2>
             <div className="mt-3 space-y-3">
               <P>
-                The Ascendant Year is divided into eight equal phases of 45°. These phases are modes of engagement,
-                not personality traits or emotional states.
+                The Ascendant Year is divided into eight equal phases of 45°. These phases are modes of
+                engagement, not personality traits or emotional states.
               </P>
 
               <div className="mt-4 grid grid-cols-1 gap-3">
@@ -438,20 +381,16 @@ export default function AboutPage() {
                       background: "rgba(248,242,232,0.72)",
                     }}
                   >
-                    <summary
-                      className="cursor-pointer select-none list-none"
-                      style={{ outline: "none" }}
-                    >
+                    <summary className="cursor-pointer select-none list-none" style={{ outline: "none" }}>
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <div
-                            className="text-sm font-semibold"
-                            style={{ color: "rgba(31,36,26,0.90)" }}
-                          >
-                            Phase {p.id} — {p.name} <span style={{ color: "rgba(31,36,26,0.62)" }}>({p.range})</span>
+                          <div className="text-sm font-semibold" style={{ color: "rgba(31,36,26,0.90)" }}>
+                            Phase {p.id} — {p.name}{" "}
+                            <span style={{ color: "rgba(31,36,26,0.62)" }}>({p.range})</span>
                           </div>
                           <div className="mt-1 text-xs" style={{ color: "rgba(31,36,26,0.65)" }}>
-                            Modal Intelligence: <span className="font-semibold">{p.orisha}</span>
+                            Modal Intelligence:{" "}
+                            <span className="font-semibold">{p.orisha}</span>
                           </div>
                         </div>
 
@@ -476,8 +415,17 @@ export default function AboutPage() {
                         <SubCard title="Psyche">{p.psyche.replace("Psychological Orientation: ", "")}</SubCard>
                         <SubCard title="Distortion">{p.distortion.replace("Distortion if suppressed: ", "")}</SubCard>
                       </div>
-                      <div className="mt-3 rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(244,235,221,0.62)" }}>
-                        <div className="text-xs tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+                      <div
+                        className="mt-3 rounded-2xl border px-5 py-4"
+                        style={{
+                          borderColor: "rgba(31,36,26,0.14)",
+                          background: "rgba(244,235,221,0.62)",
+                        }}
+                      >
+                        <div
+                          className="text-xs tracking-[0.18em] uppercase"
+                          style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+                        >
                           Right participation
                         </div>
                         <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
@@ -496,14 +444,11 @@ export default function AboutPage() {
           </Card>
         </div>
 
-        {/* VI — Relationship to Astrology */}
         <div className="mt-4">
           <Card>
             <H2>VI. Relationship to Astrology</H2>
             <div className="mt-3 space-y-3">
-              <P>
-                URA treats astrology as a time-mapping system, not a belief framework.
-              </P>
+              <P>URA treats astrology as a time-mapping system, not a belief framework.</P>
               <ul className="list-disc pl-5 space-y-2">
                 <Bullet>
                   <span className="font-semibold" style={{ color: "rgba(31,36,26,0.88)" }}>
@@ -529,21 +474,27 @@ export default function AboutPage() {
           </Card>
         </div>
 
-        {/* VII — Planetary Overlay */}
         <div className="mt-4">
           <Card>
             <H2>VII. Planetary Overlay</H2>
             <div className="mt-3 space-y-3">
               <P>Planets describe pressure, not destiny.</P>
               <P>
-                Each planet expresses differently depending on phase context. Misalignment occurs when force is expressed out of phase.
+                Each planet expresses differently depending on phase context. Misalignment occurs when
+                force is expressed out of phase.
               </P>
 
               <div
                 className="rounded-2xl border px-5 py-4"
-                style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}
+                style={{
+                  borderColor: "rgba(31,36,26,0.14)",
+                  background: "rgba(248,242,232,0.72)",
+                }}
               >
-                <div className="text-xs tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+                <div
+                  className="text-xs tracking-[0.18em] uppercase"
+                  style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+                >
                   Operative sequence
                 </div>
                 <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
@@ -552,31 +503,31 @@ export default function AboutPage() {
               </div>
 
               <P>
-                Remove any layer and the system collapses into fate (planet-only), myth (symbol-only), or productivity cycles (phase-only).
+                Remove any layer and the system collapses into fate (planet-only), myth (symbol-only),
+                or productivity cycles (phase-only).
               </P>
             </div>
           </Card>
         </div>
 
-        {/* VIII — Progressed Lunation */}
         <div className="mt-4">
           <Card>
             <H2>VIII. The Progressed Lunation System</H2>
             <div className="mt-3 space-y-3">
               <P>The Progressed Lunation System tracks inner developmental seasons across life.</P>
               <P>
-                Using secondary progressions, the angular relationship between the progressed Sun and Moon forms a 29–30 year cycle,
-                divided into eight phases.
+                Using secondary progressions, the angular relationship between the progressed Sun and
+                Moon forms a 29–30 year cycle, divided into eight phases.
               </P>
               <P>
-                URA uses this system to orient emotional readiness, identity development, and timing of internal change. It does not
-                predict outcomes. It restores coherence between effort and season.
+                URA uses this system to orient emotional readiness, identity development, and timing of
+                internal change. It does not predict outcomes. It restores coherence between effort and
+                season.
               </P>
             </div>
           </Card>
         </div>
 
-        {/* IX — Distortion Model */}
         <div className="mt-4">
           <Card>
             <H2>IX. Distortion Model</H2>
@@ -593,23 +544,23 @@ export default function AboutPage() {
           </Card>
         </div>
 
-        {/* X — Ethical Position */}
         <div className="mt-4">
           <Card>
             <H2>X. Ethical Position</H2>
             <div className="mt-3 space-y-3">
               <P>URA does not prescribe morality.</P>
               <P>
-                It asserts: misalignment produces suffering, participation produces meaning, and listening precedes control.
+                It asserts: misalignment produces suffering, participation produces meaning, and
+                listening precedes control.
               </P>
               <P>
-                URA rejects domination models, abstraction without embodiment, and symbolism without responsibility.
+                URA rejects domination models, abstraction without embodiment, and symbolism without
+                responsibility.
               </P>
             </div>
           </Card>
         </div>
 
-        {/* XI — Intended Use */}
         <div className="mt-4">
           <Card>
             <H2>XI. Intended Use</H2>
@@ -626,7 +577,6 @@ export default function AboutPage() {
           </Card>
         </div>
 
-        {/* Closing */}
         <div className="mt-4">
           <Card>
             <div className="text-center">
