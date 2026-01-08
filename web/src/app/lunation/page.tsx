@@ -9,18 +9,9 @@ import { NAV, NavPill } from "@/lib/ui/nav";
 const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
 // -----------------------------
-// Types (Core API)
+// Types (Lunation Wrapper API)
+// /api/lunation returns: { ok, text, summary, lunation, input }
 // -----------------------------
-
-type CoreBody = { lon?: number | null; lat?: number | null; speed?: number | null };
-
-type CoreChart = {
-  jd_ut?: number;
-  ascendant?: number | null;
-  mc?: number | null;
-  houses?: number[] | null;
-  bodies?: Record<string, CoreBody | number | null | undefined> | null;
-};
 
 type CoreSummary = {
   ascYearLabel?: string;
@@ -45,31 +36,14 @@ type CoreLunation = {
   nextNewMoonUTC?: string;
 };
 
-type CoreResponse = {
+type LunationResponse = {
   ok: boolean;
   error?: string;
-  input?: any;
-  birthUTC?: string;
-  asOfUTC?: string;
-  natal?: CoreChart;
-  asOf?: CoreChart;
-  derived?: {
-    lunation?: CoreLunation;
-    ascYear?: any;
-    summary?: CoreSummary;
-  };
   text?: string;
-};
-
-type AstroFormInitial = {
-  birthDate?: string;
-  birthTime?: string;
-  timeZone?: string;
-  birthCityState?: string;
-  lat?: number;
-  lon?: number;
-  asOfDate?: string;
-  resolvedLabel?: string;
+  summary?: CoreSummary | null;
+  lunation?: CoreLunation | null;
+  input?: any;
+  core?: any; // only present on error from wrapper
 };
 
 // -----------------------------
@@ -112,6 +86,7 @@ async function postText(endpoint: string, text: string) {
     method: "POST",
     headers: { "content-type": "text/plain" },
     body: text,
+    cache: "no-store",
   });
 
   let data: any = null;
@@ -127,8 +102,18 @@ async function postText(endpoint: string, text: string) {
 
 /**
  * Best-effort parse of the canonical payload text into initial form fields.
- * Keeps /lunation unified with /input by rehydrating the last saved payload.
  */
+type AstroFormInitial = {
+  birthDate?: string;
+  birthTime?: string;
+  timeZone?: string;
+  birthCityState?: string;
+  lat?: number;
+  lon?: number;
+  asOfDate?: string;
+  resolvedLabel?: string;
+};
+
 function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormInitial> {
   const get = (k: string) => {
     const re = new RegExp(`^\\s*${k}\\s*:\\s*(.+?)\\s*$`, "mi");
@@ -255,13 +240,7 @@ function moonstoneTheme() {
 // UI pieces (moonstone variants)
 // -----------------------------
 
-function MoonDial({
-  separationDeg,
-  ringColor,
-}: {
-  separationDeg: number | null;
-  ringColor: string;
-}) {
+function MoonDial({ separationDeg, ringColor }: { separationDeg: number | null; ringColor: string }) {
   const cx = 90;
   const cy = 90;
   const r = 68;
@@ -276,9 +255,7 @@ function MoonDial({
   return (
     <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
       <div className="flex items-center justify-between mb-3">
-        <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">
-          Lunation dial
-        </div>
+        <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Lunation dial</div>
         <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
           {typeof separationDeg === "number" ? `${sep.toFixed(2)}°` : "—"}
         </div>
@@ -287,37 +264,11 @@ function MoonDial({
       <div className="flex items-center justify-center">
         <svg width="180" height="180" viewBox="-20 -20 220 220">
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e6e1d8" strokeWidth="12" />
-
-          <circle
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke={ringColor}
-            strokeWidth="12"
-            strokeDasharray="2 12"
-            opacity="0.5"
-          />
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth="12" strokeDasharray="2 12" opacity="0.5" />
 
           {/* crosshair */}
-          <line
-            x1={cx}
-            y1={cy - r - 8}
-            x2={cx}
-            y2={cy + r + 8}
-            stroke="#d9d4ca"
-            strokeWidth="1"
-            opacity="0.9"
-          />
-          <line
-            x1={cx - r - 8}
-            y1={cy}
-            x2={cx + r + 8}
-            y2={cy}
-            stroke="#d9d4ca"
-            strokeWidth="1"
-            opacity="0.9"
-          />
+          <line x1={cx} y1={cy - r - 8} x2={cx} y2={cy + r + 8} stroke="#d9d4ca" strokeWidth="1" opacity="0.9" />
+          <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#d9d4ca" strokeWidth="1" opacity="0.9" />
 
           {/* labels */}
           <text x={cx} y={cy - r - 8} textAnchor="middle" dominantBaseline="hanging" fontSize="10" fill="#6b6b76" letterSpacing="2">
@@ -340,9 +291,7 @@ function MoonDial({
         </svg>
       </div>
 
-      <div className="mt-3 text-[11px] text-[#6b6b76]">
-        0° = New Moon separation. The hand tracks Sun–Moon separation (0–360).
-      </div>
+      <div className="mt-3 text-[11px] text-[#6b6b76]">0° = New Moon separation. The hand tracks Sun–Moon separation (0–360).</div>
     </div>
   );
 }
@@ -389,9 +338,7 @@ function BoundariesList({
   const items = Array.isArray(boundaries) ? boundaries : [];
   return (
     <div className="rounded-xl border border-[#d9d4ca] bg-[#f3efe7] p-4">
-      <div className="text-[11px] text-[#6b6b76] mb-3">
-        Current cycle boundaries (approx dates when separation hits the boundary).
-      </div>
+      <div className="text-[11px] text-[#6b6b76] mb-3">Current cycle boundaries (approx dates when separation hits the boundary).</div>
 
       <div className="grid grid-cols-1 gap-2">
         {items.length ? (
@@ -439,7 +386,7 @@ export default function LunationPage() {
   const theme = useMemo(() => moonstoneTheme(), []);
 
   const [payloadOut, setPayloadOut] = useState<string>("");
-  const [core, setCore] = useState<CoreResponse | null>(null);
+  const [api, setApi] = useState<LunationResponse | null>(null);
   const [errorOut, setErrorOut] = useState<string>("");
   const [statusLine, setStatusLine] = useState<string>("");
 
@@ -460,10 +407,11 @@ export default function LunationPage() {
     return safeParsePayloadTextToInitial(savedPayload);
   }, [savedPayload]);
 
-  const summary = core?.derived?.summary ?? null;
-  const lun = core?.derived?.lunation ?? null;
+  const summary = api?.summary ?? null;
+  const lun = api?.lunation ?? null;
 
   const lunationLabel = summary?.lunationLabel ?? lun?.phase ?? null;
+
   const separation =
     typeof summary?.lunationSeparation === "number"
       ? summary.lunationSeparation
@@ -479,14 +427,12 @@ export default function LunationPage() {
   const subLabel = sub?.label ?? null;
   const subWithin = typeof sub?.within === "number" ? sub.within : null;
 
-  // A clean progress meter: within the current 45° phase bucket (0..45)
   const phaseProgress01 = useMemo(() => {
     if (typeof separation !== "number") return 0;
     const within45 = degNorm(separation) % 45;
     return clamp01(within45 / 45);
   }, [separation]);
 
-  // Subphase progress: within the 15° sub-segment (0..15) if available
   const subProgress01 = useMemo(() => {
     if (typeof subWithin !== "number") return 0;
     return clamp01(subWithin / 15);
@@ -502,11 +448,12 @@ export default function LunationPage() {
       // ignore
     }
 
-    setCore(null);
+    setApi(null);
     setErrorOut("");
     setStatusLine("Computing lunation…");
 
-    const out = await postText("/api/core", payloadText);
+    // ✅ use wrapper
+    const out = await postText("/api/lunation", payloadText);
 
     if (!out.res.ok || out.data?.ok === false) {
       setStatusLine("");
@@ -520,7 +467,7 @@ export default function LunationPage() {
       return;
     }
 
-    setCore(out.data as CoreResponse);
+    setApi(out.data as LunationResponse);
     setStatusLine("");
   }
 
@@ -540,7 +487,7 @@ export default function LunationPage() {
 
               <div className={`mt-2 text-[13px] ${theme.shellSub} max-w-xl`}>
                 Progressed lunation (Sun–Moon separation) — rendered from{" "}
-                <span style={theme.panelMono}>/api/core</span>.
+                <span style={theme.panelMono}>/api/lunation</span> (wraps <span style={theme.panelMono}>/api/core</span>).
               </div>
 
               {/* NAV PILLS */}
@@ -600,10 +547,7 @@ export default function LunationPage() {
 
             <div className={`rounded-2xl border ${theme.panelBorder} ${theme.panelBg} p-4`}>
               <div className="text-[12px] text-[#6b6b76] mb-2">Payload (text/plain)</div>
-              <pre
-                className="text-[12px] leading-5 whitespace-pre-wrap break-words text-[#23232a]"
-                style={theme.panelMono}
-              >
+              <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-[#23232a]" style={theme.panelMono}>
                 {payloadOut || "Generate to view the request payload."}
               </pre>
             </div>
@@ -611,10 +555,7 @@ export default function LunationPage() {
             {errorOut ? (
               <div className={`rounded-2xl border ${theme.dangerBorder} ${theme.dangerBg} p-4`}>
                 <div className={`text-[12px] ${theme.dangerText} mb-2`}>Error</div>
-                <pre
-                  className={`text-[12px] leading-5 whitespace-pre-wrap break-words ${theme.dangerText}`}
-                  style={theme.panelMono}
-                >
+                <pre className={`text-[12px] leading-5 whitespace-pre-wrap break-words ${theme.dangerText}`} style={theme.panelMono}>
                   {errorOut}
                 </pre>
               </div>
@@ -625,11 +566,7 @@ export default function LunationPage() {
           <div className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <MoonDial separationDeg={separation} ringColor={theme.ring} />
-              <Meter
-                value01={phaseProgress01}
-                label="Phase progress"
-                note="Progress through the current 45° phase boundary (visual meter)."
-              />
+              <Meter value01={phaseProgress01} label="Phase progress" note="Progress through the current 45° phase boundary (visual meter)." />
             </div>
 
             <div className={`rounded-2xl border ${theme.panelBorder} ${theme.panelBg} p-6`}>
@@ -651,13 +588,21 @@ export default function LunationPage() {
                 <MiniCard
                   label="Progressed Sun"
                   value={typeof progressedSunLon === "number" ? `${fmtSignLon(progressedSunLon).text}` : "—"}
-                  note={typeof progressedSunLon === "number" ? `Raw ${fmtSignLon(progressedSunLon).raw}` : "Zodiac placement of progressed Sun."}
+                  note={
+                    typeof progressedSunLon === "number"
+                      ? `Raw ${fmtSignLon(progressedSunLon).raw}`
+                      : "Zodiac placement of progressed Sun."
+                  }
                 />
 
                 <MiniCard
                   label="Progressed Moon"
                   value={typeof progressedMoonLon === "number" ? `${fmtSignLon(progressedMoonLon).text}` : "—"}
-                  note={typeof progressedMoonLon === "number" ? `Raw ${fmtSignLon(progressedMoonLon).raw}` : "Zodiac placement of progressed Moon."}
+                  note={
+                    typeof progressedMoonLon === "number"
+                      ? `Raw ${fmtSignLon(progressedMoonLon).raw}`
+                      : "Zodiac placement of progressed Moon."
+                  }
                 />
               </div>
 
@@ -672,7 +617,7 @@ export default function LunationPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Snapshot</div>
                     <div className="text-[12px] text-[#3a3a44]" style={theme.panelMono}>
-                      {summary?.lunationLabel ?? "—"}
+                      {summary?.lunationLabel ?? lun?.phase ?? "—"}
                     </div>
                   </div>
 
@@ -685,17 +630,19 @@ export default function LunationPage() {
               <div className="mt-7">
                 <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Cycle boundaries</div>
                 <div className="mt-3">
-                  <BoundariesList boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []} nextNewMoonUTC={lun?.nextNewMoonUTC} />
+                  <BoundariesList
+                    boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []}
+                    nextNewMoonUTC={lun?.nextNewMoonUTC}
+                  />
                 </div>
               </div>
-
-              {/* no raw JSON on purpose */}
             </div>
           </div>
         </div>
 
         <div className="text-[11px] text-[#a9a3a0] px-1">
-          /lunation is a presentation layer over <span className="text-[#e9e6e1]">/api/core</span>. Saved payload key:{" "}
+          /lunation is a presentation layer over <span className="text-[#e9e6e1]">/api/lunation</span> (wraps{" "}
+          <span className="text-[#e9e6e1]">/api/core</span>). Saved payload key:{" "}
           <span className="text-[#e9e6e1]">{LS_PAYLOAD_KEY}</span>
         </div>
       </div>
