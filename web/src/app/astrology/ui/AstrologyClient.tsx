@@ -14,20 +14,45 @@ type SxOk = {
   lens: string;
   usedKeys: string[];
   output: any;
-  grounding?: any;
   meta?: any;
 };
 type SxErr = { ok: false; error: string; code?: string };
 type SxResp = SxOk | SxErr;
+
+type Mode = "placement" | "pair" | "mini_chart";
+type Lens =
+  | "general"
+  | "relationships"
+  | "work"
+  | "health"
+  | "creativity"
+  | "spiritual"
+  | "shadow"
+  | "growth";
+
+const TOKENS = {
+  // Forest glass from your earlier vibe
+  panelBg: "rgba(18, 32, 24, 0.62)",
+  panelBgSoft: "rgba(18, 32, 24, 0.46)",
+  panelBorder: "rgba(244,235,221,0.12)",
+  inputBg: "rgba(10, 18, 13, 0.55)",
+  inputBorder: "rgba(244,235,221,0.14)",
+  text: "rgba(244,235,221,0.88)",
+  textSoft: "rgba(244,235,221,0.70)",
+  pillBg: "rgba(244,235,221,0.07)",
+  pillBorder: "rgba(244,235,221,0.16)",
+  buttonBg: "rgba(244,235,221,0.82)",
+  buttonText: "rgba(15,26,18,0.92)",
+};
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
     <span
       className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
       style={{
-        borderColor: "rgba(244,235,221,0.18)",
-        background: "rgba(244,235,221,0.08)",
-        color: "rgba(244,235,221,0.82)",
+        borderColor: TOKENS.pillBorder,
+        background: TOKENS.pillBg,
+        color: TOKENS.text,
       }}
     >
       {children}
@@ -37,9 +62,21 @@ function Pill({ children }: { children: React.ReactNode }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
+    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: TOKENS.textSoft }}>
+      {children}
+    </div>
+  );
+}
+
+function Panel({ children }: { children: React.ReactNode }) {
+  return (
     <div
-      className="text-xs font-semibold uppercase tracking-wide"
-      style={{ color: "rgba(244,235,221,0.62)" }}
+      className="rounded-2xl border p-4"
+      style={{
+        borderColor: TOKENS.panelBorder,
+        background: TOKENS.panelBgSoft,
+        backdropFilter: "blur(8px)",
+      }}
     >
       {children}
     </div>
@@ -51,8 +88,9 @@ function CardShell({ children }: { children: React.ReactNode }) {
     <div
       className="rounded-2xl border p-5"
       style={{
-        borderColor: "rgba(244,235,221,0.14)",
-        background: "rgba(244,235,221,0.08)",
+        borderColor: TOKENS.panelBorder,
+        background: TOKENS.panelBg,
+        backdropFilter: "blur(10px)",
       }}
     >
       {children}
@@ -61,36 +99,32 @@ function CardShell({ children }: { children: React.ReactNode }) {
 }
 
 export default function AstrologyClient() {
-  type Mode = "placement" | "pair" | "mini_chart";
-
   const [mode, setMode] = useState<Mode>("placement");
 
-  // Placement input (single lookup)
+  // Single
   const [q, setQ] = useState("Mars in Virgo 6th house");
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<LookupResp | null>(null);
 
-  // Pair mode
+  // Pair
   const [pairA, setPairA] = useState("Venus Scorpio 7th house");
   const [pairB, setPairB] = useState("Mars Virgo 6th house");
   const [pairLoading, setPairLoading] = useState(false);
   const [pairCards, setPairCards] = useState<{ key: string; card: any }[] | null>(null);
   const [pairErr, setPairErr] = useState<string | null>(null);
 
-  // Mini chart mode (3–6)
+  // Mini (3–6)
   const [miniInputs, setMiniInputs] = useState<string[]>([
     "Sun Capricorn 10th house",
-    "Moon Cancer 4th house",
-    "Venus  Scorpio 1st house", // NOTE: not supported by doctrine unless you add ASC as a body
+    "Moon Cancer 4",
+    "Mercury Aquarius 3rd",
   ]);
   const [miniLoading, setMiniLoading] = useState(false);
   const [miniCards, setMiniCards] = useState<{ key: string; card: any }[] | null>(null);
   const [miniErr, setMiniErr] = useState<string | null>(null);
 
-  // Synthesis controls (shared)
-  const [lens, setLens] = useState<
-    "general" | "relationships" | "work" | "health" | "creativity" | "spiritual" | "shadow" | "growth"
-  >("general");
+  // Shared synthesis
+  const [lens, setLens] = useState<Lens>("general");
   const [question, setQuestion] = useState("");
   const [sxLoading, setSxLoading] = useState(false);
   const [sx, setSx] = useState<SxResp | null>(null);
@@ -111,7 +145,6 @@ export default function AstrologyClient() {
 
   function resetSynthesis() {
     setSx(null);
-    setQuestion("");
   }
 
   async function lookupOne(query: string): Promise<{ key: string; card: any }> {
@@ -121,10 +154,9 @@ export default function AstrologyClient() {
     });
     const data = (await r.json()) as LookupResp;
     if (!data.ok) throw new Error((data as any).error || "Lookup failed.");
-    return { key: data.key, card: data.card };
+    return { key: (data as any).key, card: (data as any).card };
   }
 
-  // --- Placement lookup ---
   async function runLookup() {
     const query = q.trim();
     if (!query) return;
@@ -143,7 +175,6 @@ export default function AstrologyClient() {
     }
   }
 
-  // --- Pair lookup ---
   async function runPairLookup() {
     setPairLoading(true);
     setPairErr(null);
@@ -161,7 +192,6 @@ export default function AstrologyClient() {
     }
   }
 
-  // --- Mini chart lookup ---
   async function runMiniLookup() {
     setMiniLoading(true);
     setMiniErr(null);
@@ -170,15 +200,9 @@ export default function AstrologyClient() {
 
     try {
       const cleaned = miniInputs.map((x) => x.trim()).filter(Boolean);
-      if (cleaned.length < 3 || cleaned.length > 6) {
-        throw new Error("Mini chart needs 3–6 placements.");
-      }
+      if (cleaned.length < 3 || cleaned.length > 6) throw new Error("Mini chart needs 3–6 placements.");
       const outs: { key: string; card: any }[] = [];
-      for (const entry of cleaned) {
-        // NOTE: Asc is not a doctrine body in current primitives.
-        // If user includes Asc, this will error. We'll guide below.
-        outs.push(await lookupOne(entry));
-      }
+      for (const entry of cleaned) outs.push(await lookupOne(entry));
       setMiniCards(outs);
     } catch (e: any) {
       setMiniErr(e?.message || "Mini lookup failed.");
@@ -205,7 +229,6 @@ export default function AstrologyClient() {
           constraints: { noPrediction: true, noNewClaims: true, citeDoctrineKeys: true },
         }),
       });
-
       const data = (await r.json()) as SxResp;
       setSx(data);
     } catch (e: any) {
@@ -215,10 +238,9 @@ export default function AstrologyClient() {
     }
   }
 
-  // Helpers to render doctrine card
   function renderDoctrineCard(card: any) {
     return (
-      <div className="space-y-3 text-sm leading-relaxed" style={{ color: "rgba(244,235,221,0.86)" }}>
+      <div className="space-y-3 text-sm leading-relaxed" style={{ color: TOKENS.text }}>
         <div className="flex flex-wrap gap-2">
           <Pill>Element: {card.labels?.element}</Pill>
           <Pill>Modality: {card.labels?.modality}</Pill>
@@ -280,25 +302,24 @@ export default function AstrologyClient() {
   function renderSynthesis() {
     if (!sx) return null;
     if (!sx.ok) {
-      return (
-        <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
-          {sx.error}
-        </p>
-      );
+      return <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>{sx.error}</p>;
     }
 
     return (
       <div
         className="mt-4 rounded-xl border p-4"
-        style={{ borderColor: "rgba(244,235,221,0.14)", background: "rgba(244,235,221,0.06)" }}
+        style={{
+          borderColor: TOKENS.panelBorder,
+          background: TOKENS.panelBgSoft,
+          backdropFilter: "blur(10px)",
+        }}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <Pill>Mode: {sx.mode}</Pill>
-          <Pill>Keys: {sx.usedKeys.join(", ")}</Pill>
+          <Pill>LLM keys: {sx.usedKeys.join(", ")}</Pill>
           {sx.meta?.model && <Pill>Model: {sx.meta.model}</Pill>}
         </div>
 
-        <div className="mt-4 space-y-3 text-sm leading-relaxed" style={{ color: "rgba(244,235,221,0.86)" }}>
+        <div className="mt-4 space-y-3 text-sm leading-relaxed" style={{ color: TOKENS.text }}>
           <div>
             <SectionTitle>Headline</SectionTitle>
             <div className="text-base font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
@@ -377,92 +398,50 @@ export default function AstrologyClient() {
     );
   }
 
-  // IMPORTANT NOTE:
-  // Your doctrine does NOT include Ascendant as a "body" yet.
-  // So mini-chart defaults including "Asc" will fail lookup.
-  // We'll keep the field but add a note.
-  const ascNote =
-    "Note: Ascendant isn’t in the doctrine bodies yet. For mini charts, use planets/nodes/chiron only (or we can add ASC as a special body).";
-
   return (
     <section className="space-y-4">
-      {/* Mode selector */}
-      <div
-        className="rounded-2xl border p-4"
-        style={{
-          borderColor: "rgba(244,235,221,0.14)",
-          background: "rgba(244,235,221,0.06)",
-        }}
-      >
+      {/* Mode + Lens + Optional Question */}
+      <Panel>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => {
-                setMode("placement");
-                setResp(null);
-                setPairCards(null);
-                setMiniCards(null);
-                resetSynthesis();
-              }}
-              className="rounded-full border px-4 py-2 text-sm font-semibold"
-              style={{
-                borderColor: "rgba(244,235,221,0.18)",
-                background: mode === "placement" ? "rgba(244,235,221,0.82)" : "rgba(244,235,221,0.08)",
-                color: mode === "placement" ? "rgba(15,26,18,0.92)" : "rgba(244,235,221,0.82)",
-              }}
-            >
-              Single
-            </button>
-
-            <button
-              onClick={() => {
-                setMode("pair");
-                setResp(null);
-                setPairCards(null);
-                setMiniCards(null);
-                resetSynthesis();
-              }}
-              className="rounded-full border px-4 py-2 text-sm font-semibold"
-              style={{
-                borderColor: "rgba(244,235,221,0.18)",
-                background: mode === "pair" ? "rgba(244,235,221,0.82)" : "rgba(244,235,221,0.08)",
-                color: mode === "pair" ? "rgba(15,26,18,0.92)" : "rgba(244,235,221,0.82)",
-              }}
-            >
-              Pair
-            </button>
-
-            <button
-              onClick={() => {
-                setMode("mini_chart");
-                setResp(null);
-                setPairCards(null);
-                setMiniCards(null);
-                resetSynthesis();
-              }}
-              className="rounded-full border px-4 py-2 text-sm font-semibold"
-              style={{
-                borderColor: "rgba(244,235,221,0.18)",
-                background: mode === "mini_chart" ? "rgba(244,235,221,0.82)" : "rgba(244,235,221,0.08)",
-                color: mode === "mini_chart" ? "rgba(15,26,18,0.92)" : "rgba(244,235,221,0.82)",
-              }}
-            >
-              Mini chart
-            </button>
+            {(["placement", "pair", "mini_chart"] as Mode[]).map((m) => {
+              const label = m === "placement" ? "Single" : m === "pair" ? "Pair" : "Mini chart";
+              const active = mode === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setMode(m);
+                    setResp(null);
+                    setPairCards(null);
+                    setMiniCards(null);
+                    resetSynthesis();
+                  }}
+                  className="rounded-full border px-4 py-2 text-sm font-semibold transition"
+                  style={{
+                    borderColor: TOKENS.pillBorder,
+                    background: active ? TOKENS.buttonBg : TOKENS.pillBg,
+                    color: active ? TOKENS.buttonText : TOKENS.text,
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="text-xs" style={{ color: "rgba(244,235,221,0.70)" }}>
+          <div className="flex items-center gap-3">
+            <label className="text-xs" style={{ color: TOKENS.textSoft }}>
               Lens
             </label>
             <select
               value={lens}
-              onChange={(e) => setLens(e.target.value as any)}
+              onChange={(e) => setLens(e.target.value as Lens)}
               className="rounded-lg border px-3 py-2 text-sm outline-none"
               style={{
-                borderColor: "rgba(244,235,221,0.16)",
-                background: "rgba(15,26,18,0.55)",
-                color: "rgba(244,235,221,0.92)",
+                borderColor: TOKENS.inputBorder,
+                background: TOKENS.inputBg,
+                color: TOKENS.text,
               }}
             >
               <option value="general">General</option>
@@ -478,7 +457,7 @@ export default function AstrologyClient() {
         </div>
 
         <div className="mt-3">
-          <label className="text-xs" style={{ color: "rgba(244,235,221,0.70)" }}>
+          <label className="text-xs" style={{ color: TOKENS.textSoft }}>
             Optional question
           </label>
           <input
@@ -487,9 +466,9 @@ export default function AstrologyClient() {
             placeholder="e.g. What’s the cleanest way to work with this pattern?"
             className="mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none"
             style={{
-              borderColor: "rgba(244,235,221,0.16)",
-              background: "rgba(15,26,18,0.55)",
-              color: "rgba(244,235,221,0.92)",
+              borderColor: TOKENS.inputBorder,
+              background: TOKENS.inputBg,
+              color: TOKENS.text,
             }}
           />
         </div>
@@ -500,7 +479,6 @@ export default function AstrologyClient() {
               key={ex}
               onClick={() => {
                 setQ(ex);
-                setResp(null);
                 resetSynthesis();
               }}
               className="text-left"
@@ -510,18 +488,12 @@ export default function AstrologyClient() {
             </button>
           ))}
         </div>
-      </div>
+      </Panel>
 
-      {/* SINGLE MODE */}
+      {/* SINGLE */}
       {mode === "placement" && (
         <>
-          <div
-            className="rounded-2xl border p-4"
-            style={{
-              borderColor: "rgba(244,235,221,0.14)",
-              background: "rgba(244,235,221,0.06)",
-            }}
-          >
+          <Panel>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <input
                 value={q}
@@ -529,21 +501,20 @@ export default function AstrologyClient() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") runLookup();
                 }}
-                placeholder="e.g. Mars in Virgo 6th house"
                 className="w-full rounded-xl border px-4 py-3 text-sm outline-none"
                 style={{
-                  borderColor: "rgba(244,235,221,0.16)",
-                  background: "rgba(15,26,18,0.55)",
-                  color: "rgba(244,235,221,0.92)",
+                  borderColor: TOKENS.inputBorder,
+                  background: TOKENS.inputBg,
+                  color: TOKENS.text,
                 }}
               />
               <button
                 onClick={runLookup}
                 disabled={loading}
-                className="rounded-xl px-4 py-3 text-sm font-semibold transition"
+                className="rounded-xl px-5 py-3 text-sm font-semibold transition"
                 style={{
-                  background: loading ? "rgba(244,235,221,0.18)" : "rgba(244,235,221,0.82)",
-                  color: "rgba(15,26,18,0.92)",
+                  background: loading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+                  color: TOKENS.buttonText,
                   opacity: loading ? 0.75 : 1,
                 }}
               >
@@ -556,21 +527,24 @@ export default function AstrologyClient() {
                 {resp.error}
               </p>
             )}
-          </div>
+          </Panel>
 
           {resp && resp.ok && (
             <CardShell>
-              <h2 className="text-lg font-semibold">{resp.card.labels?.placement}</h2>
+              <h2 className="text-lg font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
+                {resp.card.labels?.placement}
+              </h2>
+
               <div className="mt-4">{renderDoctrineCard(resp.card)}</div>
 
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-6 flex items-center justify-between">
                 <button
                   onClick={() => runSynthesis([resp.key], "placement")}
                   disabled={sxLoading}
                   className="rounded-xl px-4 py-2 text-sm font-semibold transition"
                   style={{
-                    background: sxLoading ? "rgba(244,235,221,0.18)" : "rgba(244,235,221,0.82)",
-                    color: "rgba(15,26,18,0.92)",
+                    background: sxLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+                    color: TOKENS.buttonText,
                     opacity: sxLoading ? 0.75 : 1,
                   }}
                 >
@@ -584,203 +558,175 @@ export default function AstrologyClient() {
         </>
       )}
 
-      {/* PAIR MODE */}
+      {/* PAIR */}
       {mode === "pair" && (
         <CardShell>
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold">Pair mode</h2>
+          <h2 className="text-lg font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
+            Pair mode
+          </h2>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <input
-                value={pairA}
-                onChange={(e) => setPairA(e.target.value)}
-                placeholder="e.g. Venus Scorpio 7th house"
-                className="w-full rounded-xl border px-4 py-3 text-sm outline-none"
-                style={{
-                  borderColor: "rgba(244,235,221,0.16)",
-                  background: "rgba(15,26,18,0.55)",
-                  color: "rgba(244,235,221,0.92)",
-                }}
-              />
-              <input
-                value={pairB}
-                onChange={(e) => setPairB(e.target.value)}
-                placeholder="e.g. Mars Virgo 6th house"
-                className="w-full rounded-xl border px-4 py-3 text-sm outline-none"
-                style={{
-                  borderColor: "rgba(244,235,221,0.16)",
-                  background: "rgba(15,26,18,0.55)",
-                  color: "rgba(244,235,221,0.92)",
-                }}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <button
-                onClick={runPairLookup}
-                disabled={pairLoading}
-                className="rounded-xl px-4 py-2 text-sm font-semibold transition"
-                style={{
-                  background: pairLoading ? "rgba(244,235,221,0.18)" : "rgba(244,235,221,0.82)",
-                  color: "rgba(15,26,18,0.92)",
-                  opacity: pairLoading ? 0.75 : 1,
-                }}
-              >
-                {pairLoading ? "Looking up…" : "Lookup pair"}
-              </button>
-
-              <button
-                onClick={() => {
-                  if (!pairCards) return;
-                  runSynthesis(pairCards.map((x) => x.key), "pair");
-                }}
-                disabled={sxLoading || !pairCards}
-                className="rounded-xl px-4 py-2 text-sm font-semibold transition"
-                style={{
-                  background: sxLoading || !pairCards ? "rgba(244,235,221,0.18)" : "rgba(244,235,221,0.82)",
-                  color: "rgba(15,26,18,0.92)",
-                  opacity: sxLoading || !pairCards ? 0.75 : 1,
-                }}
-              >
-                {sxLoading ? "Synthesizing…" : "Synthesize pair (LLM)"}
-              </button>
-            </div>
-
-            {pairErr && (
-              <p className="text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
-                {pairErr}
-              </p>
-            )}
-
-            {pairCards && (
-              <div className="mt-4 grid gap-6 sm:grid-cols-2">
-                {pairCards.map((x) => (
-                  <div key={x.key}>
-                    <h3 className="text-base font-semibold">{x.card.labels?.placement}</h3>
-                    <div className="mt-3">{renderDoctrineCard(x.card)}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {renderSynthesis()}
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <input
+              value={pairA}
+              onChange={(e) => setPairA(e.target.value)}
+              className="w-full rounded-xl border px-4 py-3 text-sm outline-none"
+              style={{ borderColor: TOKENS.inputBorder, background: TOKENS.inputBg, color: TOKENS.text }}
+            />
+            <input
+              value={pairB}
+              onChange={(e) => setPairB(e.target.value)}
+              className="w-full rounded-xl border px-4 py-3 text-sm outline-none"
+              style={{ borderColor: TOKENS.inputBorder, background: TOKENS.inputBg, color: TOKENS.text }}
+            />
           </div>
-        </CardShell>
-      )}
 
-      {/* MINI CHART MODE */}
-      {mode === "mini_chart" && (
-        <CardShell>
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold">Mini chart mode</h2>
-            <p className="text-sm" style={{ color: "rgba(244,235,221,0.70)" }}>
-              Add 3–6 placements. {ascNote}
-            </p>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              onClick={runPairLookup}
+              disabled={pairLoading}
+              className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+              style={{
+                background: pairLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+                color: TOKENS.buttonText,
+                opacity: pairLoading ? 0.75 : 1,
+              }}
+            >
+              {pairLoading ? "Looking up…" : "Lookup pair"}
+            </button>
 
-            <div className="space-y-2">
-              {miniInputs.map((val, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <input
-                    value={val}
-                    onChange={(e) => {
-                      const next = [...miniInputs];
-                      next[idx] = e.target.value;
-                      setMiniInputs(next);
-                    }}
-                    placeholder="e.g. Sun Capricorn 10th house"
-                    className="w-full rounded-xl border px-4 py-2 text-sm outline-none"
-                    style={{
-                      borderColor: "rgba(244,235,221,0.16)",
-                      background: "rgba(15,26,18,0.55)",
-                      color: "rgba(244,235,221,0.92)",
-                    }}
-                  />
-                  <button
-                    onClick={() => {
-                      const next = miniInputs.filter((_, i) => i !== idx);
-                      setMiniInputs(next.length ? next : [""]);
-                      resetSynthesis();
-                    }}
-                    className="rounded-xl border px-3 py-2 text-sm font-semibold"
-                    style={{
-                      borderColor: "rgba(244,235,221,0.16)",
-                      background: "rgba(244,235,221,0.06)",
-                      color: "rgba(244,235,221,0.82)",
-                    }}
-                    title="Remove"
-                  >
-                    –
-                  </button>
+            <button
+              onClick={() => pairCards && runSynthesis(pairCards.map((x) => x.key), "pair")}
+              disabled={sxLoading || !pairCards}
+              className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+              style={{
+                background: sxLoading || !pairCards ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+                color: TOKENS.buttonText,
+                opacity: sxLoading || !pairCards ? 0.75 : 1,
+              }}
+            >
+              {sxLoading ? "Synthesizing…" : "Synthesize pair (LLM)"}
+            </button>
+          </div>
+
+          {pairErr && <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>{pairErr}</p>}
+
+          {pairCards && (
+            <div className="mt-5 grid gap-6 sm:grid-cols-2">
+              {pairCards.map((x) => (
+                <div key={x.key}>
+                  <h3 className="text-base font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
+                    {x.card.labels?.placement}
+                  </h3>
+                  <div className="mt-3">{renderDoctrineCard(x.card)}</div>
                 </div>
               ))}
             </div>
+          )}
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => {
-                  if (miniInputs.length >= 6) return;
-                  setMiniInputs([...miniInputs, ""]);
-                  resetSynthesis();
-                }}
-                className="rounded-xl border px-3 py-2 text-sm font-semibold"
-                style={{
-                  borderColor: "rgba(244,235,221,0.16)",
-                  background: "rgba(244,235,221,0.06)",
-                  color: "rgba(244,235,221,0.82)",
-                }}
-              >
-                + Add placement
-              </button>
+          {renderSynthesis()}
+        </CardShell>
+      )}
 
-              <button
-                onClick={runMiniLookup}
-                disabled={miniLoading}
-                className="rounded-xl px-4 py-2 text-sm font-semibold transition"
-                style={{
-                  background: miniLoading ? "rgba(244,235,221,0.18)" : "rgba(244,235,221,0.82)",
-                  color: "rgba(15,26,18,0.92)",
-                  opacity: miniLoading ? 0.75 : 1,
-                }}
-              >
-                {miniLoading ? "Looking up…" : "Lookup mini chart"}
-              </button>
+      {/* MINI */}
+      {mode === "mini_chart" && (
+        <CardShell>
+          <h2 className="text-lg font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
+            Mini chart mode
+          </h2>
+          <p className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
+            Add 3–6 placements (planets / chiron / nodes).
+          </p>
 
-              <button
-                onClick={() => {
-                  if (!miniCards) return;
-                  runSynthesis(miniCards.map((x) => x.key), "mini_chart");
-                }}
-                disabled={sxLoading || !miniCards}
-                className="rounded-xl px-4 py-2 text-sm font-semibold transition"
-                style={{
-                  background: sxLoading || !miniCards ? "rgba(244,235,221,0.18)" : "rgba(244,235,221,0.82)",
-                  color: "rgba(15,26,18,0.92)",
-                  opacity: sxLoading || !miniCards ? 0.75 : 1,
-                }}
-              >
-                {sxLoading ? "Synthesizing…" : "Synthesize mini chart (LLM)"}
-              </button>
-            </div>
-
-            {miniErr && (
-              <p className="text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
-                {miniErr}
-              </p>
-            )}
-
-            {miniCards && (
-              <div className="mt-4 space-y-6">
-                {miniCards.map((x) => (
-                  <div key={x.key}>
-                    <h3 className="text-base font-semibold">{x.card.labels?.placement}</h3>
-                    <div className="mt-3">{renderDoctrineCard(x.card)}</div>
-                  </div>
-                ))}
+          <div className="mt-4 space-y-2">
+            {miniInputs.map((val, idx) => (
+              <div key={idx} className="flex gap-2">
+                <input
+                  value={val}
+                  onChange={(e) => {
+                    const next = [...miniInputs];
+                    next[idx] = e.target.value;
+                    setMiniInputs(next);
+                    resetSynthesis();
+                  }}
+                  className="w-full rounded-xl border px-4 py-2 text-sm outline-none"
+                  style={{ borderColor: TOKENS.inputBorder, background: TOKENS.inputBg, color: TOKENS.text }}
+                />
+                <button
+                  onClick={() => {
+                    const next = miniInputs.filter((_, i) => i !== idx);
+                    setMiniInputs(next.length ? next : [""]);
+                    resetSynthesis();
+                  }}
+                  className="rounded-xl border px-3 py-2 text-sm font-semibold"
+                  style={{
+                    borderColor: TOKENS.inputBorder,
+                    background: TOKENS.pillBg,
+                    color: TOKENS.text,
+                  }}
+                  title="Remove"
+                >
+                  –
+                </button>
               </div>
-            )}
-
-            {renderSynthesis()}
+            ))}
           </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={() => {
+                if (miniInputs.length >= 6) return;
+                setMiniInputs([...miniInputs, ""]);
+                resetSynthesis();
+              }}
+              className="rounded-xl border px-3 py-2 text-sm font-semibold"
+              style={{ borderColor: TOKENS.inputBorder, background: TOKENS.pillBg, color: TOKENS.text }}
+            >
+              + Add placement
+            </button>
+
+            <button
+              onClick={runMiniLookup}
+              disabled={miniLoading}
+              className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+              style={{
+                background: miniLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+                color: TOKENS.buttonText,
+                opacity: miniLoading ? 0.75 : 1,
+              }}
+            >
+              {miniLoading ? "Looking up…" : "Lookup mini chart"}
+            </button>
+
+            <button
+              onClick={() => miniCards && runSynthesis(miniCards.map((x) => x.key), "mini_chart")}
+              disabled={sxLoading || !miniCards}
+              className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+              style={{
+                background: sxLoading || !miniCards ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+                color: TOKENS.buttonText,
+                opacity: sxLoading || !miniCards ? 0.75 : 1,
+              }}
+            >
+              {sxLoading ? "Synthesizing…" : "Synthesize mini (LLM)"}
+            </button>
+          </div>
+
+          {miniErr && <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>{miniErr}</p>}
+
+          {miniCards && (
+            <div className="mt-6 space-y-6">
+              {miniCards.map((x) => (
+                <div key={x.key}>
+                  <h3 className="text-base font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
+                    {x.card.labels?.placement}
+                  </h3>
+                  <div className="mt-3">{renderDoctrineCard(x.card)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {renderSynthesis()}
         </CardShell>
       )}
     </section>
