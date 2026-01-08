@@ -4,8 +4,6 @@
 import Link from "next/link";
 import React, { useMemo } from "react";
 
-import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
-import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 
 function norm360(d: number) {
@@ -199,10 +197,10 @@ type Props = {
   ascYearDegreesIntoModality: number | null;
 };
 
-function phaseIdFromCyclePos45(cyclePosDeg: number): PhaseId {
+function phaseIdFromCyclePos45(cyclePosDeg: number) {
   const pos = norm360(cyclePosDeg);
   const idx = Math.floor(pos / 45); // 0..7
-  return (idx + 1) as PhaseId;
+  return idx + 1; // 1..8
 }
 
 function seasonFromCyclePos(cyclePosDeg: number) {
@@ -229,7 +227,6 @@ function fmtAsOfLabel(asOfISO: string | null, tz: string) {
   if (!Number.isFinite(d.getTime())) return undefined;
 
   try {
-    // ✅ timezone-aware label
     return new Intl.DateTimeFormat("en-US", {
       timeZone: tz,
       month: "numeric",
@@ -291,7 +288,7 @@ export default function ProfileClient(props: Props) {
   }, [asOfISO, timezone]);
 
   /**
-   * ✅ SOURCE OF TRUTH:
+   * SOURCE OF TRUTH:
    * If we have natalAscLon + currentSunLon, compute cyclePos live:
    *   cyclePos = asOfSunLon - natalAscLon
    *
@@ -309,7 +306,6 @@ export default function ProfileClient(props: Props) {
     const ok = typeof cyclePosTruth === "number" && Number.isFinite(cyclePosTruth);
     const cyclePos = ok ? norm360(cyclePosTruth!) : null;
 
-    // Derive season/modality from truth when possible
     const seasonText = ok ? seasonFromCyclePos(cyclePos!) : (ascYearSeason || "—");
     const withinSeason = ok ? (cyclePos! % 90) : null;
     const seasonProgress01 = withinSeason != null ? withinSeason / 90 : 0;
@@ -326,7 +322,7 @@ export default function ProfileClient(props: Props) {
 
     const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
 
-    const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : (1 as PhaseId);
+    const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : 1;
     const uraDegIntoPhase = ok ? (cyclePos! % 45) : null;
     const uraProgress01 = uraDegIntoPhase != null ? uraDegIntoPhase / 45 : null;
 
@@ -345,20 +341,14 @@ export default function ProfileClient(props: Props) {
     };
   }, [cyclePosTruth, ascYearSeason, ascYearModality, ascYearDegreesIntoModality]);
 
-  const phaseCopy = useMemo(() => microcopyForPhase(orientation.uraPhaseId), [orientation.uraPhaseId]);
-
   const sunTextForFoundation = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
     if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
     return "—";
   }, [currentSunLon, progressedSunLon]);
 
-  const asOfLabelForFoundation = useMemo(
-    () => fmtAsOfLabel(asOfISO, timezone),
-    [asOfISO, timezone]
-  );
+  const asOfLabelForFoundation = useMemo(() => fmtAsOfLabel(asOfISO, timezone), [asOfISO, timezone]);
 
-  // now this check should be ~0 when we have both natalAscLon + currentSunLon
   const ascMathCheck = useMemo(() => {
     if (typeof natalAscLon !== "number" || typeof currentSunLon !== "number" || typeof orientation.cyclePos !== "number") {
       return null;
@@ -503,18 +493,7 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* ✅ PHASE PANEL (Orisha microcopy) */}
-            <div className="mt-4">
-              <PhaseMicrocopyCard
-                copy={phaseCopy}
-                tone="linen"
-                defaultExpanded={false}
-                showJournal={true}
-                showActionHint={true}
-              />
-            </div>
-
-            {/* ✅ URA FOUNDATION MOVED UNDER THE PHASE PANEL */}
+            {/* ✅ SINGLE INTERPRETATION MODULE (Foundation only) */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
