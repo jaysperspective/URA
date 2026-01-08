@@ -59,7 +59,16 @@ function getNatalSources(natal: any) {
     natal?.angles?.ascendant ??
     null;
 
-  return { planets, asc };
+  const mc =
+    natal?.data?.mc ??
+    natal?.data?.angles?.mc ??
+    natal?.data?.angles?.midheaven ??
+    natal?.mc ??
+    natal?.angles?.mc ??
+    natal?.angles?.midheaven ??
+    null;
+
+  return { planets, asc, mc };
 }
 
 function getProgressedFromLunation(lunation: any) {
@@ -91,6 +100,33 @@ function getAscYearCyclePosDeg(ascYearJson: any): number | null {
     null;
 
   return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function buildNatalPlanets(planets: any) {
+  const read = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = safeLon(planets?.[k]?.lon ?? planets?.[k]);
+      if (typeof v === "number") return v;
+    }
+    return null;
+  };
+
+  // Normalize a stable set for the UI (null allowed)
+  return {
+    sun: read("sun", "Sun"),
+    moon: read("moon", "Moon"),
+    mercury: read("mercury", "Mercury"),
+    venus: read("venus", "Venus"),
+    mars: read("mars", "Mars"),
+    jupiter: read("jupiter", "Jupiter"),
+    saturn: read("saturn", "Saturn"),
+    uranus: read("uranus", "Uranus"),
+    neptune: read("neptune", "Neptune"),
+    pluto: read("pluto", "Pluto"),
+    chiron: read("chiron", "Chiron"),
+    northNode: read("northNode", "north_node", "trueNode", "true_node", "meanNode", "mean_node", "node", "rahu"),
+    southNode: read("southNode", "south_node", "ketu"),
+  } as const;
 }
 
 export default async function ProfilePage() {
@@ -217,11 +253,13 @@ export default async function ProfilePage() {
   const ascYear = profile.ascYearJson as any;
   const lunation = profile.lunationJson as any;
 
-  const { planets, asc } = getNatalSources(natal);
+  const { planets, asc, mc } = getNatalSources(natal);
+  const natalPlanets = buildNatalPlanets(planets);
 
-  const natalSunLon = safeLon(planets?.sun?.lon ?? planets?.sun);
-  const natalMoonLon = safeLon(planets?.moon?.lon ?? planets?.moon);
+  const natalSunLon = safeLon(natalPlanets.sun);
+  const natalMoonLon = safeLon(natalPlanets.moon);
   const natalAscLon = safeLon(asc);
+  const natalMcLon = safeLon(mc);
 
   const { progressedSunLon, progressedMoonLon } = getProgressedFromLunation(lunation);
   const currentSunLon = getAsOfSunFromLunation(lunation);
@@ -272,8 +310,10 @@ export default async function ProfilePage() {
           timezone={tz}
           asOfISO={asOfISO}
           natalAscLon={natalAscLon}
+          natalMcLon={natalMcLon}
           natalSunLon={natalSunLon}
           natalMoonLon={natalMoonLon}
+          natalPlanets={natalPlanets}
           currentSunLon={currentSunLon}
           progressedSunLon={progressedSunLon}
           progressedMoonLon={progressedMoonLon}
