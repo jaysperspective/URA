@@ -11,6 +11,10 @@ import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
  * - Displays URA Solar 8-phase context via /api/ura/context
  * - Renders URAFoundationPanel using its REQUIRED props:
  *   solarPhaseId, solarProgress01, sunText, ontology
+ *
+ * CHANGE (2026-01-08):
+ * - Removed all text input areas from this page (no textarea).
+ * - Payload is read-only, with controls to reset / update as_of_date / copy.
  */
 
 type CoreResponse = {
@@ -61,6 +65,28 @@ function todayYMDLocal() {
   return `${y}-${m}-${day}`;
 }
 
+function defaultPayload() {
+  return `birth_datetime: 1990-01-24 01:39
+tz_offset: -05:00
+lat: 36.585
+lon: -79.395
+as_of_date: ${todayYMDLocal()}`;
+}
+
+function patchAsOfDate(payload: string, ymd: string) {
+  const lines = payload.split("\n");
+  let found = false;
+  const next = lines.map((ln) => {
+    if (ln.trim().toLowerCase().startsWith("as_of_date:")) {
+      found = true;
+      return `as_of_date: ${ymd}`;
+    }
+    return ln;
+  });
+  if (!found) next.push(`as_of_date: ${ymd}`);
+  return next.join("\n");
+}
+
 function norm360(d: number) {
   let x = d % 360;
   if (x < 0) x += 360;
@@ -90,7 +116,6 @@ export default function SeasonsPage() {
   const [payloadText, setPayloadText] = useState<string>("");
   const [resultText, setResultText] = useState<string>("");
   const [coreJson, setCoreJson] = useState<CoreResponse | null>(null);
-
   const [uraCtx, setUraCtx] = useState<UraContext | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -101,17 +126,9 @@ export default function SeasonsPage() {
     try {
       const saved = window.localStorage.getItem(LS_KEY);
       if (saved && saved.trim()) setPayloadText(saved);
-      else {
-        setPayloadText(
-          `birth_datetime: 1990-01-24 01:39
-tz_offset: -05:00
-lat: 36.585
-lon: -79.395
-as_of_date: ${todayYMDLocal()}`
-        );
-      }
+      else setPayloadText(defaultPayload());
     } catch {
-      // ignore
+      setPayloadText(defaultPayload());
     }
   }, []);
 
@@ -178,7 +195,6 @@ as_of_date: ${todayYMDLocal()}`
   // --- Required props for URAFoundationPanel ---
   const solarPhaseId = useMemo(() => {
     const pid = uraCtx?.solar?.phaseId;
-    // hard default prevents TS + runtime issues
     if (typeof pid === "number" && Number.isFinite(pid)) return pid;
     return 1;
   }, [uraCtx?.solar?.phaseId]);
@@ -198,12 +214,11 @@ as_of_date: ${todayYMDLocal()}`
     return `Sun: ${s} ${norm360(lon).toFixed(2)}°`;
   }, [uraCtx?.astro?.sunLon]);
 
-  const ontology = useMemo(() => {
-    // panel expects a value even if null
-    return uraCtx?.ontology ?? null;
-  }, [uraCtx?.ontology]);
+  const ontology = useMemo(() => uraCtx?.ontology ?? null, [uraCtx?.ontology]);
 
   const uraPhaseLabel = useMemo(() => `Phase ${solarPhaseId}`, [solarPhaseId]);
+
+  const payloadLinesCount = useMemo(() => payloadText.split("\n").filter(Boolean).length, [payloadText]);
 
   return (
     <div className="min-h-[100svh]" style={{ background: UI.bg, color: UI.text }}>
@@ -242,7 +257,10 @@ as_of_date: ${todayYMDLocal()}`
 
         {/* Top row */}
         <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="rounded-2xl border p-5 lg:col-span-2" style={{ borderColor: UI.border, background: UI.panel }}>
+          <div
+            className="rounded-2xl border p-5 lg:col-span-2"
+            style={{ borderColor: UI.border, background: UI.panel }}
+          >
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="text-[12px] tracking-[0.18em] uppercase" style={{ color: UI.muted }}>
@@ -281,7 +299,6 @@ as_of_date: ${todayYMDLocal()}`
               </div>
             </div>
 
-            {/* ✅ REQUIRED PROPS — fixes your TS build error */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={solarPhaseId}
@@ -329,12 +346,12 @@ as_of_date: ${todayYMDLocal()}`
             ) : null}
 
             <div className="mt-4 text-[11px]" style={{ color: UI.subtle }}>
-              Tip: Save a clean payload here. /calendar and /profile can reference it.
+              Tip: This page will be replaced by a form once the pipeline is stable.
             </div>
           </div>
         </div>
 
-        {/* Main: payload editor + terminal output */}
+        {/* Main: payload viewer + terminal output */}
         <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="rounded-2xl border p-5" style={{ borderColor: UI.border, background: UI.panel }}>
             <div className="flex items-center justify-between gap-4">
@@ -343,38 +360,56 @@ as_of_date: ${todayYMDLocal()}`
                   Payload
                 </div>
                 <div className="mt-1 text-[12px]" style={{ color: UI.subtle }}>
-                  text/plain contract (birth + tz + lat/lon + as_of_date)
+                  Read-only ({payloadLinesCount} lines). Stored as <span style={{ color: UI.text }}>{LS_KEY}</span>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  try {
-                    navigator.clipboard.writeText(payloadText);
-                  } catch {}
-                }}
-                className="rounded-xl border px-3 py-2 text-[12px] hover:opacity-95"
-                style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
-              >
-                Copy
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    try {
+                      navigator.clipboard.writeText(payloadText);
+                    } catch {}
+                  }}
+                  className="rounded-xl border px-3 py-2 text-[12px] hover:opacity-95"
+                  style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
+                >
+                  Copy
+                </button>
+
+                <button
+                  onClick={() => setPayloadText(patchAsOfDate(payloadText, todayYMDLocal()))}
+                  className="rounded-xl border px-3 py-2 text-[12px] hover:opacity-95"
+                  style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
+                  title="Updates only as_of_date"
+                >
+                  Today
+                </button>
+
+                <button
+                  onClick={() => setPayloadText(defaultPayload())}
+                  className="rounded-xl border px-3 py-2 text-[12px] hover:opacity-95"
+                  style={{ borderColor: UI.border, background: "rgba(0,0,0,0.18)", color: UI.text }}
+                  title="Resets full payload to template"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
 
-            <textarea
-              value={payloadText}
-              onChange={(e) => setPayloadText(e.target.value)}
-              className="mt-4 w-full min-h-[320px] rounded-2xl border p-4 text-[12px] leading-relaxed"
+            <pre
+              className="mt-4 w-full min-h-[320px] rounded-2xl border p-4 text-[12px] leading-relaxed overflow-auto"
               style={{
                 borderColor: UI.border,
                 background: "#0b0906",
                 color: UI.text,
                 fontFamily: "Menlo, Monaco, Consolas, monospace",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
               }}
-              spellCheck={false}
-            />
-
-            <div className="mt-3 text-[11px]" style={{ color: UI.subtle }}>
-              Saved locally as <span style={{ color: UI.text }}>{LS_KEY}</span>
-            </div>
+            >
+              {payloadText || "—"}
+            </pre>
           </div>
 
           <div className="rounded-2xl border p-5" style={{ borderColor: UI.border, background: UI.panel }}>
@@ -403,6 +438,8 @@ as_of_date: ${todayYMDLocal()}`
                 background: "#0b0906",
                 color: UI.text,
                 fontFamily: "Menlo, Monaco, Consolas, monospace",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
               }}
             >
               {resultText || "—"}
