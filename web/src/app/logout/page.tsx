@@ -10,14 +10,32 @@ export default function LogoutPage() {
   useEffect(() => {
     (async () => {
       try {
-        // Clear cookies server-side
         await fetch("/api/logout", { method: "GET", cache: "no-store" });
       } catch {
-        // Even if API fails, still send user home.
-      } finally {
-        router.replace("/");
-        router.refresh();
+        // ignore
       }
+
+      // Clear any custom client-side auth artifacts
+      try {
+        const keysToNuke = [
+          "ura_session",
+          "session",
+          "sessionId",
+          "sid",
+          "token",
+          "auth",
+          "auth_token",
+        ];
+        for (const k of keysToNuke) {
+          localStorage.removeItem(k);
+          sessionStorage.removeItem(k);
+        }
+      } catch {
+        // ignore
+      }
+
+      router.replace("/");
+      router.refresh();
     })();
   }, [router]);
 
