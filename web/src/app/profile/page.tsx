@@ -76,19 +76,26 @@ function getProgressedFromLunation(lunation: any) {
     safeLon(lunation?.lunation?.progressedSunLon) ??
     safeLon(lunation?.progressedSunLon) ??
     safeLon(lunation?.data?.lunation?.progressedSunLon) ??
+    safeLon(lunation?.derived?.lunation?.progressedSunLon) ??
     null;
 
   const pMoon =
     safeLon(lunation?.lunation?.progressedMoonLon) ??
     safeLon(lunation?.progressedMoonLon) ??
     safeLon(lunation?.data?.lunation?.progressedMoonLon) ??
+    safeLon(lunation?.derived?.lunation?.progressedMoonLon) ??
     null;
 
   return { progressedSunLon: pSun, progressedMoonLon: pMoon };
 }
 
 function getAsOfSunFromLunation(lunation: any) {
-  return safeLon(lunation?.summary?.asOf?.sun) ?? safeLon(lunation?.data?.summary?.asOf?.sun) ?? null;
+  return (
+    safeLon(lunation?.summary?.asOf?.sun) ??
+    safeLon(lunation?.data?.summary?.asOf?.sun) ??
+    safeLon(lunation?.derived?.summary?.asOf?.sun) ??
+    null
+  );
 }
 
 function getAscYearCyclePosDeg(ascYearJson: any): number | null {
@@ -111,7 +118,6 @@ function buildNatalPlanets(planets: any) {
     return null;
   };
 
-  // Normalize a stable set for the UI (null allowed)
   return {
     sun: read("sun", "Sun"),
     moon: read("moon", "Moon"),
@@ -127,6 +133,34 @@ function buildNatalPlanets(planets: any) {
     northNode: read("northNode", "north_node", "trueNode", "true_node", "meanNode", "mean_node", "node", "rahu"),
     southNode: read("southNode", "south_node", "ketu"),
   } as const;
+}
+
+function getLunationPhaseInfo(lunationJson: any) {
+  const lun =
+    lunationJson?.lunation ??
+    lunationJson?.data?.lunation ??
+    lunationJson?.derived?.lunation ??
+    null;
+
+  const phase =
+    (typeof lun?.phase === "string" && lun.phase) ||
+    null;
+
+  const subPhaseLabel =
+    (typeof lun?.subPhase?.label === "string" && lun.subPhase.label) ||
+    null;
+
+  const subPhaseWithin =
+    typeof lun?.subPhase?.within === "number" && Number.isFinite(lun.subPhase.within)
+      ? lun.subPhase.within
+      : null;
+
+  const separation =
+    typeof lun?.separation === "number" && Number.isFinite(lun.separation)
+      ? lun.separation
+      : null;
+
+  return { phase, subPhaseLabel, subPhaseWithin, separation };
 }
 
 export default async function ProfilePage() {
@@ -264,6 +298,9 @@ export default async function ProfilePage() {
   const { progressedSunLon, progressedMoonLon } = getProgressedFromLunation(lunation);
   const currentSunLon = getAsOfSunFromLunation(lunation);
 
+  const { phase: lunPhase, subPhaseLabel: lunSubPhaseLabel, subPhaseWithin: lunSubPhaseWithin, separation: lunSeparation } =
+    getLunationPhaseInfo(lunation);
+
   const ascYearCyclePosDeg = getAscYearCyclePosDeg(ascYear);
 
   const ascYearSeason = (ascYear?.ascYear?.season as string | undefined) ?? null;
@@ -317,6 +354,10 @@ export default async function ProfilePage() {
           currentSunLon={currentSunLon}
           progressedSunLon={progressedSunLon}
           progressedMoonLon={progressedMoonLon}
+          lunationPhase={lunPhase}
+          lunationSubPhase={lunSubPhaseLabel}
+          lunationSubWithinDeg={lunSubPhaseWithin}
+          lunationSeparationDeg={lunSeparation}
           ascYearCyclePosDeg={ascYearCyclePosDeg}
           ascYearSeason={ascYearSeason}
           ascYearModality={ascYearModality}
