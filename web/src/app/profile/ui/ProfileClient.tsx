@@ -2,8 +2,10 @@
 "use client";
 
 import Link from "next/link";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 
+import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
+import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 
 function norm360(d: number) {
@@ -87,6 +89,21 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
     <div className="min-w-[112px]">
       <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/70">{k}</div>
       <div className="mt-1 text-sm text-[#F4EFE6] font-medium">{v}</div>
+    </div>
+  );
+}
+
+function PlacementPill({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 min-w-[124px]">
+      <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/65">{label}</div>
+      <div className="mt-1 text-sm text-[#F4EFE6] font-semibold">{value}</div>
     </div>
   );
 }
@@ -181,9 +198,23 @@ type Props = {
   timezone: string;
   asOfISO: string | null;
 
+  // Natal (required in old version)
   natalAscLon: number | null;
   natalSunLon: number | null;
   natalMoonLon: number | null;
+
+  // Natal (expanded set — optional so we don’t break existing callers)
+  natalMercuryLon?: number | null;
+  natalVenusLon?: number | null;
+  natalMarsLon?: number | null;
+  natalJupiterLon?: number | null;
+  natalSaturnLon?: number | null;
+  natalUranusLon?: number | null;
+  natalNeptuneLon?: number | null;
+  natalPlutoLon?: number | null;
+  natalChironLon?: number | null;
+  natalNorthNodeLon?: number | null;
+  natalSouthNodeLon?: number | null;
 
   currentSunLon: number | null;
 
@@ -197,10 +228,10 @@ type Props = {
   ascYearDegreesIntoModality: number | null;
 };
 
-function phaseIdFromCyclePos45(cyclePosDeg: number) {
+function phaseIdFromCyclePos45(cyclePosDeg: number): PhaseId {
   const pos = norm360(cyclePosDeg);
   const idx = Math.floor(pos / 45); // 0..7
-  return idx + 1; // 1..8
+  return (idx + 1) as PhaseId;
 }
 
 function seasonFromCyclePos(cyclePosDeg: number) {
@@ -251,6 +282,18 @@ export default function ProfileClient(props: Props) {
     natalSunLon,
     natalMoonLon,
 
+    natalMercuryLon,
+    natalVenusLon,
+    natalMarsLon,
+    natalJupiterLon,
+    natalSaturnLon,
+    natalUranusLon,
+    natalNeptuneLon,
+    natalPlutoLon,
+    natalChironLon,
+    natalNorthNodeLon,
+    natalSouthNodeLon,
+
     currentSunLon,
 
     progressedSunLon,
@@ -261,6 +304,8 @@ export default function ProfileClient(props: Props) {
     ascYearModality,
     ascYearDegreesIntoModality,
   } = props;
+
+  const [showAllNatal, setShowAllNatal] = useState(false);
 
   const natalAsc = fmtSignPos(natalAscLon);
   const natalSun = fmtSignPos(natalSunLon);
@@ -287,13 +332,6 @@ export default function ProfileClient(props: Props) {
     })}`;
   }, [asOfISO, timezone]);
 
-  /**
-   * SOURCE OF TRUTH:
-   * If we have natalAscLon + currentSunLon, compute cyclePos live:
-   *   cyclePos = asOfSunLon - natalAscLon
-   *
-   * Cached ascYearJson is fallback only.
-   */
   const cyclePosTruth = useMemo(() => {
     if (typeof natalAscLon === "number" && typeof currentSunLon === "number") {
       return norm360(currentSunLon - natalAscLon);
@@ -317,12 +355,12 @@ export default function ProfileClient(props: Props) {
       ok && withinSeason != null
         ? withinSeason % 30
         : typeof ascYearDegreesIntoModality === "number"
-        ? ascYearDegreesIntoModality
-        : null;
+          ? ascYearDegreesIntoModality
+          : null;
 
     const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
 
-    const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : 1;
+    const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : (1 as PhaseId);
     const uraDegIntoPhase = ok ? (cyclePos! % 45) : null;
     const uraProgress01 = uraDegIntoPhase != null ? uraDegIntoPhase / 45 : null;
 
@@ -340,6 +378,8 @@ export default function ProfileClient(props: Props) {
       uraProgress01,
     };
   }, [cyclePosTruth, ascYearSeason, ascYearModality, ascYearDegreesIntoModality]);
+
+  const phaseCopy = useMemo(() => microcopyForPhase(orientation.uraPhaseId), [orientation.uraPhaseId]);
 
   const sunTextForFoundation = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
@@ -360,30 +400,115 @@ export default function ProfileClient(props: Props) {
     return { expected, got, diff: diffWrapped };
   }, [natalAscLon, currentSunLon, orientation.cyclePos]);
 
+  const natalAll = useMemo(
+    () =>
+      [
+        { key: "ASC", label: "Ascendant", value: fmtSignPos(natalAscLon) },
+        { key: "SUN", label: "Sun", value: fmtSignPos(natalSunLon) },
+        { key: "MOON", label: "Moon", value: fmtSignPos(natalMoonLon) },
+        { key: "MERC", label: "Mercury", value: fmtSignPos(natalMercuryLon ?? null) },
+        { key: "VEN", label: "Venus", value: fmtSignPos(natalVenusLon ?? null) },
+        { key: "MARS", label: "Mars", value: fmtSignPos(natalMarsLon ?? null) },
+        { key: "JUP", label: "Jupiter", value: fmtSignPos(natalJupiterLon ?? null) },
+        { key: "SAT", label: "Saturn", value: fmtSignPos(natalSaturnLon ?? null) },
+        { key: "URA", label: "Uranus", value: fmtSignPos(natalUranusLon ?? null) },
+        { key: "NEP", label: "Neptune", value: fmtSignPos(natalNeptuneLon ?? null) },
+        { key: "PLU", label: "Pluto", value: fmtSignPos(natalPlutoLon ?? null) },
+        { key: "CHI", label: "Chiron", value: fmtSignPos(natalChironLon ?? null) },
+        { key: "NN", label: "North Node", value: fmtSignPos(natalNorthNodeLon ?? null) },
+        { key: "SN", label: "South Node", value: fmtSignPos(natalSouthNodeLon ?? null) },
+      ].filter((x) => x.value !== "—"),
+    [
+      natalAscLon,
+      natalSunLon,
+      natalMoonLon,
+      natalMercuryLon,
+      natalVenusLon,
+      natalMarsLon,
+      natalJupiterLon,
+      natalSaturnLon,
+      natalUranusLon,
+      natalNeptuneLon,
+      natalPlutoLon,
+      natalChironLon,
+      natalNorthNodeLon,
+      natalSouthNodeLon,
+    ]
+  );
+
+  const natalCollapsed = useMemo(() => {
+    const preferred = ["ASC", "SUN", "MOON", "MERC", "VEN", "MARS"];
+    const map = new Map(natalAll.map((x) => [x.key, x]));
+    const out = preferred.map((k) => map.get(k)).filter(Boolean) as typeof natalAll;
+    // If we’re missing some of the preferred ones, just show first up to 6.
+    return out.length ? out.slice(0, 6) : natalAll.slice(0, 6);
+  }, [natalAll]);
+
   return (
     <div className="mt-8">
       {/* TOP STRIP */}
       <div className="mx-auto max-w-5xl">
-        <div className="flex items-start justify-between gap-6">
-          <div className="flex items-start gap-3">
-            <div className="mt-1 h-10 w-10 rounded-2xl bg-[#151515] border border-[#E2D9CC]/25 flex items-center justify-center text-[#F4EFE6]/70 text-xs">
-              +
+        <div className="flex flex-col gap-5">
+          {/* Identity row */}
+          <div className="flex items-start justify-between gap-6">
+            <div className="flex items-start gap-3">
+              <div className="mt-1 h-10 w-10 rounded-2xl bg-[#151515] border border-[#E2D9CC]/25 flex items-center justify-center text-[#F4EFE6]/70 text-xs">
+                +
+              </div>
+
+              <div>
+                <div className="text-[#F4EFE6]/80 text-sm">Profile</div>
+                <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">{name}</div>
+                <div className="text-[#F4EFE6]/65 text-sm">{locationLine}</div>
+              </div>
             </div>
 
-            <div>
-              <div className="text-[#F4EFE6]/80 text-sm">Profile</div>
-              <div className="text-[#F4EFE6] text-lg font-semibold leading-tight">{name}</div>
-              <div className="text-[#F4EFE6]/65 text-sm">{locationLine}</div>
+            <div className="flex flex-wrap gap-6 justify-end">
+              <Chip k="Sun (Progressed)" v={progressedSun} />
+              <Chip k="Moon (Progressed)" v={progressedMoon} />
+              <Chip k="Timezone" v={timezone} />
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-6 justify-end">
-            <Chip k="ASC (Natal)" v={natalAsc} />
-            <Chip k="Sun (Natal)" v={natalSun} />
-            <Chip k="Moon (Natal)" v={natalMoon} />
-            <Chip k="Sun (Progressed)" v={progressedSun} />
-            <Chip k="Moon (Progressed)" v={progressedMoon} />
-            <Chip k="Timezone" v={timezone} />
+          {/* ✅ Natal Placements Module (expandable) */}
+          <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">
+                  Natal placements
+                </div>
+                <div className="mt-1 text-sm text-[#F4EFE6]/75">
+                  Tap expand to view the full natal set.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAllNatal((v) => !v)}
+                className="shrink-0 rounded-2xl border border-[#E2D9CC]/25 bg-[#151515]/60 px-4 py-2 text-xs text-[#F4EFE6]/85 hover:bg-[#151515]"
+              >
+                {showAllNatal ? "Collapse" : "Expand"}
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              {(showAllNatal ? natalAll : natalCollapsed).map((p) => (
+                <PlacementPill key={p.key} label={p.label} value={p.value} />
+              ))}
+
+              {/* Always ensure ASC/Sun/Moon show even if upstream hasn’t wired all planets yet */}
+              {!natalAll.length ? (
+                <>
+                  <PlacementPill label="Ascendant" value={natalAsc} />
+                  <PlacementPill label="Sun" value={natalSun} />
+                  <PlacementPill label="Moon" value={natalMoon} />
+                </>
+              ) : null}
+            </div>
+
+            <div className="mt-3 text-xs text-[#F4EFE6]/55">
+              Note: if a planet is not wired into the server response yet, it simply won’t appear here.
+            </div>
           </div>
         </div>
       </div>
@@ -493,14 +618,25 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* ✅ SINGLE INTERPRETATION MODULE (Foundation only) */}
+            {/* ✅ PHASE PANEL (Orisha microcopy) */}
+            <div className="mt-4">
+              <PhaseMicrocopyCard
+                copy={phaseCopy}
+                tone="linen"
+                defaultExpanded={false}
+                showJournal={true}
+                showActionHint={true}
+              />
+            </div>
+
+            {/* ✅ URA FOUNDATION MOVED UNDER THE PHASE PANEL */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
                 solarProgress01={orientation.uraProgress01}
                 sunText={sunTextForFoundation}
                 ontology={null}
-                asOfLabel={asOfLabelForFoundation}
+                asOfLabel={fmtAsOfLabel(asOfISO, timezone)}
               />
             </div>
 
