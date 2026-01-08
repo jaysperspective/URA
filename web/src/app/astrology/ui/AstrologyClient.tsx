@@ -31,16 +31,20 @@ type Lens =
   | "growth";
 
 const TOKENS = {
-  // Forest glass from your earlier vibe
-  panelBg: "rgba(18, 32, 24, 0.62)",
-  panelBgSoft: "rgba(18, 32, 24, 0.46)",
+  // ✅ nudged away from near-black; stays "forest glass"
+  panelBg: "rgba(24, 44, 32, 0.68)",
+  panelBgSoft: "rgba(28, 52, 38, 0.52)",
   panelBorder: "rgba(244,235,221,0.12)",
-  inputBg: "rgba(10, 18, 13, 0.55)",
+
+  inputBg: "rgba(24, 44, 32, 0.45)",
   inputBorder: "rgba(244,235,221,0.14)",
+
   text: "rgba(244,235,221,0.88)",
   textSoft: "rgba(244,235,221,0.70)",
+
   pillBg: "rgba(244,235,221,0.07)",
   pillBorder: "rgba(244,235,221,0.16)",
+
   buttonBg: "rgba(244,235,221,0.82)",
   buttonText: "rgba(15,26,18,0.92)",
 };
@@ -75,7 +79,7 @@ function Panel({ children }: { children: React.ReactNode }) {
       style={{
         borderColor: TOKENS.panelBorder,
         background: TOKENS.panelBgSoft,
-        backdropFilter: "blur(8px)",
+        backdropFilter: "blur(10px)",
       }}
     >
       {children}
@@ -90,7 +94,7 @@ function CardShell({ children }: { children: React.ReactNode }) {
       style={{
         borderColor: TOKENS.panelBorder,
         background: TOKENS.panelBg,
-        backdropFilter: "blur(10px)",
+        backdropFilter: "blur(12px)",
       }}
     >
       {children}
@@ -302,7 +306,11 @@ export default function AstrologyClient() {
   function renderSynthesis() {
     if (!sx) return null;
     if (!sx.ok) {
-      return <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>{sx.error}</p>;
+      return (
+        <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
+          {sx.error}
+        </p>
+      );
     }
 
     return (
@@ -311,7 +319,7 @@ export default function AstrologyClient() {
         style={{
           borderColor: TOKENS.panelBorder,
           background: TOKENS.panelBgSoft,
-          backdropFilter: "blur(10px)",
+          backdropFilter: "blur(12px)",
         }}
       >
         <div className="flex flex-wrap items-center gap-2">
