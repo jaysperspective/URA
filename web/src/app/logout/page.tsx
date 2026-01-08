@@ -11,28 +11,16 @@ export default function LogoutPage() {
     (async () => {
       try {
         await fetch("/api/logout", { method: "GET", cache: "no-store" });
-      } catch {
-        // ignore
-      }
+      } catch {}
 
-      // Clear any custom client-side auth artifacts
       try {
-        const keysToNuke = [
-          "ura_session",
-          "session",
-          "sessionId",
-          "sid",
-          "token",
-          "auth",
-          "auth_token",
-        ];
-        for (const k of keysToNuke) {
+        // clear any client-side artifacts just in case
+        const keys = ["ura_session", "session", "sessionId", "sid", "token", "auth", "auth_token"];
+        for (const k of keys) {
           localStorage.removeItem(k);
           sessionStorage.removeItem(k);
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       router.replace("/");
       router.refresh();
