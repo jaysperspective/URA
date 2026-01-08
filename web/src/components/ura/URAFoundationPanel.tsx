@@ -5,9 +5,6 @@ import React from "react";
 import { microcopyForPhase, type PhaseId, type Phase6Aspect } from "@/lib/phaseMicrocopy";
 
 type Props = {
-  // We keep back-compat with existing callers:
-  // - solarPhaseId is what pages already pass (number | null)
-  // - ontology is ignored now (still accepted so nothing breaks)
   solarPhaseId: number | null;
   solarProgress01: number | null;
   sunText: string;
@@ -61,7 +58,6 @@ export default function URAFoundationPanel({
           ) : null}
         </div>
 
-        {/* Compact identity chip */}
         <div className="rounded-full border border-black/10 bg-[#F4EFE6] px-3 py-1 text-xs text-[#403A32]/80">
           {mc ? `Phase ${mc.id} — ${mc.orisha}` : "—"}
         </div>
@@ -75,7 +71,7 @@ export default function URAFoundationPanel({
         <div className="mt-4 text-sm text-[#403A32]/75">Foundation unavailable.</div>
       ) : (
         <div className="mt-4 space-y-4">
-          {/* Grounded doctrine copy (keeps Orisha name, avoids metaphysical fluff) */}
+          {/* Phase Lens only (Journal UI removed) */}
           <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
             <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
               Phase lens
@@ -97,26 +93,6 @@ export default function URAFoundationPanel({
                 <span className="font-semibold">{mc.actionHint}</span>
               </div>
             ) : null}
-          </div>
-
-          {/* Journal prompt */}
-          <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
-            <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-              Journal
-            </div>
-
-            <div className="mt-2 text-sm text-[#1F1B16]/90">
-              <span className="font-semibold">{mc.journalPrompt}</span>
-            </div>
-
-            <div className="mt-2 text-xs text-[#403A32]/75">{mc.journalHelper}</div>
-
-            <textarea
-              className="mt-3 w-full rounded-2xl border border-black/10 bg-[#F8F2E8] px-4 py-3 text-sm text-black placeholder:text-black/40"
-              rows={4}
-              placeholder="Write here…"
-              style={{ WebkitTextFillColor: "rgba(0,0,0,0.92)" }}
-            />
           </div>
 
           {mc.footer ? (
