@@ -32,6 +32,11 @@ function fmtSignPos(lon: number | null) {
   return `${signFromLon(lon)} ${fmtLon(lon)}`;
 }
 
+function clamp01(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
 function ProgressBar({
   value,
   labelLeft,
@@ -43,7 +48,7 @@ function ProgressBar({
   labelRight: string;
   meta?: string;
 }) {
-  const pct = Math.max(0, Math.min(1, value)) * 100;
+  const pct = clamp01(value) * 100;
   return (
     <div className="mt-2">
       <div className="flex items-center justify-between text-xs text-[#403A32]/70">
@@ -95,7 +100,6 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
 function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const size = 760;
   const H = 260;
-
   const cx = size / 2;
   const cy = H / 2;
 
@@ -211,6 +215,12 @@ type Props = {
   progressedSunLon: number | null;
   progressedMoonLon: number | null;
 
+  // ✅ Lunation phase + subphase (from cached /api/lunation payload)
+  lunationPhase?: string | null;
+  lunationSubPhase?: string | null;
+  lunationSubWithinDeg?: number | null;
+  lunationSeparationDeg?: number | null;
+
   // cached values (fallback only)
   ascYearCyclePosDeg: number | null;
   ascYearSeason: string | null;
@@ -220,13 +230,13 @@ type Props = {
 
 function phaseIdFromCyclePos45(cyclePosDeg: number): PhaseId {
   const pos = norm360(cyclePosDeg);
-  const idx = Math.floor(pos / 45); // 0..7
+  const idx = Math.floor(pos / 45);
   return (idx + 1) as PhaseId;
 }
 
 function seasonFromCyclePos(cyclePosDeg: number) {
   const pos = norm360(cyclePosDeg);
-  const idx = Math.floor(pos / 90); // 0..3
+  const idx = Math.floor(pos / 90);
   return (["Spring", "Summer", "Fall", "Winter"][Math.max(0, Math.min(3, idx))] ?? "Spring") as
     | "Spring"
     | "Summer"
@@ -235,7 +245,7 @@ function seasonFromCyclePos(cyclePosDeg: number) {
 }
 
 function modalityFromWithinSeason(withinSeasonDeg: number) {
-  const idx = Math.floor(withinSeasonDeg / 30); // 0..2
+  const idx = Math.floor(withinSeasonDeg / 30);
   return (["Cardinal", "Fixed", "Mutable"][Math.max(0, Math.min(2, idx))] ?? "Cardinal") as
     | "Cardinal"
     | "Fixed"
@@ -300,6 +310,11 @@ export default function ProfileClient(props: Props) {
     progressedSunLon,
     progressedMoonLon,
 
+    lunationPhase,
+    lunationSubPhase,
+    lunationSubWithinDeg,
+    lunationSeparationDeg,
+
     ascYearCyclePosDeg,
     ascYearSeason,
     ascYearModality,
@@ -316,6 +331,19 @@ export default function ProfileClient(props: Props) {
 
   const progressedSun = fmtSignPos(progressedSunLon);
   const progressedMoon = fmtSignPos(progressedMoonLon);
+
+  const lunationLine = useMemo(() => {
+    const p = lunationPhase?.trim() || "";
+    const s = lunationSubPhase?.trim() || "";
+    if (p && s) return `${p} • ${s}`;
+    return p || s || "—";
+  }, [lunationPhase, lunationSubPhase]);
+
+  const subPhaseProgress01 = useMemo(() => {
+    if (typeof lunationSubWithinDeg !== "number") return 0;
+    // sub-phase is 15° buckets in your model
+    return clamp01(lunationSubWithinDeg / 15);
+  }, [lunationSubWithinDeg]);
 
   const currentZodiac = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
@@ -335,13 +363,6 @@ export default function ProfileClient(props: Props) {
     })}`;
   }, [asOfISO, timezone]);
 
-  /**
-   * ✅ SOURCE OF TRUTH:
-   * If we have natalAscLon + currentSunLon, compute cyclePos live:
-   *   cyclePos = asOfSunLon - natalAscLon
-   *
-   * Cached ascYearJson is fallback only.
-   */
   const cyclePosTruth = useMemo(() => {
     if (typeof natalAscLon === "number" && typeof currentSunLon === "number") {
       return norm360(currentSunLon - natalAscLon);
@@ -452,8 +473,8 @@ export default function ProfileClient(props: Props) {
             </div>
           </div>
 
-          {/* ✅ New placements module (summary + expand) */}
-          <div className="w-full md:w-auto md:min-w-[520px]">
+          {/* placements module */}
+          <div className="w-full md:w-auto md:min-w-[560px]">
             <div className="rounded-3xl border border-[#E2D9CC]/20 bg-black/20 backdrop-blur px-5 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -509,7 +530,7 @@ export default function ProfileClient(props: Props) {
               <div className="mt-4 flex flex-wrap gap-6">
                 <Chip k="SUN (PROG)" v={progressedSun} />
                 <Chip k="MOON (PROG)" v={progressedMoon} />
-                <Chip k="TZ" v={timezone} />
+                <Chip k="LUNATION" v={lunationLine} />
               </div>
             </div>
           </div>
@@ -559,8 +580,29 @@ export default function ProfileClient(props: Props) {
                 <div className="text-sm font-semibold text-[#1F1B16]">
                   {progressedSun} • {progressedMoon}
                 </div>
-                <div className="mt-1 text-sm text-[#403A32]/75">
-                  Pulled from <span className="font-mono">/api/lunation</span>.
+                <div className="mt-2 text-sm text-[#403A32]/75">
+                  Lunation: <span className="font-semibold text-[#1F1B16]">{lunationLine}</span>
+                  {typeof lunationSeparationDeg === "number" ? (
+                    <span className="ml-2 text-xs text-[#403A32]/70">
+                      (sep {norm360(lunationSeparationDeg).toFixed(2)}°)
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                    Sub-phase progress (0–15°)
+                  </div>
+                  <ProgressBar
+                    value={subPhaseProgress01}
+                    labelLeft="0°"
+                    labelRight="15°"
+                    meta={
+                      typeof lunationSubWithinDeg === "number"
+                        ? `${lunationSubWithinDeg.toFixed(2)}° / 15°`
+                        : "—"
+                    }
+                  />
                 </div>
               </SubCard>
 
@@ -620,7 +662,7 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* ✅ Phase note (no redundancy, journal prompt = text only) */}
+            {/* Phase lens (kept) */}
             <div className="mt-4">
               <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
                 <div className="flex items-start justify-between gap-4">
@@ -691,7 +733,7 @@ export default function ProfileClient(props: Props) {
               </div>
             </div>
 
-            {/* ✅ URA FOUNDATION (kept) */}
+            {/* Foundation panel */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
