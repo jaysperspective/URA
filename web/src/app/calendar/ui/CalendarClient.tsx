@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
-import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 
@@ -84,9 +83,7 @@ function iconFor(kind: Marker["kind"]) {
 }
 
 function sunSignShortFromSunPos(sunPos?: string) {
-  const m = sunPos?.match(
-    /\b(Ari|Tau|Gem|Can|Leo|Vir|Lib|Sco|Sag|Cap|Aqu|Pis)\b/
-  );
+  const m = sunPos?.match(/\b(Ari|Tau|Gem|Can|Leo|Vir|Lib|Sco|Sag|Cap|Aqu|Pis)\b/);
   return m?.[1] ?? "—";
 }
 
@@ -122,10 +119,7 @@ function inferPhaseAngleDeg(phaseName?: string) {
  * 7 Last Quarter
  * 8 Waning Crescent
  */
-function lunarURAPhaseId(params: {
-  phaseAngleDeg?: number;
-  phaseName?: string;
-}): PhaseId {
+function lunarURAPhaseId(params: { phaseAngleDeg?: number; phaseName?: string }): PhaseId {
   const aRaw =
     typeof params.phaseAngleDeg === "number"
       ? normalizeAngle0to360(params.phaseAngleDeg)
@@ -133,8 +127,6 @@ function lunarURAPhaseId(params: {
 
   const a = normalizeAngle0to360(aRaw);
 
-  // bucket into 8 equal slices centered on the canonical phase angles
-  // boundaries every 45°: [0,45,90,135,180,225,270,315]
   const idx = Math.floor((a + 22.5) / 45) % 8; // 0..7
   return (idx + 1) as PhaseId;
 }
@@ -230,15 +222,7 @@ function MoonDisc({
   );
 }
 
-function Row({
-  left,
-  right,
-  icon,
-}: {
-  left: string;
-  right: string;
-  icon: string;
-}) {
+function Row({ left, right, icon }: { left: string; right: string; icon: string }) {
   return (
     <div className="px-5 py-4 flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -269,9 +253,7 @@ export default function CalendarClient() {
   async function load(targetYmd?: string) {
     setLoading(true);
     try {
-      const url = targetYmd
-        ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}`
-        : "/api/calendar";
+      const url = targetYmd ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}` : "/api/calendar";
       const res = await fetch(url, { cache: "no-store" });
       const json = (await res.json()) as CalendarAPI;
       setData(json);
@@ -292,10 +274,9 @@ export default function CalendarClient() {
     const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
     d.setUTCDate(d.getUTCDate() + deltaDays);
 
-    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+      d.getUTCDate()
+    ).padStart(2, "0")}`;
 
     load(next).catch(() => {});
   }
@@ -305,16 +286,13 @@ export default function CalendarClient() {
     return { top: "CURRENT", mid: data.lunar.phaseName };
   }, [data]);
 
-  // Solar phase microcopy (existing)
+  // Solar phase microcopy (still used for tooltips + chips only)
   const solarPhaseCopy = useMemo(() => {
     const p = data?.solar?.phase;
-    if (typeof p === "number" && p >= 1 && p <= 8) {
-      return microcopyForPhase(p as PhaseId);
-    }
+    if (typeof p === "number" && p >= 1 && p <= 8) return microcopyForPhase(p as PhaseId);
     return microcopyForPhase(1);
   }, [data?.solar?.phase]);
 
-  // Lunar URA phase (new)
   const lunarPhaseId = useMemo(() => {
     return lunarURAPhaseId({
       phaseAngleDeg: data?.lunar?.phaseAngleDeg,
@@ -322,15 +300,13 @@ export default function CalendarClient() {
     });
   }, [data?.lunar?.phaseAngleDeg, data?.lunar?.phaseName]);
 
-  // Lunar microcopy (optional: shown as a small chip + can be used later)
   const lunarPhaseCopy = useMemo(() => microcopyForPhase(lunarPhaseId), [lunarPhaseId]);
 
   const cardStyle: CSSProperties = {
     background:
       "linear-gradient(180deg, rgba(244,235,221,0.92) 0%, rgba(213,192,165,0.82) 55%, rgba(185,176,123,0.55) 120%)",
     borderColor: C.border,
-    boxShadow:
-      "0 26px 90px rgba(31,36,26,0.18), 0 2px 0 rgba(255,255,255,0.35) inset",
+    boxShadow: "0 26px 90px rgba(31,36,26,0.18), 0 2px 0 rgba(255,255,255,0.35) inset",
   };
 
   const panelStyle: CSSProperties = {
@@ -341,14 +317,9 @@ export default function CalendarClient() {
   const trackBg = "rgba(31,36,26,0.18)";
   const fillBg = "rgba(31,36,26,0.55)";
 
-  const sunSignShort = useMemo(
-    () => sunSignShortFromSunPos(data?.astro?.sunPos),
-    [data?.astro?.sunPos]
-  );
+  const sunSignShort = useMemo(() => sunSignShortFromSunPos(data?.astro?.sunPos), [data?.astro?.sunPos]);
 
-  // Shared Foundation panel props
-  const solarPhaseId =
-    typeof data?.solar?.phase === "number" ? data.solar.phase : null;
+  const solarPhaseId = typeof data?.solar?.phase === "number" ? data.solar.phase : null;
 
   const solarProgress01 =
     data?.solar?.kind === "INTERPHASE"
@@ -362,29 +333,23 @@ export default function CalendarClient() {
       : null;
 
   const sunText = data?.astro?.sunPos ?? "—";
-  const ontology = null; // fallback to metaForPhase inside shared component
+  const ontology = null;
 
   return (
     <div className="space-y-5">
-      {/* HERO */}
       <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
         <div className="text-sm tracking-widest" style={{ color: C.inkSoft }}>
           {header.top}
         </div>
 
-        {/* Moon disc ABOVE title */}
         <div className="mt-5 flex justify-center">
           <MoonDisc phaseName={header.mid} phaseAngleDeg={data?.lunar?.phaseAngleDeg} />
         </div>
 
-        <div
-          className="text-4xl font-semibold tracking-tight mt-3"
-          style={{ color: C.ink }}
-        >
+        <div className="text-4xl font-semibold tracking-tight mt-3" style={{ color: C.ink }}>
           {header.mid}
         </div>
 
-        {/* URA chips */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           <div
             className="rounded-full border px-3 py-1 text-xs"
@@ -403,7 +368,6 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        {/* Moon in Sign box */}
         <div className="mt-3 flex justify-center">
           <div
             className="rounded-2xl border px-5 py-3 text-sm"
@@ -417,8 +381,7 @@ export default function CalendarClient() {
             }}
           >
             <div style={{ color: C.ink }}>
-              The Moon is in{" "}
-              <span className="font-semibold">{data?.astro.moonSign ?? "—"}</span>
+              The Moon is in <span className="font-semibold">{data?.astro.moonSign ?? "—"}</span>
             </div>
             <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
               As of{" "}
@@ -438,7 +401,6 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        {/* ✅ MOON PHASE CYCLE moved UP (above Solar/Lunar Context) */}
         <div className="mt-5 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
@@ -469,9 +431,7 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        {/* SOLAR + LUNAR PANELS */}
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-          {/* Solar */}
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
               className="text-xs tracking-widest flex items-center gap-2"
@@ -483,37 +443,22 @@ export default function CalendarClient() {
             {data?.solar?.kind === "INTERPHASE" ? (
               <div className="mt-2 text-sm" style={{ color: C.ink }}>
                 Interphase • Day{" "}
-                <span className="font-semibold">
-                  {data?.solar?.interphaseDay ?? "—"}
-                </span>{" "}
-                of{" "}
-                <span className="font-semibold">
-                  {data?.solar?.interphaseTotal ?? "—"}
-                </span>
+                <span className="font-semibold">{data?.solar?.interphaseDay ?? "—"}</span> of{" "}
+                <span className="font-semibold">{data?.solar?.interphaseTotal ?? "—"}</span>
               </div>
             ) : (
               <div className="mt-2 text-sm" style={{ color: C.ink }}>
-                Phase{" "}
-                <span className="font-semibold">{data?.solar?.phase ?? "—"}</span>{" "}
-                of 8 • Day{" "}
-                <span className="font-semibold">
-                  {data?.solar?.dayInPhase ?? "—"}
-                </span>{" "}
-                of 45
+                Phase <span className="font-semibold">{data?.solar?.phase ?? "—"}</span> of 8 • Day{" "}
+                <span className="font-semibold">{data?.solar?.dayInPhase ?? "—"}</span> of 45
               </div>
             )}
 
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
               Day: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
-              {typeof data?.solar?.yearLength === "number"
-                ? data.solar.yearLength - 1
-                : "—"}
+              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength - 1 : "—"}
             </div>
 
-            <div
-              className="mt-3 w-full h-2 rounded-full overflow-hidden"
-              style={{ background: trackBg }}
-            >
+            <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: trackBg }}>
               <div
                 className="h-full"
                 style={{
@@ -521,10 +466,7 @@ export default function CalendarClient() {
                   width:
                     typeof data?.solar?.dayIndexInYear === "number" &&
                     typeof data?.solar?.yearLength === "number"
-                      ? `${Math.round(
-                          ((data.solar.dayIndexInYear + 1) / data.solar.yearLength) *
-                            100
-                        )}%`
+                      ? `${Math.round(((data.solar.dayIndexInYear + 1) / data.solar.yearLength) * 100)}%`
                       : "0%",
                 }}
               />
@@ -540,7 +482,6 @@ export default function CalendarClient() {
             </div>
           </div>
 
-          {/* Lunar */}
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
               className="text-xs tracking-widest flex items-center gap-2"
@@ -550,25 +491,17 @@ export default function CalendarClient() {
             </div>
 
             <div className="mt-2 text-sm" style={{ color: C.ink }}>
-              Full Lunar Cycle{" "}
-              <span className="font-semibold">0</span> • Lunar Day{" "}
-              <span className="font-semibold">{data?.lunar?.lunarDay ?? "—"}</span>{" "}
-              ({data?.lunar?.phaseName ?? "—"})
+              Full Lunar Cycle <span className="font-semibold">0</span> • Lunar Day{" "}
+              <span className="font-semibold">{data?.lunar?.lunarDay ?? "—"}</span> ({data?.lunar?.phaseName ?? "—"})
             </div>
 
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
               Age:{" "}
-              {typeof data?.lunar?.lunarAgeDays === "number"
-                ? `${data.lunar.lunarAgeDays.toFixed(2)} days`
-                : "—"}{" "}
-              <span style={{ color: C.inkSoft }}>•</span>{" "}
-              Lunar Day {data?.lunar?.lunarDay ?? "—"}
+              {typeof data?.lunar?.lunarAgeDays === "number" ? `${data.lunar.lunarAgeDays.toFixed(2)} days` : "—"}{" "}
+              <span style={{ color: C.inkSoft }}>•</span> Lunar Day {data?.lunar?.lunarDay ?? "—"}
             </div>
 
-            <div
-              className="mt-3 w-full h-2 rounded-full overflow-hidden"
-              style={{ background: trackBg }}
-            >
+            <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: trackBg }}>
               <div
                 className="h-full"
                 style={{
@@ -576,10 +509,7 @@ export default function CalendarClient() {
                   width:
                     typeof data?.lunar?.lunarAgeDays === "number" &&
                     typeof data?.lunar?.synodicMonthDays === "number"
-                      ? `${Math.round(
-                          (data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) *
-                            100
-                        )}%`
+                      ? `${Math.round((data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) * 100)}%`
                       : "0%",
                 }}
               />
@@ -589,25 +519,13 @@ export default function CalendarClient() {
               Moon: {data?.astro?.moonPos ?? "—"}
             </div>
 
-            {/* Lunar URA hint (small, not a second big panel) */}
             <div className="mt-2 text-xs" style={{ color: C.inkSoft }}>
               Lunar URA lens: <span style={{ color: C.inkMuted }}>{lunarPhaseCopy.oneLine}</span>
             </div>
           </div>
         </div>
 
-        {/* Orisha phase microcopy module (Solar URA) */}
-        <div className="mt-4 text-left">
-          <PhaseMicrocopyCard
-            copy={solarPhaseCopy}
-            tone="linen"
-            defaultExpanded={false}
-            showJournal={true}
-            showActionHint={true}
-          />
-        </div>
-
-        {/* URA FOUNDATION under phase panel */}
+        {/* ✅ Single source of truth: URA Foundation (PhaseMicrocopyCard removed) */}
         <div className="mt-4 text-left">
           <URAFoundationPanel
             solarPhaseId={solarPhaseId}
@@ -618,16 +536,11 @@ export default function CalendarClient() {
           />
         </div>
 
-        {/* Nav */}
         <div className="mt-6 flex items-center justify-between">
           <button
             onClick={() => nav(-1)}
             className="text-sm px-3 py-2 rounded-full border"
-            style={{
-              color: C.ink,
-              borderColor: C.border,
-              background: "rgba(244,235,221,0.70)",
-            }}
+            style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
           >
             ◀
           </button>
@@ -635,11 +548,7 @@ export default function CalendarClient() {
           <button
             onClick={() => load()}
             className="text-sm px-4 py-2 rounded-full border"
-            style={{
-              color: C.ink,
-              borderColor: C.border,
-              background: "rgba(244,235,221,0.70)",
-            }}
+            style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
           >
             ● Today
           </button>
@@ -647,11 +556,7 @@ export default function CalendarClient() {
           <button
             onClick={() => nav(1)}
             className="text-sm px-3 py-2 rounded-full border"
-            style={{
-              color: C.ink,
-              borderColor: C.border,
-              background: "rgba(244,235,221,0.70)",
-            }}
+            style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
           >
             ▶
           </button>
@@ -664,7 +569,6 @@ export default function CalendarClient() {
         </div>
       </div>
 
-      {/* Bottom rows */}
       <div
         className="rounded-2xl border overflow-hidden"
         style={{
@@ -683,11 +587,7 @@ export default function CalendarClient() {
         <div style={{ borderBottom: `1px solid ${C.divider}` }}>
           <Row
             left="Sun Longitude (0–360°)"
-            right={
-              typeof data?.astro?.sunLon === "number"
-                ? `${data.astro.sunLon.toFixed(2)}°`
-                : "—"
-            }
+            right={typeof data?.astro?.sunLon === "number" ? `${data.astro.sunLon.toFixed(2)}°` : "—"}
             icon="⦿"
           />
         </div>
