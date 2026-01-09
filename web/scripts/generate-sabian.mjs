@@ -3,9 +3,6 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 
-import fs from "node:fs";
-import path from "node:path";
-
 const OUT_PATH = path.resolve(process.cwd(), "src/lib/sabian/uraSabian.ts");
 
 const SIGNS = [
