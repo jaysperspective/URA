@@ -22,10 +22,7 @@ function norm360(d: number) {
   return x;
 }
 
-/**
- * Infer entry type from the dataset itself.
- * This avoids relying on ./uraSabian exporting a specific type name.
- */
+// ✅ infer type from URA_SABIAN so we never import a type name
 export type UraSabianEntry = (typeof URA_SABIAN)[number];
 
 export function sabianIndexFromLon(lon: number): number {
@@ -53,7 +50,7 @@ export function sabianFromLon(lon: number): UraSabianEntry {
   const found = URA_SABIAN.find((x) => x.idx === idx || x.key === key);
   if (found) return found;
 
-  // Should never happen if URA_SABIAN has 360 entries, but keeps app stable.
+  // Should not happen if URA_SABIAN has all 360 entries
   return {
     idx,
     key,
