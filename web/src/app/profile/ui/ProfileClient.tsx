@@ -1,4 +1,3 @@
-// src/app/profile/ui/ProfileClient.tsx
 "use client";
 
 import Link from "next/link";
@@ -135,7 +134,7 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const labelFixed = [
     { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
     { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
-    { txt: "SPRG ”", x: cx, y: cy - b - 22, anchor: "middle" as const },
+    { txt: "SPRG", x: cx, y: cy - b - 22, anchor: "middle" as const },
     { txt: "FALL", x: cx, y: cy + b + 34, anchor: "middle" as const },
   ];
 
@@ -160,7 +159,7 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
 
           {labelFixed.map((l) => (
             <text key={l.txt} x={l.x} y={l.y} textAnchor={l.anchor} style={labelStyle}>
-              {l.txt.replace(" ”", "")}
+              {l.txt}
             </text>
           ))}
         </svg>
@@ -232,9 +231,9 @@ function seasonFromCyclePos(cyclePosDeg: number) {
 }
 
 function fmtAsOfLabel(asOfISO: string | null, tz: string) {
-  if (!asOfISO) return undefined;
+  if (!asOfISO) return tz;
   const d = new Date(asOfISO);
-  if (!Number.isFinite(d.getTime())) return undefined;
+  if (!Number.isFinite(d.getTime())) return tz;
 
   try {
     return new Intl.DateTimeFormat("en-US", {
@@ -269,6 +268,15 @@ function planetLabel(k: keyof NatalPlanets) {
   return map[k];
 }
 
+type ProfileBrief = {
+  headline: string;
+  meaning: string;
+  do_now: string[];
+  avoid: string[];
+  journal: string;
+  confidence: "low" | "medium" | "high";
+};
+
 export default function ProfileClient(props: Props) {
   const {
     name,
@@ -302,6 +310,11 @@ export default function ProfileClient(props: Props) {
 
   const [showAllPlacements, setShowAllPlacements] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
+
+  // LLM brief state
+  const [brief, setBrief] = useState<ProfileBrief | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
 
   const natalAsc = fmtSignPos(natalAscLon);
   const natalMc = fmtSignPos(typeof natalMcLon === "number" ? natalMcLon : null);
@@ -363,7 +376,6 @@ export default function ProfileClient(props: Props) {
     const uraDegIntoPhase = ok ? (cyclePos! % 45) : null;
     const uraProgress01 = uraDegIntoPhase != null ? uraDegIntoPhase / 45 : null;
 
-    // “evidence” values (kept but not primary)
     const modalityText = ascYearModality || "—";
     const withinModality =
       typeof ascYearDegreesIntoModality === "number" ? ascYearDegreesIntoModality : null;
@@ -386,7 +398,6 @@ export default function ProfileClient(props: Props) {
   const phaseCopy = useMemo(() => microcopyForPhase(orientation.uraPhaseId), [orientation.uraPhaseId]);
 
   const phaseWindowMeta = useMemo(() => {
-    // 8 phases of 45°
     const phaseStart = (orientation.uraPhaseId - 1) * 45;
     const phaseEnd = phaseStart + 45;
     return `${phaseStart}°–${phaseEnd}°`;
@@ -459,9 +470,51 @@ export default function ProfileClient(props: Props) {
 
   const asOfLabelForFoundation = useMemo(() => fmtAsOfLabel(asOfISO, timezone), [asOfISO, timezone]);
 
+  async function generateBrief() {
+    try {
+      setBriefError(null);
+      setBriefLoading(true);
+
+      const ctx = {
+        season: String(orientation.seasonText ?? "—"),
+        phaseId: Number(orientation.uraPhaseId),
+        phaseHeader: String(phaseCopy.header ?? ""),
+        phaseOneLine: String(phaseCopy.oneLine ?? ""),
+        phaseDescription: String(phaseCopy.description ?? ""),
+        phaseActionHint: phaseCopy.actionHint ?? null,
+
+        cyclePosDeg: typeof orientation.cyclePos === "number" ? Number(orientation.cyclePos) : null,
+        degIntoPhase: typeof orientation.uraDegIntoPhase === "number" ? Number(orientation.uraDegIntoPhase) : null,
+        phaseProgress01: typeof orientation.uraProgress01 === "number" ? Number(orientation.uraProgress01) : null,
+
+        currentSun: currentSunText,
+        lunation: lunationLine,
+        progressed: progressedLine,
+        asOf: asOfLabelForFoundation ?? asOfLine,
+      };
+
+      const res = await fetch("/api/llm/profile-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ctx),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "LLM request failed.");
+      }
+
+      setBrief(data as ProfileBrief);
+    } catch (e: any) {
+      setBriefError(e?.message ?? "Failed to generate brief.");
+    } finally {
+      setBriefLoading(false);
+    }
+  }
+
   return (
     <div className="mt-8">
-      {/* TOP STRIP (kept) */}
+      {/* TOP STRIP */}
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="flex items-start gap-3">
@@ -540,11 +593,11 @@ export default function ProfileClient(props: Props) {
         </div>
       </div>
 
-      {/* MAIN CARD (rewired) */}
+      {/* MAIN CARD */}
       <div className="mt-8 mx-auto max-w-5xl">
         <CardShell>
           <div className="px-8 pt-10 pb-8">
-            {/* 1) ORIENTATION COMPASS */}
+            {/* ORIENTATION COMPASS */}
             <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
               <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                 Your Current Cycle Orientation
@@ -584,9 +637,85 @@ export default function ProfileClient(props: Props) {
                   </div>
                 </SubCard>
               </div>
+
+              {/* LLM BRIEF MODULE */}
+              <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                      Today’s Brief (LLM)
+                    </div>
+                    <div className="mt-1 text-sm text-[#403A32]/75">
+                      A short translation of your current orientation into practical language.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={generateBrief}
+                    disabled={briefLoading}
+                    className="rounded-full border px-3 py-1.5 text-xs hover:bg-black/5 disabled:opacity-60"
+                    style={{ borderColor: "rgba(0,0,0,0.12)", color: "rgba(31,27,22,0.75)" }}
+                  >
+                    {briefLoading ? "Generating…" : brief ? "Regenerate" : "Generate"}
+                  </button>
+                </div>
+
+                {briefError ? (
+                  <div className="mt-3 rounded-xl border border-black/10 bg-white/40 px-3 py-2 text-sm text-[#403A32]/80">
+                    {briefError}
+                  </div>
+                ) : null}
+
+                {brief ? (
+                  <div className="mt-4">
+                    <div className="text-sm font-semibold text-[#1F1B16]">{brief.headline}</div>
+                    <div className="mt-2 text-sm text-[#403A32]/85 leading-relaxed">{brief.meaning}</div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="rounded-xl border border-black/10 bg-white/35 px-3 py-3">
+                        <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                          Do now
+                        </div>
+                        <ul className="mt-2 list-disc pl-5 text-sm text-[#403A32]/85">
+                          {brief.do_now.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="rounded-xl border border-black/10 bg-white/35 px-3 py-3">
+                        <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                          Avoid
+                        </div>
+                        <ul className="mt-2 list-disc pl-5 text-sm text-[#403A32]/85">
+                          {brief.avoid.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-xl border border-black/10 bg-white/35 px-3 py-3">
+                      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                        Journal
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-[#1F1B16]">{brief.journal}</div>
+                    </div>
+
+                    <div className="mt-3 text-[11px] text-[#403A32]/65">
+                      Confidence: <span className="font-semibold text-[#1F1B16]">{brief.confidence}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 text-sm text-[#403A32]/70">
+                    Click Generate to produce a short brief for today.
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* 2) CYCLE MAP */}
+            {/* CYCLE MAP */}
             <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -625,14 +754,12 @@ export default function ProfileClient(props: Props) {
                 </SubCard>
 
                 <SubCard title="Phase window">
-                  <div className="text-sm font-semibold text-[#1F1B16]">
-                    {`Phase ${orientation.uraPhaseId} (${phaseWindowMeta})`}
-                  </div>
+                  <div className="text-sm font-semibold text-[#1F1B16]">{`Phase ${orientation.uraPhaseId} (${phaseWindowMeta})`}</div>
                 </SubCard>
               </div>
             </div>
 
-            {/* 3) PROGRESS (two bars only) */}
+            {/* PROGRESS */}
             <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
               <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                 Progress
@@ -643,12 +770,7 @@ export default function ProfileClient(props: Props) {
                   <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                     Within this season (0–90°)
                   </div>
-                  <ProgressBar
-                    value={orientation.seasonProgress01}
-                    labelLeft="0°"
-                    labelRight="90°"
-                    meta={seasonProgressMeta}
-                  />
+                  <ProgressBar value={orientation.seasonProgress01} labelLeft="0°" labelRight="90°" meta={seasonProgressMeta} />
                 </div>
 
                 <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
@@ -661,19 +783,11 @@ export default function ProfileClient(props: Props) {
                     labelRight="45°"
                     meta={phaseProgressMeta}
                   />
-                  <div className="mt-2 text-xs text-[#403A32]/70">
-                    You’re {typeof orientation.uraProgress01 === "number" && orientation.uraProgress01 < 0.35
-                      ? "early"
-                      : typeof orientation.uraProgress01 === "number" && orientation.uraProgress01 < 0.7
-                      ? "mid"
-                      : "late"}{" "}
-                    in Phase {orientation.uraPhaseId}.
-                  </div>
                 </div>
               </div>
             </div>
 
-            {/* 4) CURRENT SKY CONTEXT */}
+            {/* CURRENT SKY CONTEXT */}
             <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
               <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
                 Current Sky Context
@@ -682,9 +796,7 @@ export default function ProfileClient(props: Props) {
               <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <SubCard title="Sun now">
                   <div className="text-sm font-semibold text-[#1F1B16]">{currentSunText}</div>
-                  <div className="mt-1 text-sm text-[#403A32]/75">
-                    Uses the as-of transiting Sun when available.
-                  </div>
+                  <div className="mt-1 text-sm text-[#403A32]/75">Uses the as-of transiting Sun when available.</div>
                 </SubCard>
 
                 <SubCard title="Progressed Sun · Moon">
@@ -708,7 +820,7 @@ export default function ProfileClient(props: Props) {
               </div>
             </div>
 
-            {/* 5) FOUNDATION PANEL (kept) */}
+            {/* FOUNDATION PANEL */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
@@ -719,7 +831,7 @@ export default function ProfileClient(props: Props) {
               />
             </div>
 
-            {/* 6) EVIDENCE / CALC DETAILS (collapsible) */}
+            {/* EVIDENCE */}
             <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-4">
               <button
                 type="button"
@@ -735,7 +847,8 @@ export default function ProfileClient(props: Props) {
                   </div>
                 </div>
 
-                <div className="rounded-full border px-3 py-1.5 text-xs hover:bg-black/5"
+                <div
+                  className="rounded-full border px-3 py-1.5 text-xs hover:bg-black/5"
                   style={{ borderColor: "rgba(0,0,0,0.12)", color: "rgba(31,27,22,0.75)" }}
                 >
                   {showEvidence ? "Hide" : "Show"}
