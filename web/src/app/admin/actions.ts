@@ -1,9 +1,8 @@
-// src/app/admin/action.ts
-
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { adminCookie, makeAdminCookieValue } from "@/lib/adminAuth";
+import { auditLog } from "@/lib/audit";
 
 export async function adminUnlockAction(_: any, formData: FormData) {
   const password = String(formData.get("password") || "");
@@ -16,6 +15,7 @@ export async function adminUnlockAction(_: any, formData: FormData) {
   }
 
   if (password !== expected) {
+    await auditLog({ action: "admin.unlock_failed" });
     return { ok: false, error: "Invalid password." };
   }
 
@@ -25,10 +25,15 @@ export async function adminUnlockAction(_: any, formData: FormData) {
   jar.set(adminCookie.name, value, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production", // safer for local/dev
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: adminCookie.maxAgeSeconds,
   });
+
+  const h = await headers();
+  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? h.get("x-real-ip");
+
+  await auditLog({ action: "admin.unlock", ip });
 
   return { ok: true };
 }
@@ -43,5 +48,8 @@ export async function adminLockAction() {
     maxAge: 0,
   });
 
+  await auditLog({ action: "admin.lock" });
+
   return { ok: true };
 }
+
