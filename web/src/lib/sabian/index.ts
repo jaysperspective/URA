@@ -23,18 +23,17 @@ function norm360(d: number) {
 }
 
 /**
- * Infer entry type from the generated dataset.
- * This avoids requiring an exported type from ./uraSabian.
+ * Infer entry type from the dataset itself.
+ * This avoids relying on ./uraSabian exporting a specific type name.
  */
 export type UraSabianEntry = (typeof URA_SABIAN)[number];
 
 export function sabianIndexFromLon(lon: number): number {
-  // lon 0..360 => index 0..359
   const x = norm360(lon);
   const signIdx = Math.floor(x / 30); // 0..11
   const deg0 = Math.floor(x % 30); // 0..29
   const degree = deg0 + 1; // 1..30
-  return signIdx * 30 + (degree - 1);
+  return signIdx * 30 + (degree - 1); // 0..359
 }
 
 export function sabianKeyFromLon(lon: number): { sign: string; degree: number; key: string; idx: number } {
@@ -48,30 +47,24 @@ export function sabianKeyFromLon(lon: number): { sign: string; degree: number; k
 export function sabianFromLon(lon: number): UraSabianEntry {
   const { idx, key, sign, degree } = sabianKeyFromLon(lon);
 
-  // Prefer lookup by idx (fast)
-  const byIdx = (URA_SABIAN as any)?.[idx];
-  if (byIdx && typeof byIdx === "object") return byIdx as UraSabianEntry;
+  const byIdx = URA_SABIAN[idx];
+  if (byIdx && typeof byIdx === "object") return byIdx;
 
-  // Fallback: find by key
-  const found =
-    Array.isArray(URA_SABIAN)
-      ? (URA_SABIAN as any[]).find((x) => x?.idx === idx || x?.key === key)
-      : null;
+  const found = URA_SABIAN.find((x) => x.idx === idx || x.key === key);
+  if (found) return found;
 
-  if (found) return found as UraSabianEntry;
-
-  // Final fallback object (keeps the app stable if dataset isn't generated)
+  // Should never happen if URA_SABIAN has 360 entries, but keeps app stable.
   return {
     idx,
     key,
     sign,
     degree,
-    symbol: "— (dataset not generated yet)",
+    symbol: "—",
     signal: "—",
     shadow: "—",
     directive: "—",
     practice: "—",
     journal: "—",
     tags: [],
-  } as unknown as UraSabianEntry;
+  } as UraSabianEntry;
 }
