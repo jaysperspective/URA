@@ -1,5 +1,4 @@
 // src/app/api/profile/brief/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
