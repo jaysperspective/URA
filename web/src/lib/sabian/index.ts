@@ -1,5 +1,5 @@
 // src/lib/sabian/index.ts
-import { URA_SABIAN, type UraSabianEntry } from "./uraSabian";
+import { URA_SABIAN } from "./uraSabian";
 
 const SIGNS_FULL = [
   "Aries",
@@ -22,12 +22,19 @@ function norm360(d: number) {
   return x;
 }
 
+/**
+ * Infer entry type from the generated dataset.
+ * This avoids requiring an exported type from ./uraSabian.
+ */
+export type UraSabianEntry = (typeof URA_SABIAN)[number];
+
 export function sabianIndexFromLon(lon: number): number {
+  // lon 0..360 => index 0..359
   const x = norm360(lon);
   const signIdx = Math.floor(x / 30); // 0..11
   const deg0 = Math.floor(x % 30); // 0..29
-  const sabianDeg = deg0 + 1; // 1..30
-  return signIdx * 30 + (sabianDeg - 1); // 0..359
+  const degree = deg0 + 1; // 1..30
+  return signIdx * 30 + (degree - 1);
 }
 
 export function sabianKeyFromLon(lon: number): { sign: string; degree: number; key: string; idx: number } {
@@ -41,15 +48,19 @@ export function sabianKeyFromLon(lon: number): { sign: string; degree: number; k
 export function sabianFromLon(lon: number): UraSabianEntry {
   const { idx, key, sign, degree } = sabianKeyFromLon(lon);
 
-  const byIdx = URA_SABIAN?.[idx];
-  if (byIdx && byIdx.idx === idx) return byIdx;
+  // Prefer lookup by idx (fast)
+  const byIdx = (URA_SABIAN as any)?.[idx];
+  if (byIdx && typeof byIdx === "object") return byIdx as UraSabianEntry;
 
-  const found = Array.isArray(URA_SABIAN)
-    ? URA_SABIAN.find((x) => x?.idx === idx || x?.key === key)
-    : undefined;
+  // Fallback: find by key
+  const found =
+    Array.isArray(URA_SABIAN)
+      ? (URA_SABIAN as any[]).find((x) => x?.idx === idx || x?.key === key)
+      : null;
 
-  if (found) return found;
+  if (found) return found as UraSabianEntry;
 
+  // Final fallback object (keeps the app stable if dataset isn't generated)
   return {
     idx,
     key,
@@ -62,5 +73,5 @@ export function sabianFromLon(lon: number): UraSabianEntry {
     practice: "—",
     journal: "—",
     tags: [],
-  };
+  } as unknown as UraSabianEntry;
 }
