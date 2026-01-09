@@ -1,3 +1,5 @@
+// src/app/admin/action.ts
+
 "use server";
 
 import { cookies } from "next/headers";
@@ -19,10 +21,11 @@ export async function adminUnlockAction(_: any, formData: FormData) {
 
   const value = makeAdminCookieValue(cookieSecret);
 
-  cookies().set(adminCookie.name, value, {
+  const jar = await cookies();
+  jar.set(adminCookie.name, value, {
     httpOnly: true,
     sameSite: "lax",
-    secure: true, // keep true in production; if you're local http you may need false locally
+    secure: process.env.NODE_ENV === "production", // safer for local/dev
     path: "/",
     maxAge: adminCookie.maxAgeSeconds,
   });
@@ -31,10 +34,11 @@ export async function adminUnlockAction(_: any, formData: FormData) {
 }
 
 export async function adminLockAction() {
-  cookies().set(adminCookie.name, "", {
+  const jar = await cookies();
+  jar.set(adminCookie.name, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: true,
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 0,
   });
