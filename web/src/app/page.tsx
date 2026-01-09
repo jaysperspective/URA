@@ -1,6 +1,5 @@
 // src/app/page.tsx
 import Link from "next/link";
-import AppNav from "@/components/AppNav";
 
 function CardShell({ children }: { children: React.ReactNode }) {
   return (
@@ -37,10 +36,7 @@ function ActionLink({
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div
-            className="text-sm font-semibold"
-            style={{ color: "rgba(31,36,26,0.92)" }}
-          >
+          <div className="text-sm font-semibold" style={{ color: "rgba(31,36,26,0.92)" }}>
             {title}
           </div>
           <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.70)" }}>
@@ -80,27 +76,17 @@ function AuthPanel() {
           >
             Access
           </div>
-          <div
-            className="mt-2 text-sm font-semibold"
-            style={{ color: "rgba(31,36,26,0.88)" }}
-          >
+          <div className="mt-2 text-sm font-semibold" style={{ color: "rgba(31,36,26,0.88)" }}>
             Sign in to view your orientation
           </div>
-          <div
-            className="mt-2 text-sm"
-            style={{ color: "rgba(31,36,26,0.70)", lineHeight: 1.6 }}
-          >
-            URA is a private daily compass. Create an account to save your birth
-            details and generate your live cycle.
+          <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.70)", lineHeight: 1.6 }}>
+            URA is a private daily compass. Create an account to save your birth details and generate your live cycle.
           </div>
         </div>
 
         <div
           className="rounded-full border px-3 py-1 text-xs"
-          style={{
-            borderColor: "rgba(31,36,26,0.16)",
-            color: "rgba(31,36,26,0.70)",
-          }}
+          style={{ borderColor: "rgba(31,36,26,0.16)", color: "rgba(31,36,26,0.70)" }}
         >
           Private
         </div>
@@ -159,10 +145,7 @@ function AuthPanel() {
               background: "rgba(244,235,221,0.56)",
             }}
           >
-            <div
-              className="text-[11px] tracking-[0.18em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)" }}
-            >
+            <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
               {x.k}
             </div>
             <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
@@ -182,30 +165,35 @@ export default function HomePage() {
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
       <div className="mx-auto w-full max-w-5xl">
-        {/* Header */}
-        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-baseline justify-between md:block">
-            <div
-              className="text-xs tracking-[0.28em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)" }}
-            >
+        {/* Header (no nav on home) */}
+        <div className="mb-5 flex items-baseline justify-between">
+          <div>
+            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
               URA
             </div>
-            <div
-              className="mt-1 text-lg font-semibold tracking-tight"
-              style={{ color: "rgba(31,36,26,0.90)" }}
-            >
+            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
               Home
             </div>
           </div>
 
-          {/* ✅ unified nav */}
-          <AppNav includeHome activePathOverride="/" />
+          {/* Optional: small single-link escape hatch (kept subtle) */}
+          <Link
+            href="/astrology"
+            className="rounded-full border px-4 py-2 text-sm"
+            style={{
+              borderColor: "rgba(31,36,26,0.16)",
+              background: "rgba(244,235,221,0.62)",
+              color: "rgba(31,36,26,0.80)",
+            }}
+          >
+            Astrology
+          </Link>
         </div>
 
         {/* Hero */}
         <CardShell>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+            {/* Left */}
             <div>
               <div
                 className="text-[11px] tracking-[0.18em] uppercase"
@@ -214,22 +202,16 @@ export default function HomePage() {
                 Temporal–Ecological Orientation
               </div>
 
-              <div
-                className="mt-2 text-3xl md:text-4xl font-semibold tracking-tight"
-                style={{ color: "rgba(31,36,26,0.92)" }}
-              >
+              <div className="mt-2 text-3xl md:text-4xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
                 Truth is knowing what time it is.
               </div>
 
-              <div
-                className="mt-3 text-sm md:text-[15px]"
-                style={{ color: "rgba(31,36,26,0.72)", lineHeight: 1.6 }}
-              >
-                URA is a timing instrument. Not prediction. Not personality typing. It
-                restores temporal literacy: recognizing the phase you’re in, and choosing
-                the right mode of engagement.
+              <div className="mt-3 text-sm md:text-[15px]" style={{ color: "rgba(31,36,26,0.72)", lineHeight: 1.6 }}>
+                URA is a timing instrument. Not prediction. Not personality typing. It restores temporal literacy: recognizing the phase
+                you’re in, and choosing the right mode of engagement.
               </div>
 
+              {/* Primary CTAs */}
               <div className="mt-5 flex flex-wrap gap-2">
                 <Link
                   href="/profile"
@@ -242,6 +224,20 @@ export default function HomePage() {
                   }}
                 >
                   Open my orientation
+                </Link>
+
+                {/* ✅ Option A: direct link to Astrology system */}
+                <Link
+                  href="/astrology"
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{
+                    borderColor: "rgba(31,36,26,0.20)",
+                    background: "rgba(84,138,98,0.92)",
+                    color: "rgba(244,235,221,0.96)",
+                    boxShadow: "0 12px 34px rgba(31,36,26,0.22)",
+                  }}
+                >
+                  Open astrology system
                 </Link>
 
                 <Link
@@ -274,6 +270,7 @@ export default function HomePage() {
               </div>
             </div>
 
+            {/* Right */}
             <AuthPanel />
           </div>
         </CardShell>
@@ -297,19 +294,12 @@ export default function HomePage() {
                 >
                   Doctrine
                 </div>
-                <div
-                  className="mt-2 text-xl font-semibold tracking-tight"
-                  style={{ color: "rgba(31,36,26,0.92)" }}
-                >
+                <div className="mt-2 text-xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
                   A Temporal–Ecological System for Human Orientation
                 </div>
-                <div
-                  className="mt-3 text-sm"
-                  style={{ color: "rgba(31,36,26,0.72)", lineHeight: 1.6 }}
-                >
-                  URA treats time as a living process and restores phase-appropriate behavior:
-                  emergence, establishment, differentiation, bonding, assertion, transformation,
-                  dissolution, witnessing.
+                <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)", lineHeight: 1.6 }}>
+                  URA treats time as a living process and restores phase-appropriate behavior: emergence, establishment, differentiation,
+                  bonding, assertion, transformation, dissolution, witnessing.
                 </div>
               </div>
 
