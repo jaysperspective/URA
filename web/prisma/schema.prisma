@@ -1,3 +1,4 @@
+// prisma/schema.prisma
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
@@ -17,12 +18,8 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  // --- NEW: activity tracking ---
-  // last time this user was seen using the app
+  // --- Activity tracking (for DAU/WAU/MAU) ---
   lastSeenAt     DateTime?
-
-  // optional helper: store a "YYYY-MM-DD" day key in the user's timezone
-  // useful if you later want daily active counts without recomputing
   lastSeenDayKey String?
 
   profile        Profile?
@@ -82,4 +79,17 @@ model Session {
   expiresAt DateTime
 
   @@index([userId])
+}
+
+// --- Admin audit trail (unlock/lock + future admin operations) ---
+model AdminAuditLog {
+  id        Int      @id @default(autoincrement())
+  action    String
+  actor     String   @default("admin")
+  ip        String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
 }
