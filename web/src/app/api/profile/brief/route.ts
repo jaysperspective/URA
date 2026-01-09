@@ -1,22 +1,18 @@
+// src/app/api/profile/brief/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 
 export const runtime = "nodejs";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 type BriefReq = {
   version: "1.0";
   context: {
-    season: string; // "Spring"
-    phaseId: number; // 1..8
+    season: string;
+    phaseId: number;
     cyclePosDeg?: number | null;
     degIntoPhase?: number | null;
     phaseProgress01?: number | null;
 
-    // URA phase copy (authoritative)
     phaseHeader: string;
     phaseOneLine: string;
     phaseDescription: string;
@@ -24,36 +20,37 @@ type BriefReq = {
     journalPrompt: string;
     journalHelper: string;
 
-    // sky context (already formatted strings)
-    currentSun: string; // e.g. "Cap 17° 41'"
-    lunation: string; // e.g. "Waxing Crescent • Initiation"
-    progressed: string; // e.g. "Pis 10° · Tau 2°"
-    asOf: string; // formatted
+    currentSun: string;
+    lunation: string;
+    progressed: string;
+    asOf: string;
   };
   output?: {
-    maxDoNow?: number; // default 3
-    maxAvoid?: number; // default 2
-    maxSentencesMeaning?: number; // default 4
+    maxDoNow?: number;
+    maxAvoid?: number;
+    maxSentencesMeaning?: number;
   };
   constraints?: {
-    noPrediction?: boolean; // default true
-    noNewClaims?: boolean; // default true
-    citeInputs?: boolean; // default true (adds usedFields)
+    noPrediction?: boolean;
+    noNewClaims?: boolean;
+    citeInputs?: boolean;
   };
+};
+
+type ProfileBrief = {
+  headline: string;
+  meaning: string;
+  do_now: string[];
+  avoid: string[];
+  journal: string;
+  confidence: "low" | "medium" | "high";
+  usedFields?: string[];
 };
 
 type BriefOk = {
   ok: true;
   version: "1.0";
-  output: {
-    headline: string;
-    meaning: string;
-    do_now: string[];
-    avoid: string[];
-    journal: string;
-    confidence: "low" | "medium" | "high";
-    usedFields?: string[];
-  };
+  output: ProfileBrief;
   meta?: { model?: string };
 };
 
@@ -61,7 +58,10 @@ type BriefErr = { ok: false; error: string; code?: string };
 
 function clampList(arr: unknown, max: number): string[] {
   if (!Array.isArray(arr)) return [];
-  return arr.filter((x) => typeof x === "string" && x.trim()).slice(0, max);
+  return arr
+    .filter((x) => typeof x === "string" && x.trim())
+    .map((s) => String(s).trim())
+    .slice(0, max);
 }
 
 function safeStr(x: unknown, fallback = ""): string {
@@ -82,28 +82,28 @@ Hard rules:
 - Keep it grounded, practical, concise.
 - Output ONLY valid JSON. No markdown.
 
-JSON schema (exact keys):
+Return JSON with EXACT keys:
 {
-  "headline": string,                 // 1 sentence max
-  "meaning": string,                  // 2–4 sentences max (unless overridden)
-  "do_now": string[],                 // max N
-  "avoid": string[],                  // max N
-  "journal": string,                  // 1 question
+  "headline": string,
+  "meaning": string,
+  "do_now": string[],
+  "avoid": string[],
+  "journal": string,
   "confidence": "low"|"medium"|"high",
-  "usedFields": string[]              // list of context keys used (if requested)
+  "usedFields": string[]
 }
 `.trim();
 
-function buildPrompt(req: BriefReq) {
-  const c = req.context;
+function buildUserPrompt(body: BriefReq) {
+  const c = body.context;
 
-  const maxDoNow = req.output?.maxDoNow ?? 3;
-  const maxAvoid = req.output?.maxAvoid ?? 2;
-  const maxSentencesMeaning = req.output?.maxSentencesMeaning ?? 4;
+  const maxDoNow = body.output?.maxDoNow ?? 3;
+  const maxAvoid = body.output?.maxAvoid ?? 2;
+  const maxSentencesMeaning = body.output?.maxSentencesMeaning ?? 4;
 
-  const noPrediction = req.constraints?.noPrediction ?? true;
-  const noNewClaims = req.constraints?.noNewClaims ?? true;
-  const citeInputs = req.constraints?.citeInputs ?? true;
+  const noPrediction = body.constraints?.noPrediction ?? true;
+  const noNewClaims = body.constraints?.noNewClaims ?? true;
+  const citeInputs = body.constraints?.citeInputs ?? true;
 
   return `
 Generate a "daily brief" for a URA profile page.
@@ -152,6 +152,12 @@ Return ONLY JSON.
 
 export async function POST(req: NextRequest) {
   try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      const err: BriefErr = { ok: false, error: "Missing OPENAI_API_KEY.", code: "NO_API_KEY" };
+      return NextResponse.json(err, { status: 500 });
+    }
+
     const body = (await req.json()) as BriefReq;
 
     if (!body || body.version !== "1.0" || !body.context) {
@@ -164,17 +170,36 @@ export async function POST(req: NextRequest) {
       process.env.OPENAI_MODEL?.toString().trim() ||
       "gpt-4.1-mini";
 
-    const completion = await openai.chat.completions.create({
-      model,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: buildPrompt(body) },
-      ],
+    // Chat Completions (works with response_format json_object)
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: buildUserPrompt(body) },
+        ],
+      }),
     });
 
-    const raw = completion.choices?.[0]?.message?.content ?? "";
+    const data = await r.json();
+
+    if (!r.ok) {
+      const errMsg =
+        data?.error?.message ||
+        data?.message ||
+        `OpenAI error (${r.status})`;
+      const err: BriefErr = { ok: false, error: errMsg, code: "OPENAI_ERROR" };
+      return NextResponse.json(err, { status: 502 });
+    }
+
+    const raw = data?.choices?.[0]?.message?.content ?? "";
     let parsed: any;
     try {
       parsed = JSON.parse(raw);
