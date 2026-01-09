@@ -1,7 +1,12 @@
 // scripts/generate-sabian.mjs
-import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
+import dotenv from "dotenv";
+
+// Load Next-style env files in the same precedence Next uses.
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+
 
 const OUT_PATH = path.resolve(process.cwd(), "src/lib/sabian/uraSabian.ts");
 
