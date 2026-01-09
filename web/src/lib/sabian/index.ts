@@ -41,24 +41,21 @@ export function sabianKeyFromLon(lon: number): { sign: string; degree: number; k
 export function sabianFromLon(lon: number): UraSabianEntry {
   const { idx, key, sign, degree } = sabianKeyFromLon(lon);
 
-  // Prefer lookup by idx (fast)
   const byIdx = URA_SABIAN?.[idx];
   if (byIdx && byIdx.idx === idx) return byIdx;
 
-  // Fallback: find by idx/key
   const found = Array.isArray(URA_SABIAN)
     ? URA_SABIAN.find((x) => x?.idx === idx || x?.key === key)
     : undefined;
 
   if (found) return found;
 
-  // Not generated yet: return a stable placeholder
   return {
     idx,
     key,
     sign,
     degree,
-    symbol: "— (Sabian dataset not generated yet)",
+    symbol: "— (dataset not generated yet)",
     signal: "—",
     shadow: "—",
     directive: "—",
