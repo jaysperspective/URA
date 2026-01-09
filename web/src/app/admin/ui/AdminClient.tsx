@@ -18,7 +18,10 @@ type Props = {
 export default function AdminClient({ unlocked, masterKey, metrics, serverHasConfig }: Props) {
   const [revealKey, setRevealKey] = useState(false);
 
-  const [state, unlockAction, pending] = useActionState(adminUnlockAction, { ok: false as boolean, error: "" });
+  const [state, unlockAction, pending] = useActionState(adminUnlockAction, {
+    ok: false as boolean,
+    error: "",
+  });
 
   const configOk = useMemo(() => {
     return serverHasConfig.hasMasterKey && serverHasConfig.hasAdminPassword && serverHasConfig.hasCookieSecret;
@@ -30,13 +33,16 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
-            <p className="text-white/60 text-sm mt-1">
-              Private control room (metrics, keys, operations).
-            </p>
+            <p className="text-white/60 text-sm mt-1">Private control room (metrics, keys, operations).</p>
           </div>
 
           {unlocked && (
-            <form action={async () => { await adminLockAction(); location.reload(); }}>
+            <form
+              action={async () => {
+                await adminLockAction();
+                location.reload();
+              }}
+            >
               <button
                 className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
                 type="submit"
@@ -79,21 +85,17 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
                   {pending ? "Unlocking..." : "Unlock"}
                 </button>
 
-                {state?.error ? (
-                  <div className="text-sm text-red-300">{state.error}</div>
-                ) : null}
+                {state?.error ? <div className="text-sm text-red-300">{state.error}</div> : null}
               </form>
 
-              <div className="mt-4 text-xs text-white/50">
-                Tip: keep this password separate from your normal user login.
-              </div>
+              <div className="mt-4 text-xs text-white/50">Tip: keep this password separate from your normal user login.</div>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="text-sm text-white/70">What you’ll see</div>
               <div className="text-lg font-medium mt-1">Keys + Metrics</div>
               <p className="text-sm text-white/60 mt-2">
-                Once unlocked, you’ll see your master key, user totals, active users, and growth signals.
+                Once unlocked, you’ll see your master key, user totals, actives (DAU/WAU/MAU), and an audit trail.
               </p>
             </div>
           </div>
@@ -115,33 +117,66 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
               </div>
 
               <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-4 font-mono text-sm overflow-x-auto">
-                {revealKey ? (masterKey || "(empty)") : "••••••••••••••••••••••••••••••••"}
+                {revealKey ? masterKey || "(empty)" : "••••••••••••••••••••••••••••••••"}
               </div>
             </div>
 
             {/* Metrics */}
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="text-sm text-white/70">User Metrics</div>
+
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Stat label="Total signups" value={metrics?.totalUsers ?? "—"} />
-                <Stat label="Active (7d)" value={metrics?.active7d ?? "—"} />
-                <Stat label="New (30d)" value={metrics?.newUsers30d ?? "—"} />
+                <Stat label="DAU (24h)" value={metrics?.dau ?? "—"} />
+                <Stat label="WAU (7d)" value={metrics?.wau ?? "—"} />
+                <Stat label="MAU (30d)" value={metrics?.mau ?? "—"} />
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <Stat label="New users (7d)" value={metrics?.newUsers7d ?? "—"} />
+                <Stat label="New users (30d)" value={metrics?.newUsers30d ?? "—"} />
                 <Stat label="Last signup" value={metrics?.lastSignupAt ? fmtIso(metrics.lastSignupAt) : "—"} />
               </div>
 
               <div className="mt-4 text-xs text-white/50">
-                “Active” uses <span className="font-mono">User.lastSeenAt</span>. If you don’t have it yet, we’ll add it.
+                Actives are computed from <span className="font-mono">User.lastSeenAt</span>.
               </div>
             </div>
 
-            {/* Quick tools (placeholders) */}
+            {/* Audit */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="text-sm text-white/70">Admin Audit Log</div>
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/30 overflow-hidden">
+                <div className="grid grid-cols-12 px-4 py-2 text-xs text-white/50 border-b border-white/10">
+                  <div className="col-span-3">Time</div>
+                  <div className="col-span-6">Action</div>
+                  <div className="col-span-3">Actor</div>
+                </div>
+
+                {(metrics?.recentAudit ?? []).length === 0 ? (
+                  <div className="px-4 py-4 text-sm text-white/60">No audit events yet.</div>
+                ) : (
+                  <div className="divide-y divide-white/10">
+                    {(metrics?.recentAudit ?? []).map((row) => (
+                      <div key={row.id} className="grid grid-cols-12 px-4 py-3 text-sm">
+                        <div className="col-span-3 text-white/70">{fmtIso(row.createdAt)}</div>
+                        <div className="col-span-6 font-mono">{row.action}</div>
+                        <div className="col-span-3 text-white/70">{row.actor}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Quick tools placeholder */}
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="text-sm text-white/70">Quick Tools</div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <Tool title="Export users (CSV)" note="Handy for backups + analytics" disabled />
-                <Tool title="View audit log" note="Track admin actions + critical events" disabled />
                 <Tool title="Feature flags" note="Turn modules on/off without deploy" disabled />
                 <Tool title="System health" note="DB / API / cron / queues" disabled />
+                <Tool title="Cache controls" note="Clear daily caches / rebuild doctrine" disabled />
               </div>
             </div>
           </div>
