@@ -135,46 +135,35 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
   const labelFixed = [
     { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
     { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
-    { txt: "SPRG", x: cx, y: cy - b - 22, anchor: "middle" as const },
+    { txt: "SPRG ”", x: cx, y: cy - b - 22, anchor: "middle" as const },
     { txt: "FALL", x: cx, y: cy + b + 34, anchor: "middle" as const },
   ];
 
   return (
     <div className="mx-auto w-full max-w-[820px]">
-      <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Cycle Waveform</div>
-          <div className="text-xs text-[#403A32]/70">{pos.toFixed(2)}°</div>
-        </div>
+      <div className="mt-3 overflow-x-auto">
+        <svg width={size} height={H} className="block">
+          <line x1={0} y1={cy} x2={size} y2={cy} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
+          <line x1={cx} y1={0} x2={cx} y2={H} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
 
-        <div className="mt-4 overflow-x-auto">
-          <svg width={size} height={H} className="block">
-            <line x1={0} y1={cy} x2={size} y2={cy} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
-            <line x1={cx} y1={0} x2={cx} y2={H} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
+          <path
+            d={pathD}
+            fill="none"
+            stroke="rgba(0,0,0,0.58)"
+            strokeWidth="2.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
 
-            <path
-              d={pathD}
-              fill="none"
-              stroke="rgba(0,0,0,0.58)"
-              strokeWidth="2.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+          <circle cx={px} cy={py} r="6" fill="rgba(140,131,119,0.95)" />
+          <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
 
-            <circle cx={px} cy={py} r="6" fill="rgba(140,131,119,0.95)" />
-            <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
-
-            {labelFixed.map((l) => (
-              <text key={l.txt} x={l.x} y={l.y} textAnchor={l.anchor} style={labelStyle}>
-                {l.txt}
-              </text>
-            ))}
-          </svg>
-        </div>
-
-        <div className="mt-3 text-center text-sm text-[#403A32]/75">
-          Sideways ∞ map. Marker = current cycle position (0–360°).
-        </div>
+          {labelFixed.map((l) => (
+            <text key={l.txt} x={l.x} y={l.y} textAnchor={l.anchor} style={labelStyle}>
+              {l.txt.replace(" ”", "")}
+            </text>
+          ))}
+        </svg>
       </div>
     </div>
   );
@@ -215,13 +204,11 @@ type Props = {
   progressedSunLon: number | null;
   progressedMoonLon: number | null;
 
-  // ✅ Lunation phase + subphase (from cached /api/lunation payload)
   lunationPhase?: string | null;
   lunationSubPhase?: string | null;
   lunationSubWithinDeg?: number | null;
   lunationSeparationDeg?: number | null;
 
-  // cached values (fallback only)
   ascYearCyclePosDeg: number | null;
   ascYearSeason: string | null;
   ascYearModality: string | null;
@@ -242,14 +229,6 @@ function seasonFromCyclePos(cyclePosDeg: number) {
     | "Summer"
     | "Fall"
     | "Winter";
-}
-
-function modalityFromWithinSeason(withinSeasonDeg: number) {
-  const idx = Math.floor(withinSeasonDeg / 30);
-  return (["Cardinal", "Fixed", "Mutable"][Math.max(0, Math.min(2, idx))] ?? "Cardinal") as
-    | "Cardinal"
-    | "Fixed"
-    | "Mutable";
 }
 
 function fmtAsOfLabel(asOfISO: string | null, tz: string) {
@@ -322,7 +301,7 @@ export default function ProfileClient(props: Props) {
   } = props;
 
   const [showAllPlacements, setShowAllPlacements] = useState(false);
-  const [showPhaseDetails, setShowPhaseDetails] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
 
   const natalAsc = fmtSignPos(natalAscLon);
   const natalMc = fmtSignPos(typeof natalMcLon === "number" ? natalMcLon : null);
@@ -339,17 +318,17 @@ export default function ProfileClient(props: Props) {
     return p || s || "—";
   }, [lunationPhase, lunationSubPhase]);
 
-  const subPhaseProgress01 = useMemo(() => {
-    if (typeof lunationSubWithinDeg !== "number") return 0;
-    // sub-phase is 15° buckets in your model
-    return clamp01(lunationSubWithinDeg / 15);
-  }, [lunationSubWithinDeg]);
-
-  const currentZodiac = useMemo(() => {
+  const currentSunText = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
-    if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
     return "—";
-  }, [currentSunLon, progressedSunLon]);
+  }, [currentSunLon]);
+
+  const progressedLine = useMemo(() => {
+    const ps = fmtSignPos(progressedSunLon);
+    const pm = fmtSignPos(progressedMoonLon);
+    if (ps === "—" && pm === "—") return "—";
+    return `${ps} · ${pm}`;
+  }, [progressedSunLon, progressedMoonLon]);
 
   const asOfLine = useMemo(() => {
     if (!asOfISO) return timezone;
@@ -376,49 +355,65 @@ export default function ProfileClient(props: Props) {
     const cyclePos = ok ? norm360(cyclePosTruth!) : null;
 
     const seasonText = ok ? seasonFromCyclePos(cyclePos!) : (ascYearSeason || "—");
+
     const withinSeason = ok ? (cyclePos! % 90) : null;
     const seasonProgress01 = withinSeason != null ? withinSeason / 90 : 0;
-
-    const modalityText =
-      ok && withinSeason != null ? modalityFromWithinSeason(withinSeason) : (ascYearModality || "—");
-
-    const withinModality =
-      ok && withinSeason != null
-        ? withinSeason % 30
-        : typeof ascYearDegreesIntoModality === "number"
-        ? ascYearDegreesIntoModality
-        : null;
-
-    const modalityProgress01 = withinModality != null ? withinModality / 30 : 0;
 
     const uraPhaseId = ok ? phaseIdFromCyclePos45(cyclePos!) : (1 as PhaseId);
     const uraDegIntoPhase = ok ? (cyclePos! % 45) : null;
     const uraProgress01 = uraDegIntoPhase != null ? uraDegIntoPhase / 45 : null;
 
+    // “evidence” values (kept but not primary)
+    const modalityText = ascYearModality || "—";
+    const withinModality =
+      typeof ascYearDegreesIntoModality === "number" ? ascYearDegreesIntoModality : null;
+
     return {
       ok,
       cyclePos,
       seasonText,
-      modalityText,
-      seasonProgress01,
       withinSeason,
-      withinModality,
-      modalityProgress01,
+      seasonProgress01,
       uraPhaseId,
       uraDegIntoPhase,
       uraProgress01,
+
+      modalityText,
+      withinModality,
     };
   }, [cyclePosTruth, ascYearSeason, ascYearModality, ascYearDegreesIntoModality]);
 
   const phaseCopy = useMemo(() => microcopyForPhase(orientation.uraPhaseId), [orientation.uraPhaseId]);
 
-  const sunTextForFoundation = useMemo(() => {
-    if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
-    if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
-    return "—";
-  }, [currentSunLon, progressedSunLon]);
+  const phaseWindowMeta = useMemo(() => {
+    // 8 phases of 45°
+    const phaseStart = (orientation.uraPhaseId - 1) * 45;
+    const phaseEnd = phaseStart + 45;
+    return `${phaseStart}°–${phaseEnd}°`;
+  }, [orientation.uraPhaseId]);
 
-  const asOfLabelForFoundation = useMemo(() => fmtAsOfLabel(asOfISO, timezone), [asOfISO, timezone]);
+  const withinSeasonMeta = useMemo(() => {
+    if (!orientation.ok || typeof orientation.withinSeason !== "number") return "—";
+    const seasonIdx = Math.floor((orientation.cyclePos ?? 0) / 90);
+    const start = seasonIdx * 90;
+    const end = start + 90;
+    return `${start}°–${end}°`;
+  }, [orientation.ok, orientation.withinSeason, orientation.cyclePos]);
+
+  const phaseProgressMeta = useMemo(() => {
+    if (!orientation.ok || typeof orientation.uraDegIntoPhase !== "number") return "—";
+    return `${orientation.uraDegIntoPhase.toFixed(2)}° / 45°`;
+  }, [orientation.ok, orientation.uraDegIntoPhase]);
+
+  const seasonProgressMeta = useMemo(() => {
+    if (!orientation.ok || typeof orientation.withinSeason !== "number") return "—";
+    return `${orientation.withinSeason.toFixed(2)}° / 90°`;
+  }, [orientation.ok, orientation.withinSeason]);
+
+  const subPhaseProgress01 = useMemo(() => {
+    if (typeof lunationSubWithinDeg !== "number") return 0;
+    return clamp01(lunationSubWithinDeg / 15);
+  }, [lunationSubWithinDeg]);
 
   const ascMathCheck = useMemo(() => {
     if (typeof natalAscLon !== "number" || typeof currentSunLon !== "number" || typeof orientation.cyclePos !== "number") {
@@ -456,9 +451,17 @@ export default function ProfileClient(props: Props) {
     }));
   }, [natalPlanets]);
 
+  const sunTextForFoundation = useMemo(() => {
+    if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
+    if (typeof progressedSunLon === "number") return fmtSignPos(progressedSunLon);
+    return "—";
+  }, [currentSunLon, progressedSunLon]);
+
+  const asOfLabelForFoundation = useMemo(() => fmtAsOfLabel(asOfISO, timezone), [asOfISO, timezone]);
+
   return (
     <div className="mt-8">
-      {/* TOP STRIP */}
+      {/* TOP STRIP (kept) */}
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="flex items-start gap-3">
@@ -479,10 +482,10 @@ export default function ProfileClient(props: Props) {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">
-                    Natal placements
+                    Your Natal Anchors
                   </div>
                   <div className="mt-1 text-sm text-[#F4EFE6]/90">
-                    Tap expand to view all planets.
+                    ASC, Sun, Moon, and MC — with optional full placements.
                   </div>
                 </div>
 
@@ -498,9 +501,9 @@ export default function ProfileClient(props: Props) {
 
               <div className="mt-4 flex flex-wrap gap-6">
                 <Chip k="ASC" v={natalAsc} />
-                <Chip k="MC" v={natalMc} />
                 <Chip k="SUN" v={natalSun} />
                 <Chip k="MOON" v={natalMoon} />
+                <Chip k="MC" v={natalMc} />
               </div>
 
               {showAllPlacements ? (
@@ -537,203 +540,175 @@ export default function ProfileClient(props: Props) {
         </div>
       </div>
 
-      {/* MAIN CARD */}
+      {/* MAIN CARD (rewired) */}
       <div className="mt-8 mx-auto max-w-5xl">
         <CardShell>
           <div className="px-8 pt-10 pb-8">
-            <div className="text-center">
+            {/* 1) ORIENTATION COMPASS */}
+            <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
               <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                Orientation (Asc-Year)
+                Your Current Cycle Orientation
               </div>
 
-              <div className="mt-2 text-3xl font-semibold tracking-tight text-[#1F1B16] leading-tight">
-                <div className="flex justify-center">
-                  <div>{orientation.ok ? orientation.seasonText : "—"}</div>
+              <div className="mt-3">
+                <div className="text-3xl font-semibold tracking-tight text-[#1F1B16] leading-tight">
+                  {orientation.ok ? `${orientation.seasonText} · Phase ${orientation.uraPhaseId}` : "—"}
                 </div>
-                <div className="flex justify-center">
-                  <div>{orientation.ok ? `Phase ${orientation.uraPhaseId}` : "—"}</div>
-                </div>
-              </div>
-
-              <div className="mt-2 text-sm text-[#403A32]/75">
-                {orientation.ok && typeof orientation.cyclePos === "number"
-                  ? `Asc-Year cycle position: ${orientation.cyclePos.toFixed(2)}° (0–360)`
-                  : "Cycle position unavailable."}
-              </div>
-
-              {ascMathCheck ? (
-                <div className="mt-2 text-xs text-[#403A32]/70">
-                  ASC math check: expected {ascMathCheck.expected.toFixed(2)}° • got {ascMathCheck.got.toFixed(2)}° • Δ{" "}
-                  {ascMathCheck.diff.toFixed(4)}°
-                </div>
-              ) : null}
-            </div>
-
-            {/* TOP ROW */}
-            <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <SubCard title="Current Zodiac (As-of Sun)">
-                <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
-                <div className="mt-1 text-sm text-[#403A32]/75">Uses as-of (transiting) Sun when available.</div>
-              </SubCard>
-
-              <SubCard title="Progressed Sun / Moon">
-                <div className="text-sm font-semibold text-[#1F1B16]">
-                  {progressedSun} • {progressedMoon}
+                <div className="mt-2 text-lg font-semibold text-[#1F1B16]/85">
+                  {phaseCopy.header}
                 </div>
                 <div className="mt-2 text-sm text-[#403A32]/75">
-                  Lunation: <span className="font-semibold text-[#1F1B16]">{lunationLine}</span>
-                  {typeof lunationSeparationDeg === "number" ? (
-                    <span className="ml-2 text-xs text-[#403A32]/70">
-                      (sep {norm360(lunationSeparationDeg).toFixed(2)}°)
-                    </span>
-                  ) : null}
+                  {phaseCopy.oneLine}
                 </div>
+              </div>
 
-                <div className="mt-3">
-                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/55">
-                    Sub-phase progress (0–15°)
+              <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <SubCard title="What this phase is asking">
+                  <div className="text-sm text-[#403A32]/85 leading-relaxed">
+                    {phaseCopy.description}
                   </div>
-                  <ProgressBar
-                    value={subPhaseProgress01}
-                    labelLeft="0°"
-                    labelRight="15°"
-                    meta={
-                      typeof lunationSubWithinDeg === "number"
-                        ? `${lunationSubWithinDeg.toFixed(2)}° / 15°`
-                        : "—"
-                    }
-                  />
-                </div>
-              </SubCard>
+                </SubCard>
 
-              <SubCard title="Modality (30° lens)">
-                <div className="text-sm font-semibold text-[#1F1B16]">
-                  {orientation.ok ? orientation.modalityText : "—"}
-                </div>
-                <div className="mt-1 text-sm text-[#403A32]/75">
-                  Still tracked, but main header shows Phase.
-                </div>
-              </SubCard>
-            </div>
+                <SubCard title="Focus now (Action)">
+                  <div className="text-sm font-semibold text-[#1F1B16]">
+                    {phaseCopy.actionHint || "Strengthen one core structure. Remove one unstable element."}
+                  </div>
+                </SubCard>
 
-            {/* PROGRESS */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">90° Season Arc</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season (0–90°).</div>
-
-                <ProgressBar
-                  value={orientation.seasonProgress01}
-                  labelLeft="0°"
-                  labelRight="90°"
-                  meta={
-                    orientation.ok && typeof orientation.withinSeason === "number"
-                      ? `${orientation.withinSeason.toFixed(2)}° / 90°`
-                      : "—"
-                  }
-                />
-              </div>
-
-              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">30° Modality Segment</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current modality segment (0–30°).</div>
-
-                <ProgressBar
-                  value={orientation.modalityProgress01}
-                  labelLeft="0°"
-                  labelRight="30°"
-                  meta={
-                    orientation.ok && typeof orientation.withinModality === "number"
-                      ? `${orientation.withinModality.toFixed(2)}° / 30°`
-                      : "—"
-                  }
-                />
+                <SubCard title="Reflection (Journal)">
+                  <div className="text-sm font-semibold text-[#1F1B16]">
+                    {phaseCopy.journalPrompt}
+                  </div>
+                  <div className="mt-2 text-sm text-[#403A32]/75">
+                    {phaseCopy.journalHelper}
+                  </div>
+                </SubCard>
               </div>
             </div>
 
-            {/* FIGURE-8 */}
-            <div className="mt-8">
+            {/* 2) CYCLE MAP */}
+            <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                    Cycle Map
+                  </div>
+                  <div className="mt-2 text-sm text-[#403A32]/80">
+                    The marker shows your current position in the 0–360° yearly cycle.
+                  </div>
+                </div>
+
+                <div className="text-xs text-[#403A32]/70">
+                  {typeof orientation.cyclePos === "number" ? `${orientation.cyclePos.toFixed(2)}°` : "—"}
+                </div>
+              </div>
+
               {typeof orientation.cyclePos === "number" ? (
                 <AscYearFigure8 cyclePosDeg={orientation.cyclePos} />
               ) : (
-                <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-10 text-center text-sm text-[#403A32]/70">
+                <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-6 py-10 text-center text-sm text-[#403A32]/70">
                   Cycle position unavailable.
                 </div>
               )}
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <SubCard title="Current position">
+                  <div className="text-sm font-semibold text-[#1F1B16]">
+                    {typeof orientation.cyclePos === "number" ? `${orientation.cyclePos.toFixed(2)}°` : "—"}
+                  </div>
+                </SubCard>
+
+                <SubCard title="Season arc">
+                  <div className="text-sm font-semibold text-[#1F1B16]">
+                    {orientation.ok ? `${orientation.seasonText} (${withinSeasonMeta})` : "—"}
+                  </div>
+                </SubCard>
+
+                <SubCard title="Phase window">
+                  <div className="text-sm font-semibold text-[#1F1B16]">
+                    {`Phase ${orientation.uraPhaseId} (${phaseWindowMeta})`}
+                  </div>
+                </SubCard>
+              </div>
             </div>
 
-            {/* Phase lens (kept) */}
-            <div className="mt-4">
-              <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                      Phase lens
-                    </div>
-                    <div className="mt-2 text-lg font-semibold text-[#1F1B16]">
-                      {phaseCopy.header}
-                    </div>
-                    <div className="mt-1 text-sm text-[#403A32]/75">
-                      {phaseCopy.oneLine}
-                    </div>
-                  </div>
+            {/* 3) PROGRESS (two bars only) */}
+            <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
+              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                Progress
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowPhaseDetails((v) => !v)}
-                    className="rounded-full border px-3 py-1.5 text-xs hover:bg-black/5"
-                    style={{ borderColor: "rgba(0,0,0,0.12)", color: "rgba(31,27,22,0.75)" }}
-                  >
-                    {showPhaseDetails ? "Hide" : "Details"}
-                  </button>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                    Within this season (0–90°)
+                  </div>
+                  <ProgressBar
+                    value={orientation.seasonProgress01}
+                    labelLeft="0°"
+                    labelRight="90°"
+                    meta={seasonProgressMeta}
+                  />
                 </div>
 
-                {showPhaseDetails ? (
-                  <div className="mt-4">
-                    <div className="text-sm text-[#403A32]/80 leading-relaxed">
-                      {phaseCopy.description}
-                    </div>
-
-                    {phaseCopy.actionHint ? (
-                      <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
-                        <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                          Action
-                        </div>
-                        <div className="mt-1 text-sm font-semibold text-[#1F1B16]">
-                          {phaseCopy.actionHint}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
-                      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-                        Journal prompt
-                      </div>
-                      <div className="mt-1 text-sm font-semibold text-[#1F1B16]">
-                        {phaseCopy.journalPrompt}
-                      </div>
-                      <div className="mt-2 text-sm text-[#403A32]/75">
-                        {phaseCopy.journalHelper}
-                      </div>
-                      <div className="mt-2 text-[11px] text-[#403A32]/60">
-                        Journal off-app. This is the prompt only.
-                      </div>
-                    </div>
+                <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                    Within this phase (0–45°)
                   </div>
-                ) : (
-                  <div className="mt-4 text-sm text-[#403A32]/75">
-                    <span className="font-semibold text-[#1F1B16]">Journal prompt:</span>{" "}
-                    {phaseCopy.journalPrompt}
+                  <ProgressBar
+                    value={typeof orientation.uraProgress01 === "number" ? orientation.uraProgress01 : 0}
+                    labelLeft="0°"
+                    labelRight="45°"
+                    meta={phaseProgressMeta}
+                  />
+                  <div className="mt-2 text-xs text-[#403A32]/70">
+                    You’re {typeof orientation.uraProgress01 === "number" && orientation.uraProgress01 < 0.35
+                      ? "early"
+                      : typeof orientation.uraProgress01 === "number" && orientation.uraProgress01 < 0.7
+                      ? "mid"
+                      : "late"}{" "}
+                    in Phase {orientation.uraPhaseId}.
                   </div>
-                )}
-
-                <div className="mt-4 text-sm text-[#403A32]/65">
-                  You are here in the cycle.
                 </div>
               </div>
             </div>
 
-            {/* Foundation panel */}
+            {/* 4) CURRENT SKY CONTEXT */}
+            <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
+              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                Current Sky Context
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <SubCard title="Sun now">
+                  <div className="text-sm font-semibold text-[#1F1B16]">{currentSunText}</div>
+                  <div className="mt-1 text-sm text-[#403A32]/75">
+                    Uses the as-of transiting Sun when available.
+                  </div>
+                </SubCard>
+
+                <SubCard title="Progressed Sun · Moon">
+                  <div className="text-sm font-semibold text-[#1F1B16]">{progressedLine}</div>
+                </SubCard>
+
+                <SubCard title="Lunation">
+                  <div className="text-sm font-semibold text-[#1F1B16]">{lunationLine}</div>
+                  <div className="mt-3">
+                    <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                      Sub-phase progress (0–15°)
+                    </div>
+                    <ProgressBar
+                      value={subPhaseProgress01}
+                      labelLeft="0°"
+                      labelRight="15°"
+                      meta={typeof lunationSubWithinDeg === "number" ? `${lunationSubWithinDeg.toFixed(2)}° / 15°` : "—"}
+                    />
+                  </div>
+                </SubCard>
+              </div>
+            </div>
+
+            {/* 5) FOUNDATION PANEL (kept) */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
@@ -744,6 +719,77 @@ export default function ProfileClient(props: Props) {
               />
             </div>
 
+            {/* 6) EVIDENCE / CALC DETAILS (collapsible) */}
+            <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowEvidence((v) => !v)}
+                className="w-full flex items-center justify-between gap-3"
+              >
+                <div className="text-left">
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                    Why this was calculated
+                  </div>
+                  <div className="mt-1 text-sm text-[#403A32]/80">
+                    Cycle math, modality lens, and internal checks.
+                  </div>
+                </div>
+
+                <div className="rounded-full border px-3 py-1.5 text-xs hover:bg-black/5"
+                  style={{ borderColor: "rgba(0,0,0,0.12)", color: "rgba(31,27,22,0.75)" }}
+                >
+                  {showEvidence ? "Hide" : "Show"}
+                </div>
+              </button>
+
+              {showEvidence ? (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <SubCard title="Cycle position (0–360)">
+                    <div className="text-sm font-semibold text-[#1F1B16]">
+                      {typeof orientation.cyclePos === "number" ? `${orientation.cyclePos.toFixed(2)}°` : "—"}
+                    </div>
+                    <div className="mt-1 text-sm text-[#403A32]/75">
+                      Source: {typeof natalAscLon === "number" && typeof currentSunLon === "number"
+                        ? "Sun − Natal ASC"
+                        : "Cached ascYear"}
+                    </div>
+                  </SubCard>
+
+                  <SubCard title="ASC math check">
+                    {ascMathCheck ? (
+                      <div className="text-sm text-[#403A32]/85">
+                        expected <span className="font-semibold text-[#1F1B16]">{ascMathCheck.expected.toFixed(2)}°</span>{" "}
+                        · got <span className="font-semibold text-[#1F1B16]">{ascMathCheck.got.toFixed(2)}°</span>{" "}
+                        · Δ <span className="font-semibold text-[#1F1B16]">{ascMathCheck.diff.toFixed(4)}°</span>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-[#403A32]/75">—</div>
+                    )}
+                  </SubCard>
+
+                  <SubCard title="Modality lens (cached)">
+                    <div className="text-sm font-semibold text-[#1F1B16]">{orientation.modalityText || "—"}</div>
+                    <div className="mt-1 text-sm text-[#403A32]/75">
+                      degreesIntoModality:{" "}
+                      <span className="font-semibold text-[#1F1B16]">
+                        {typeof orientation.withinModality === "number" ? `${orientation.withinModality.toFixed(2)}°` : "—"}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-xs text-[#403A32]/65">
+                      (Kept for support; primary navigation uses the 45° phase.)
+                    </div>
+                  </SubCard>
+
+                  <SubCard title="Lunation separation">
+                    <div className="text-sm font-semibold text-[#1F1B16]">
+                      {typeof lunationSeparationDeg === "number" ? `${norm360(lunationSeparationDeg).toFixed(2)}°` : "—"}
+                    </div>
+                  </SubCard>
+                </div>
+              ) : null}
+            </div>
+
+            {/* FOOTER LINKS */}
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
               <Link
                 href="/seasons"
