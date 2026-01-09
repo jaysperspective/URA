@@ -10,15 +10,23 @@ datasource db {
 }
 
 model User {
-  id           Int       @id @default(autoincrement())
-  email        String    @unique
-  passwordHash String
-  displayName  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id             Int       @id @default(autoincrement())
+  email          String    @unique
+  passwordHash   String
+  displayName    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  profile      Profile?
-  sessions     Session[]
+  // --- NEW: activity tracking ---
+  // last time this user was seen using the app
+  lastSeenAt     DateTime?
+
+  // optional helper: store a "YYYY-MM-DD" day key in the user's timezone
+  // useful if you later want daily active counts without recomputing
+  lastSeenDayKey String?
+
+  profile        Profile?
+  sessions       Session[]
 }
 
 model Profile {
