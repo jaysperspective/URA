@@ -59,27 +59,27 @@ function clampInt(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, Math.trunc(n)));
 }
 
-
 function systemPrompt() {
   return `
-You are URA's Daily Brief engine.
+You write URA's Daily Brief.
 
-Voice & style (strict):
-- Write like a grounded, disciplined planner: concise, practical, adult, no hype.
-- Material focus (2nd-house lens): value, stability, effort, craft, money/time, stewardship, boundaries.
-- Clean language. Short sentences. No mysticism.
+Voice (strict):
+- Practical, disciplined, unsentimental. Short sentences. No hype.
+- Value + stewardship lens: time, money, energy, commitments, craft, boundaries.
+- Clear priorities. Concrete actions.
 
 Hard bans (do NOT use these words or close variants):
 astrology, zodiac, sign, house, planet, sun, moon, mercury, venus, mars, jupiter, saturn, uranus, neptune, pluto,
-lunation, retrograde, transit, progressed, ascendant, asc, mc, degree weather, sabian
+lunation, retrograde, transit, progressed, ascendant, asc, mc, degree weather, sabian, horoscope
 
-Content rules:
-- Use ONLY the provided inputs (cycle phase lens + degree symbol lens + brief context).
-- No predictions. No guaranteed outcomes. No timeline claims.
+Rules:
+- Use ONLY the provided inputs.
+- No predictions. No guaranteed outcomes. No “will happen”.
+- No mystical language.
 - "do_now" must be concrete behaviors (imperatives).
-- Avoid abstract fluff.
+- Keep "meaning" to 3–4 sentences max.
 
-Return ONLY valid JSON with this shape:
+Return ONLY valid JSON:
 {
   "headline": "short title",
   "meaning": "3–4 sentences max",
@@ -94,44 +94,44 @@ Return ONLY valid JSON with this shape:
 
 function userPrompt(input: any) {
   const ctx = input?.context ?? {};
-  const sab = input?.sabian ?? null;
+  const sym = input?.sabian ?? null; // keep field name for compatibility, but do NOT name it in output
 
   return `
-INPUTS
+INPUTS (do not name these categories in the output)
 
-URA ORIENTATION
+ORIENTATION
 - season: ${asString(ctx.season, "—")}
 - phaseId: ${asNumber(ctx.phaseId) ?? "—"}
 - cyclePosDeg: ${asNumber(ctx.cyclePosDeg) ?? "—"}
 - degIntoPhase: ${asNumber(ctx.degIntoPhase) ?? "—"}
 - phaseProgress01: ${asNumber(ctx.phaseProgress01) ?? "—"}
 
-PHASE LENS
-- phaseHeader: ${asString(ctx.phaseHeader, "—")}
-- phaseOneLine: ${asString(ctx.phaseOneLine, "—")}
-- phaseDescription: ${asString(ctx.phaseDescription, "—")}
-- phaseActionHint: ${asString(ctx.phaseActionHint, "—")}
+PHASE GUIDANCE
+- header: ${asString(ctx.phaseHeader, "—")}
+- oneLine: ${asString(ctx.phaseOneLine, "—")}
+- description: ${asString(ctx.phaseDescription, "—")}
+- actionHint: ${asString(ctx.phaseActionHint, "—")}
 - journalPrompt: ${asString(ctx.journalPrompt, "—")}
 - journalHelper: ${asString(ctx.journalHelper, "—")}
 
-SKY SNAPSHOT
-- currentSun: ${asString(ctx.currentSun, "—")}
-- lunation: ${asString(ctx.lunation, "—")}
-- progressed: ${asString(ctx.progressed, "—")}
+CONTEXT LABELS (treat as neutral time/context labels; do not use astronomy/astrology language)
+- currentLabel: ${asString(ctx.currentSun, "—")}
+- cycleMood: ${asString(ctx.lunation, "—")}
+- internalRhythm: ${asString(ctx.progressed, "—")}
 - asOf: ${asString(ctx.asOf, "—")}
 
-SABIAN DEGREE (Sun anchor)
+DEGREE SYMBOL (anchor image; do not name the tradition)
 ${
-  sab
-    ? `- key: ${asString(sab.key, "—")}
-- symbol: ${asString(sab.symbol, "—")}
-- signal: ${asString(sab.signal, "—")}
-- shadow: ${asString(sab.shadow, "—")}
-- directive: ${asString(sab.directive, "—")}
-- practice: ${asString(sab.practice, "—")}
-- journal: ${asString(sab.journal, "—")}
-- tags: ${(asStringArray(sab.tags, 10) || []).join(", ")}`
-    : "- (missing sabian)"
+  sym
+    ? `- key: ${asString(sym.key, "—")}
+- symbol: ${asString(sym.symbol, "—")}
+- signal: ${asString(sym.signal, "—")}
+- shadow: ${asString(sym.shadow, "—")}
+- directive: ${asString(sym.directive, "—")}
+- practice: ${asString(sym.practice, "—")}
+- journal: ${asString(sym.journal, "—")}
+- tags: ${(asStringArray(sym.tags, 10) || []).join(", ")}`
+    : "- (missing symbol entry)"
 }
 
 OUTPUT LIMITS
@@ -144,12 +144,14 @@ CONSTRAINTS
 - noNewClaims: ${Boolean(input?.constraints?.noNewClaims)}
 - citeInputs: ${Boolean(input?.constraints?.citeInputs)}
 
-Task:
+TASK
 Write the Daily Brief JSON.
-- Put Sabian into meaning AND at least 1 "do_now" bullet.
-- Make "do_now" concrete (walk / write / call / clean / schedule / send / build / review).
-- Avoid should be the typical failure mode of the phase + sabian shadow (if present).
-- Journal question should be sharp and singular.
+
+Requirements:
+- Integrate the DEGREE SYMBOL into the meaning AND at least one "do_now" bullet.
+- "do_now" must be concrete actions (call, clean, schedule, send, build, review, practice).
+- "avoid" should reflect typical failure modes from the guidance + the symbol’s shadow (if present).
+- No astrology vocabulary. No mystical language. No predictions.
 
 Return JSON only.
 `.trim();
@@ -164,7 +166,7 @@ async function callOpenAI(apiKey: string, model: string, content: string) {
     },
     body: JSON.stringify({
       model,
-      temperature: 0.35,
+      temperature: 0.3,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt() },
@@ -220,7 +222,7 @@ export async function POST(req: NextRequest) {
         ok: false,
         code: "MISSING_API_KEY",
         error:
-          "Missing OPENAI_API_KEY. Add it to .env.local (server) and restart the process.",
+          "Missing OPENAI_API_KEY (or URA_OPENAI_API_KEY). Add it to .env.local and restart the server.",
       };
       return NextResponse.json(err, { status: 500 });
     }
@@ -232,7 +234,6 @@ export async function POST(req: NextRequest) {
     }
 
     const model = getModel();
-
     const maxDoNow = clampInt(Number(body?.output?.maxDoNow ?? 3), 1, 5);
     const maxAvoid = clampInt(Number(body?.output?.maxAvoid ?? 2), 0, 3);
 
