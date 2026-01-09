@@ -142,13 +142,9 @@ function getLunationPhaseInfo(lunationJson: any) {
     lunationJson?.derived?.lunation ??
     null;
 
-  const phase =
-    (typeof lun?.phase === "string" && lun.phase) ||
-    null;
+  const phase = (typeof lun?.phase === "string" && lun.phase) || null;
 
-  const subPhaseLabel =
-    (typeof lun?.subPhase?.label === "string" && lun.subPhase.label) ||
-    null;
+  const subPhaseLabel = (typeof lun?.subPhase?.label === "string" && lun.subPhase.label) || null;
 
   const subPhaseWithin =
     typeof lun?.subPhase?.within === "number" && Number.isFinite(lun.subPhase.within)
@@ -156,9 +152,7 @@ function getLunationPhaseInfo(lunationJson: any) {
       : null;
 
   const separation =
-    typeof lun?.separation === "number" && Number.isFinite(lun.separation)
-      ? lun.separation
-      : null;
+    typeof lun?.separation === "number" && Number.isFinite(lun.separation) ? lun.separation : null;
 
   return { phase, subPhaseLabel, subPhaseWithin, separation };
 }
@@ -166,11 +160,12 @@ function getLunationPhaseInfo(lunationJson: any) {
 export default async function ProfilePage() {
   const user = await requireUser();
 
-  // 1) load profile
-  let profile = await prisma.profile.findUnique({ where: { userId: user.id } });
-
+  // Background (single source of truth)
   const pageBg =
     "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
+
+  // 1) load profile
+  let profile = await prisma.profile.findUnique({ where: { userId: user.id } });
 
   if (!profile) {
     return (
@@ -195,8 +190,7 @@ export default async function ProfilePage() {
 
   // 2) If setup is done but caches are missing, rebuild ONCE
   const needsCacheRebuild =
-    !!profile.setupDone &&
-    (!profile.natalChartJson || !profile.lunationJson || !profile.ascYearJson);
+    !!profile.setupDone && (!profile.natalChartJson || !profile.lunationJson || !profile.ascYearJson);
 
   if (needsCacheRebuild) {
     try {
@@ -258,7 +252,10 @@ export default async function ProfilePage() {
               boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
             }}
           >
-            <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
+            <div
+              className="text-[11px] tracking-[0.18em] uppercase"
+              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
+            >
               Setup
             </div>
             <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
@@ -310,9 +307,6 @@ export default async function ProfilePage() {
 
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
   const name = pickName(user, profile);
-
-  const pageBg =
-    "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
 
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
