@@ -311,6 +311,9 @@ export default async function ProfilePage() {
   const asOfISO = profile.asOfDate ? profile.asOfDate.toISOString() : null;
   const name = pickName(user, profile);
 
+  const pageBg =
+    "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
+
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
       <div className="mx-auto w-full max-w-5xl">
