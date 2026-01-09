@@ -23,12 +23,11 @@ function norm360(d: number) {
 }
 
 export function sabianIndexFromLon(lon: number): number {
-  // lon 0..360 => index 0..359
   const x = norm360(lon);
   const signIdx = Math.floor(x / 30); // 0..11
   const deg0 = Math.floor(x % 30); // 0..29
   const sabianDeg = deg0 + 1; // 1..30
-  return signIdx * 30 + (sabianDeg - 1);
+  return signIdx * 30 + (sabianDeg - 1); // 0..359
 }
 
 export function sabianKeyFromLon(lon: number): { sign: string; degree: number; key: string; idx: number } {
@@ -39,18 +38,21 @@ export function sabianKeyFromLon(lon: number): { sign: string; degree: number; k
   return { sign, degree, key: `${sign} ${degree}`, idx };
 }
 
-export function sabianFromLon(lon: number): UraSabianEntry | null {
+export function sabianFromLon(lon: number): UraSabianEntry {
   const { idx, key, sign, degree } = sabianKeyFromLon(lon);
 
   // Prefer lookup by idx (fast)
-  const byIdx = URA_SABIAN[idx];
+  const byIdx = URA_SABIAN?.[idx];
   if (byIdx && byIdx.idx === idx) return byIdx;
 
-  // Fallback: find by key
-  const found = URA_SABIAN.find((x) => x.idx === idx || x.key === key);
+  // Fallback: find by idx/key
+  const found = Array.isArray(URA_SABIAN)
+    ? URA_SABIAN.find((x) => x?.idx === idx || x?.key === key)
+    : undefined;
+
   if (found) return found;
 
-  // If not generated yet
+  // Not generated yet: return a stable placeholder
   return {
     idx,
     key,
