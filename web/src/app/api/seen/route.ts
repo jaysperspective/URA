@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUserIdFromRequest } from "@/lib/auth"; 
 // ^ you’ll implement this based on how you read your Session token (cookie/header)
 
-const MIN_UPDATE_MS = 15 * 60 * 1000; // 15 minutes
+const MIN_UPDATE_MS = 0; // 15 minutes
 
 export async function POST(req: Request) {
   const userId = await getSessionUserIdFromRequest(req);
