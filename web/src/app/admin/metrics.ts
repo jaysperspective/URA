@@ -1,3 +1,4 @@
+// src/app/admin/metrics.ts
 import { prisma } from "@/lib/prisma";
 
 export type AdminMetrics = {
@@ -66,15 +67,12 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     inactive30d,
     inactive45d,
 
-    // top pages/features/errors
     topPageRows,
     topFeatureRows,
     topErrorRows,
 
-    // timing rows for p95
     slowTimingRows,
 
-    // health + flags + audit
     healthRows,
     flagRows,
     auditRows,
@@ -93,27 +91,29 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     prisma.user.count({ where: { OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: days30 } }] } }),
     prisma.user.count({ where: { OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: days45 } }] } }),
 
+    // ✅ groupBy: order by count of a specific field (NOT _all)
     prisma.event.groupBy({
       by: ["path"],
       where: { type: "pageview", path: { not: null } },
-      _count: { _all: true },
-      orderBy: { _count: { _all: "desc" } },
+      _count: { path: true },
+      orderBy: { _count: { path: "desc" } },
       take: 12,
     }),
 
     prisma.event.groupBy({
       by: ["name"],
       where: { type: "feature", name: { not: null } },
-      _count: { _all: true },
-      orderBy: { _count: { _all: "desc" } },
+      _count: { name: true },
+      orderBy: { _count: { name: "desc" } },
       take: 12,
     }),
 
+    // errors: group by name+path, order by count(id)
     prisma.event.groupBy({
       by: ["name", "path"],
       where: { type: "error" },
-      _count: { _all: true },
-      orderBy: { _count: { _all: "desc" } },
+      _count: { id: true },
+      orderBy: { _count: { id: "desc" } },
       take: 12,
     }),
 
@@ -142,21 +142,25 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     }),
   ]);
 
-  // activation rate: setupDone / totalUsers (safe)
   const activationRate01 = totalUsers > 0 ? setupDoneCount / totalUsers : 0;
 
-  // roll up top lists
   const topPages = (topPageRows || [])
     .filter((r) => r.path)
-    .map((r) => ({ path: r.path as string, count: r._count._all }));
+    .map((r) => ({
+      path: r.path as string,
+      count: (r._count as any).path as number,
+    }));
 
   const topFeatures = (topFeatureRows || [])
     .filter((r) => r.name)
-    .map((r) => ({ name: r.name as string, count: r._count._all }));
+    .map((r) => ({
+      name: r.name as string,
+      count: (r._count as any).name as number,
+    }));
 
   const topErrors = (topErrorRows || []).map((r) => {
-    const key = (r.name || r.path || "unknown") as string;
-    return { key, count: r._count._all };
+    const key = ((r.name || r.path || "unknown") as string).slice(0, 240);
+    return { key, count: (r._count as any).id as number };
   });
 
   // slow endpoints: compute avg + p95 per name from sample
@@ -164,8 +168,7 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
   for (const row of slowTimingRows) {
     const name = row.name || "unknown";
     const ms = row.durationMs ?? 0;
-    if (!map[name]) map[name] = [];
-    map[name].push(ms);
+    (map[name] ||= []).push(ms);
   }
 
   const slowEndpoints = Object.entries(map)
