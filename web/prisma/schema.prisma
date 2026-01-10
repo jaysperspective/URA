@@ -30,7 +30,12 @@ model User {
 
   profile        Profile?
   sessions       Session[]
+
+  // --- Telemetry ---
   events         Event[]
+
+  // --- Feature flags overrides (opposite relation) ---
+  featureFlagOverrides FeatureFlagOverride[]
 }
 
 model Profile {
