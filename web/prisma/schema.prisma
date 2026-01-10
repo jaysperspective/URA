@@ -1,6 +1,4 @@
 // prisma/schema.prisma
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
@@ -8,6 +6,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  BANNED
 }
 
 model User {
@@ -18,12 +22,15 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  status         UserStatus @default(ACTIVE)
+
   // --- Activity tracking (for DAU/WAU/MAU) ---
   lastSeenAt     DateTime?
   lastSeenDayKey String?
 
   profile        Profile?
   sessions       Session[]
+  events         Event[]
 }
 
 model Profile {
@@ -49,7 +56,7 @@ model Profile {
 
   birthLat    Float?
   birthLon    Float?
-  birthPlace  String? // e.g. "Raleigh, NC" (optional display label)
+  birthPlace  String?
   timezone    String  @default("America/New_York")
 
   // --- Cached computed data (JSON blobs, flexible) ---
@@ -57,8 +64,6 @@ model Profile {
   natalUpdatedAt DateTime?
 
   // --- Daily “as-of” caches (Asc Year + Lunation) ---
-  // Anchor date used to determine whether today’s caches are up-to-date.
-  // We’ll treat this as the last refresh date; compare day keys in the user’s timezone in code.
   asOfDate       DateTime?
   ascYearJson    Json?
   lunationJson   Json?
@@ -92,4 +97,87 @@ model AdminAuditLog {
 
   @@index([createdAt])
   @@index([action])
+}
+
+// ------------------------------------------------------------------
+// TELEMETRY (page views, feature usage, errors, timings)
+// ------------------------------------------------------------------
+model Event {
+  id           Int      @id @default(autoincrement())
+  createdAt    DateTime @default(now())
+
+  // taxonomy
+  type         String   // "pageview" | "feature" | "error" | "timing" | "api"
+  name         String?  // e.g. "profile.save", "moon.render", "api:/api/seen"
+  path         String?  // e.g. "/profile"
+  severity     String?  // "info" | "warn" | "error"
+
+  // optional linkage
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // for anonymous or semi-anonymous grouping
+  sessionToken String?  // your Session.token or a client-generated anon id
+
+  // metrics
+  durationMs   Int?
+  statusCode   Int?
+
+  // flexible metadata
+  meta         Json?
+
+  @@index([createdAt])
+  @@index([type])
+  @@index([path])
+  @@index([userId])
+  @@index([type, name])
+}
+
+// ------------------------------------------------------------------
+// FEATURE FLAGS / KILL SWITCHES
+// ------------------------------------------------------------------
+model FeatureFlag {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique // e.g. "moon_page", "gann_chart", "doctrine_v2"
+  description String?
+  enabled     Boolean  @default(false)
+  payload     Json?    // optional config
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  overrides   FeatureFlagOverride[]
+}
+
+model FeatureFlagOverride {
+  id        Int      @id @default(autoincrement())
+  flagId    Int
+  userId    Int
+
+  flag      FeatureFlag @relation(fields: [flagId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  enabled   Boolean
+  payload   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([flagId, userId])
+  @@index([userId])
+  @@index([flagId])
+}
+
+// ------------------------------------------------------------------
+// HEALTH CHECKS (DB / polygon / ephemeris / etc.)
+// ------------------------------------------------------------------
+model HealthCheck {
+  id         Int      @id @default(autoincrement())
+  checkedAt  DateTime @default(now())
+
+  serviceKey String   // "db" | "polygon" | "ephemeris" | "app"
+  ok         Boolean
+  latencyMs  Int?
+  details    Json?
+
+  @@index([checkedAt])
+  @@index([serviceKey])
 }
