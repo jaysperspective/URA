@@ -88,6 +88,7 @@ export async function clearSession(): Promise<void> {
  * Returns the current logged-in user (or null).
  * Used by pages, api/me, and requireUser().
  */
+
 export async function getCurrentUser() {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE_NAME)?.value;
@@ -103,7 +104,6 @@ export async function getCurrentUser() {
   if (!session) return null;
   if (session.expiresAt <= now) return null;
 
-  // Pull what you actually need in UI/routes
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
     select: {
@@ -111,11 +111,15 @@ export async function getCurrentUser() {
       email: true,
       displayName: true,
       createdAt: true,
+      status: true,
       profile: true,
     },
   });
 
-  return user ?? null;
+  if (!user) return null;
+  if (user.status !== "ACTIVE") return null;
+
+  return user;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,5 +192,13 @@ export async function getSessionUserIdFromRequest(req: Request): Promise<number 
   if (!session) return null;
   if (session.expiresAt <= now) return null;
 
-  return session.userId;
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true, status: true },
+  });
+
+  if (!user) return null;
+  if (user.status !== "ACTIVE") return null;
+
+  return user.id;
 }
