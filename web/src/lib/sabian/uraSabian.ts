@@ -1,4 +1,4 @@
-// src/lib/sabian/uraSabian.ts
+// src/lib/sabian/Sabian_360.ts
 // Full 360° Sabian Symbols dataset (Aries 1 → Pisces 30)
 // Structured to replace urasabian.ts
 
