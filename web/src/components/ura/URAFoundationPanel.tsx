@@ -98,19 +98,6 @@ export default function URAFoundationPanel({
             ) : null}
           </div>
 
-          {/* Journal (prompt only, no textbox) */}
-          <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-5 py-4">
-            <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
-              Journal prompt
-            </div>
-
-            <div className="mt-2 text-sm text-[#1F1B16]/90">
-              <span className="font-semibold">{mc.journalPrompt}</span>
-            </div>
-
-            <div className="mt-2 text-xs text-[#403A32]/75">{mc.journalHelper}</div>
-          </div>
-
           {mc.footer ? (
             <div className="text-xs text-[#403A32]/70">{mc.footer}</div>
           ) : null}
