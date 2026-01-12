@@ -1,4 +1,7 @@
 // src/app/profile/page.tsx
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/requireUser";
 import { prisma } from "@/lib/prisma";
@@ -157,6 +160,27 @@ function getLunationPhaseInfo(lunationJson: any) {
   return { phase, subPhaseLabel, subPhaseWithin, separation };
 }
 
+// local-day key helper (timezone aware)
+function localDayKey(timezone: string, d = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(d);
+
+    const y = parts.find((p) => p.type === "year")?.value;
+    const m = parts.find((p) => p.type === "month")?.value;
+    const day = parts.find((p) => p.type === "day")?.value;
+
+    if (!y || !m || !day) return d.toISOString().slice(0, 10);
+    return `${y}-${m}-${day}`;
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
 export default async function ProfilePage() {
   const user = await requireUser();
 
@@ -188,9 +212,18 @@ export default async function ProfilePage() {
     );
   }
 
-  // 2) If setup is done but caches are missing, rebuild ONCE
-  const needsCacheRebuild =
+  // timezone as early as possible (used for staleness logic)
+  const tzEarly = profile.timezone ?? "America/New_York";
+
+  // 2) Rebuild caches if missing OR stale (daily refresh)
+  const missingCaches =
     !!profile.setupDone && (!profile.natalChartJson || !profile.lunationJson || !profile.ascYearJson);
+
+  const staleDaily =
+    !!profile.setupDone &&
+    (!profile.asOfDate || localDayKey(tzEarly, profile.asOfDate) !== localDayKey(tzEarly, new Date()));
+
+  const needsCacheRebuild = missingCaches || staleDaily;
 
   if (needsCacheRebuild) {
     try {
