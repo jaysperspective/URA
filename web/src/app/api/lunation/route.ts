@@ -1,12 +1,19 @@
 // web/src/app/api/lunation/route.ts
-
 import { NextResponse } from "next/server";
 
-function buildOrigin(req: Request) {
-  const url = new URL(req.url);
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || url.host;
-  const proto = req.headers.get("x-forwarded-proto") || url.protocol.replace(":", "") || "http";
-  return `${proto}://${host}`;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function getAppBaseUrl() {
+  const base =
+    process.env.APP_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    process.env.APP_URL ||
+    "";
+
+  if (base) return base.replace(/\/$/, "");
+  return "http://127.0.0.1:3000";
 }
 
 function angleToSign(lon: number) {
@@ -56,7 +63,8 @@ function buildLunationText(core: any) {
 
   if (lun?.phase) lines.push(`Current phase: ${lun.phase}`);
   if (lun?.subPhase?.label) {
-    const seg = lun?.subPhase?.segment && lun?.subPhase?.total ? ` (segment ${lun.subPhase.segment}/${lun.subPhase.total})` : "";
+    const seg =
+      lun?.subPhase?.segment && lun?.subPhase?.total ? ` (segment ${lun.subPhase.segment}/${lun.subPhase.total})` : "";
     lines.push(`Current sub-phase: ${lun.subPhase.label}${seg}`);
   }
   if (typeof lun?.subPhase?.within === "number") lines.push(`Degrees into phase: ${lun.subPhase.within.toFixed(2)}°`);
@@ -76,11 +84,14 @@ function buildLunationText(core: any) {
 export async function POST(req: Request) {
   try {
     const body = await req.text();
-    const origin = buildOrigin(req);
+    const base = getAppBaseUrl();
 
-    const r = await fetch(`${origin}/api/core`, {
+    const r = await fetch(`${base}/api/core`, {
       method: "POST",
-      headers: { "content-type": req.headers.get("content-type") || "text/plain" },
+      headers: {
+        "content-type": req.headers.get("content-type") || "text/plain",
+        "cache-control": "no-store",
+      },
       body,
       cache: "no-store",
     });
@@ -93,19 +104,24 @@ export async function POST(req: Request) {
     if (!r.ok || core?.ok === false) {
       return NextResponse.json(
         { ok: false, error: core?.error || `core failed (${r.status})`, core },
-        { status: 500 }
+        { status: 500, headers: { "Cache-Control": "no-store" } }
       );
     }
 
-    // ✅ Contract: wrappers always return summary + their slice
-    return NextResponse.json({
-      ok: true,
-      text: buildLunationText(core),
-      summary: core?.derived?.summary ?? null,
-      lunation: core?.derived?.lunation ?? null,
-      input: core?.input ?? null,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        text: buildLunationText(core),
+        summary: core?.derived?.summary ?? null,
+        lunation: core?.derived?.lunation ?? null,
+        input: core?.input ?? null,
+      },
+      { status: 200, headers: { "Cache-Control": "no-store" } }
+    );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
   }
 }
