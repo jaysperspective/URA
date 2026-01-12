@@ -796,16 +796,16 @@ export default function ProfileClient(props: Props) {
               </div>
 
               <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">30° Modality Segment</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current modality segment (0–30°).</div>
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">45° Season Segment</div>
+                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season. </div>
 
                 <ProgressBar
                   value={orientation.modalityProgress01}
                   labelLeft="0°"
-                  labelRight="30°"
+                  labelRight="45°"
                   meta={
                     orientation.ok && typeof orientation.withinModality === "number"
-                      ? `${orientation.withinModality.toFixed(2)}° / 30°`
+                      ? `${orientation.withinModality.toFixed(2)}° / 45°`
                       : "—"
                   }
                 />
@@ -828,7 +828,7 @@ export default function ProfileClient(props: Props) {
             <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac (As-of Sun)">
                 <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
-                <div className="mt-1 text-sm text-[#403A32]/75">Uses as-of (transiting) Sun when available.</div>
+                <div className="mt-1 text-sm text-[#403A32]/75"></div>
               </SubCard>
 
               <SubCard title="Progressed Sun / Moon">
@@ -855,57 +855,11 @@ export default function ProfileClient(props: Props) {
 
               <SubCard title="Modality (30° lens)">
                 <div className="text-sm font-semibold text-[#1F1B16]">{orientation.ok ? orientation.modalityText : "—"}</div>
-                <div className="mt-1 text-sm text-[#403A32]/75">Still tracked, but main header shows Phase.</div>
+                <div className="mt-1 text-sm text-[#403A32]/75"></div>
               </SubCard>
             </div>
 
-            {/* Phase lens */}
-            <div className="mt-4">
-              <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Phase lens</div>
-                    <div className="mt-2 text-lg font-semibold text-[#1F1B16]">{phaseCopy.header}</div>
-                    <div className="mt-1 text-sm text-[#403A32]/75">{phaseCopy.oneLine}</div>
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowPhaseDetails((v) => !v)}
-                    className="rounded-full border px-3 py-1.5 text-xs hover:bg-black/5"
-                    style={{ borderColor: "rgba(0,0,0,0.12)", color: "rgba(31,27,22,0.75)" }}
-                  >
-                    {showPhaseDetails ? "Hide" : "Details"}
-                  </button>
-                </div>
-
-                {showPhaseDetails ? (
-                  <div className="mt-4">
-                    <div className="text-sm text-[#403A32]/80 leading-relaxed">{phaseCopy.description}</div>
-
-                    {phaseCopy.actionHint ? (
-                      <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
-                        <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Action</div>
-                        <div className="mt-1 text-sm font-semibold text-[#1F1B16]">{phaseCopy.actionHint}</div>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-4 rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
-                      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Journal prompt</div>
-                      <div className="mt-1 text-sm font-semibold text-[#1F1B16]">{phaseCopy.journalPrompt}</div>
-                      <div className="mt-2 text-sm text-[#403A32]/75">{phaseCopy.journalHelper}</div>
-                      <div className="mt-2 text-[11px] text-[#403A32]/60">Journal off-app. This is the prompt only.</div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-4 text-sm text-[#403A32]/75">
-                    <span className="font-semibold text-[#1F1B16]">Journal prompt:</span> {phaseCopy.journalPrompt}
-                  </div>
-                )}
-
-                <div className="mt-4 text-sm text-[#403A32]/65">You are here in the cycle.</div>
-              </div>
-            </div>
 
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
               <Link
