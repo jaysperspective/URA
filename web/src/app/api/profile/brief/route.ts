@@ -2,7 +2,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type BriefOk = {
   ok: true;
@@ -22,20 +21,11 @@ type BriefOk = {
 type BriefErr = { ok: false; error: string; code?: string };
 
 function getApiKey() {
-  return (
-    process.env.OPENAI_API_KEY ||
-    process.env.URA_OPENAI_API_KEY ||
-    process.env.OPENAI_KEY ||
-    ""
-  ).trim();
+  return (process.env.OPENAI_API_KEY || process.env.URA_OPENAI_API_KEY || process.env.OPENAI_KEY || "").trim();
 }
 
 function getModel() {
-  return (
-    process.env.URA_OPENAI_MODEL ||
-    process.env.OPENAI_MODEL ||
-    "gpt-4.1-mini"
-  ).trim();
+  return (process.env.URA_OPENAI_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
 }
 
 function asString(v: any, fallback = ""): string {
@@ -76,9 +66,12 @@ lunation, retrograde, transit, progressed, ascendant, asc, mc, degree weather, s
 Rules:
 - Use ONLY the provided inputs.
 - No predictions. No guaranteed outcomes. No “will happen”.
-- No mystical language.
 - "do_now" must be concrete behaviors (imperatives).
 - Keep "meaning" to 3–4 sentences max.
+- Journal must be specific and NOT generic. Avoid repeating templates like:
+  "What structure would protect the truth of this beginning?"
+  or "What is one thing you can do today?"
+  Make it clearly distinct each day.
 
 Return ONLY valid JSON:
 {
@@ -95,10 +88,14 @@ Return ONLY valid JSON:
 
 function userPrompt(input: any) {
   const ctx = input?.context ?? {};
-  const sym = input?.sabian ?? null; // keep field name for compatibility, but do NOT name it in output
+  const sym = input?.sabian ?? null;
+  const dayKey = asString(input?.dayKey, "—");
 
   return `
 INPUTS (do not name these categories in the output)
+
+DAILY KEY (use this as a differentiator)
+- dayKey: ${dayKey}
 
 ORIENTATION
 - season: ${asString(ctx.season, "—")}
@@ -150,6 +147,8 @@ Write the Daily Brief JSON.
 
 Requirements:
 - Integrate the DEGREE SYMBOL into the meaning AND at least one "do_now" bullet.
+- Journal question MUST be distinct for dayKey ${dayKey}. Make it specific to the symbol/practice/directive.
+- Avoid generic journal templates. Ask about a concrete choice, boundary, or craft decision.
 - "do_now" must be concrete actions (call, clean, schedule, send, build, review, practice).
 - "avoid" should reflect typical failure modes from the guidance + the symbol’s shadow (if present).
 - No astrology vocabulary. No mystical language. No predictions.
@@ -167,14 +166,13 @@ async function callOpenAI(apiKey: string, model: string, content: string) {
     },
     body: JSON.stringify({
       model,
-      temperature: 0.3,
+      temperature: 0.55,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt() },
         { role: "user", content },
       ],
     }),
-    cache: "no-store",
   });
 
   const data = await r.json().catch(() => null);
@@ -223,22 +221,15 @@ export async function POST(req: NextRequest) {
       const err: BriefErr = {
         ok: false,
         code: "MISSING_API_KEY",
-        error:
-          "Missing OPENAI_API_KEY (or URA_OPENAI_API_KEY). Add it to .env.local and restart the server.",
+        error: "Missing OPENAI_API_KEY (or URA_OPENAI_API_KEY). Add it to .env.local and restart the server.",
       };
-      return NextResponse.json(err, {
-        status: 500,
-        headers: { "Cache-Control": "no-store" },
-      });
+      return NextResponse.json(err, { status: 500 });
     }
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
       const err: BriefErr = { ok: false, code: "BAD_JSON", error: "Invalid JSON body." };
-      return NextResponse.json(err, {
-        status: 400,
-        headers: { "Cache-Control": "no-store" },
-      });
+      return NextResponse.json(err, { status: 400 });
     }
 
     const model = getModel();
@@ -256,20 +247,13 @@ export async function POST(req: NextRequest) {
       output,
       meta: { model },
     };
-
-    return NextResponse.json(ok, {
-      status: 200,
-      headers: { "Cache-Control": "no-store" },
-    });
+    return NextResponse.json(ok, { status: 200 });
   } catch (e: any) {
     const err: BriefErr = {
       ok: false,
       code: "BRIEF_FAILED",
       error: e?.message || "Daily brief failed.",
     };
-    return NextResponse.json(err, {
-      status: 500,
-      headers: { "Cache-Control": "no-store" },
-    });
+    return NextResponse.json(err, { status: 500 });
   }
 }
