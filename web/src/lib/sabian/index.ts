@@ -1,5 +1,6 @@
 // src/lib/sabian/index.ts
-import { URA_SABIAN } from "./uraSabian";
+import { SABIAN_360 } from "./uraSabian";
+
 
 const SIGNS_FULL = [
   "Aries",
@@ -26,7 +27,8 @@ function norm360(d: number) {
  * Infer entry type from the dataset itself.
  * This avoids importing a named type from uraSabian.ts entirely.
  */
-export type UraSabianEntry = (typeof URA_SABIAN)[number];
+export type UraSabianEntry = (typeof SABIAN_360)[number];
+
 
 export function sabianIndexFromLon(lon: number): number {
   const x = norm360(lon);
@@ -52,10 +54,10 @@ export function sabianKeyFromLon(lon: number): {
 export function sabianFromLon(lon: number): UraSabianEntry {
   const { idx, key, sign, degree } = sabianKeyFromLon(lon);
 
-  const byIdx = URA_SABIAN[idx];
+  const byIdx = SABIAN_360[idx];
   if (byIdx && typeof byIdx === "object") return byIdx;
 
-  const found = URA_SABIAN.find((x) => x.idx === idx || x.key === key);
+  const found = SABIAN_360.find((x) => x.idx === idx || x.key === key);
   if (found) return found;
 
   // Safety fallback (should never hit with full dataset)
