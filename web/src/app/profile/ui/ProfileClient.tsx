@@ -680,8 +680,54 @@ export default function ProfileClient(props: Props) {
               ) : null}
             </div>
 
-            {/* TOP ROW */}
-            <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* PROGRESS */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">90° Season Arc</div>
+                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season (0–90°).</div>
+
+                <ProgressBar
+                  value={orientation.seasonProgress01}
+                  labelLeft="0°"
+                  labelRight="90°"
+                  meta={
+                    orientation.ok && typeof orientation.withinSeason === "number"
+                      ? `${orientation.withinSeason.toFixed(2)}° / 90°`
+                      : "—"
+                  }
+                />
+              </div>
+
+              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">30° Modality Segment</div>
+                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current modality segment (0–30°).</div>
+
+                <ProgressBar
+                  value={orientation.modalityProgress01}
+                  labelLeft="0°"
+                  labelRight="30°"
+                  meta={
+                    orientation.ok && typeof orientation.withinModality === "number"
+                      ? `${orientation.withinModality.toFixed(2)}° / 30°`
+                      : "—"
+                  }
+                />
+              </div>
+            </div>
+
+            {/* FIGURE-8 */}
+            <div className="mt-8">
+              {typeof orientation.cyclePos === "number" ? (
+                <AscYearFigure8 cyclePosDeg={orientation.cyclePos} />
+              ) : (
+                <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-10 text-center text-sm text-[#403A32]/70">
+                  Cycle position unavailable.
+                </div>
+              )}
+            </div>
+
+            {/* ✅ TOP ROW moved here (under Cycle Waveform) */}
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac (As-of Sun)">
                 <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
                 <div className="mt-1 text-sm text-[#403A32]/75">Uses as-of (transiting) Sun when available.</div>
@@ -715,7 +761,18 @@ export default function ProfileClient(props: Props) {
               </SubCard>
             </div>
 
-            {/* DAILY BRIEF */}
+            {/* ✅ Foundation panel moved ABOVE Daily Brief */}
+            <div className="mt-4">
+              <URAFoundationPanel
+                solarPhaseId={orientation.uraPhaseId}
+                solarProgress01={orientation.uraProgress01}
+                sunText={sunTextForFoundation}
+                ontology={null}
+                asOfLabel={asOfLabelForFoundation}
+              />
+            </div>
+
+            {/* DAILY BRIEF (now after Foundation) */}
             <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -797,52 +854,6 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* PROGRESS */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">90° Season Arc</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season (0–90°).</div>
-
-                <ProgressBar
-                  value={orientation.seasonProgress01}
-                  labelLeft="0°"
-                  labelRight="90°"
-                  meta={
-                    orientation.ok && typeof orientation.withinSeason === "number"
-                      ? `${orientation.withinSeason.toFixed(2)}° / 90°`
-                      : "—"
-                  }
-                />
-              </div>
-
-              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">30° Modality Segment</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current modality segment (0–30°).</div>
-
-                <ProgressBar
-                  value={orientation.modalityProgress01}
-                  labelLeft="0°"
-                  labelRight="30°"
-                  meta={
-                    orientation.ok && typeof orientation.withinModality === "number"
-                      ? `${orientation.withinModality.toFixed(2)}° / 30°`
-                      : "—"
-                  }
-                />
-              </div>
-            </div>
-
-            {/* FIGURE-8 */}
-            <div className="mt-8">
-              {typeof orientation.cyclePos === "number" ? (
-                <AscYearFigure8 cyclePosDeg={orientation.cyclePos} />
-              ) : (
-                <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-10 text-center text-sm text-[#403A32]/70">
-                  Cycle position unavailable.
-                </div>
-              )}
-            </div>
-
             {/* Phase lens */}
             <div className="mt-4">
               <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
@@ -889,17 +900,6 @@ export default function ProfileClient(props: Props) {
 
                 <div className="mt-4 text-sm text-[#403A32]/65">You are here in the cycle.</div>
               </div>
-            </div>
-
-            {/* Foundation panel */}
-            <div className="mt-4">
-              <URAFoundationPanel
-                solarPhaseId={orientation.uraPhaseId}
-                solarProgress01={orientation.uraProgress01}
-                sunText={sunTextForFoundation}
-                ontology={null}
-                asOfLabel={asOfLabelForFoundation}
-              />
             </div>
 
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
