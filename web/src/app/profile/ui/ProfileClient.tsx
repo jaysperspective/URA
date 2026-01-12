@@ -173,9 +173,7 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
           </svg>
         </div>
 
-        <div className="mt-3 text-center text-sm text-[#403A32]/75">
-          Sideways ∞ map. Marker = current cycle position (0–360°).
-        </div>
+        <div className="mt-3 text-center text-sm text-[#403A32]/75">Sideways ∞ map. Marker = current cycle position (0–360°).</div>
       </div>
     </div>
   );
@@ -306,6 +304,24 @@ type BriefOk = {
 
 type BriefErr = { ok: false; error: string; code?: string };
 type BriefResp = BriefOk | BriefErr;
+
+function getDayKeyInTZ(tz: string, d = new Date()) {
+  try {
+    // en-CA -> YYYY-MM-DD
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    const x = new Date();
+    const y = x.getFullYear();
+    const m = String(x.getMonth() + 1).padStart(2, "0");
+    const dd = String(x.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+}
 
 export default function ProfileClient(props: Props) {
   const {
@@ -475,11 +491,29 @@ export default function ProfileClient(props: Props) {
     }));
   }, [natalPlanets]);
 
-  // ✅ Sabian symbol anchor (Sun transiting degree)
+  // Sabian symbol anchor (Sun transiting degree)
   const sabian = useMemo(() => {
     if (typeof currentSunLon !== "number") return null;
     return sabianFromLon(currentSunLon);
   }, [currentSunLon]);
+
+  // Prefer a real “symbol sentence”. If dataset still has placeholder text, fall back.
+  const sabianSentence = useMemo(() => {
+    if (!sabian) return null;
+    const sym = (sabian.symbol ?? "").trim();
+    const looksPlaceholder = /a moment in/i.test(sym) || /learning its/i.test(sym);
+    if (sym && !looksPlaceholder && sym !== "—") return sym;
+
+    const fallback =
+      (sabian.signal ?? "").trim() ||
+      (sabian.directive ?? "").trim() ||
+      (sabian.practice ?? "").trim() ||
+      "—";
+
+    return fallback;
+  }, [sabian]);
+
+  const dayKey = useMemo(() => getDayKeyInTZ(timezone), [timezone]);
 
   async function generateDailyBrief() {
     setBriefLoading(true);
@@ -488,6 +522,10 @@ export default function ProfileClient(props: Props) {
     try {
       const payload = {
         version: "1.0" as const,
+
+        // 👇 forces daily variation without changing ontology
+        dayKey, // YYYY-MM-DD in user's tz
+
         context: {
           season: orientation.ok ? orientation.seasonText : (ascYearSeason || "—"),
           phaseId: orientation.uraPhaseId,
@@ -507,7 +545,7 @@ export default function ProfileClient(props: Props) {
           progressed: `${progressedSun} • ${progressedMoon}`,
           asOf: asOfLine,
         },
-        // ✅ sabian payload
+
         sabian: sabian
           ? {
               idx: sabian.idx,
@@ -523,11 +561,11 @@ export default function ProfileClient(props: Props) {
               tags: sabian.tags ?? [],
             }
           : null,
+
         output: { maxDoNow: 3, maxAvoid: 2, maxSentencesMeaning: 4 },
         constraints: { noPrediction: true, noNewClaims: true, citeInputs: true },
       };
 
-      // ✅ FIX: no-store so refresh is actually fresh
       const r = await fetch("/api/profile/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -598,9 +636,7 @@ export default function ProfileClient(props: Props) {
                     ))}
                   </div>
 
-                  <div className="mt-3 text-[11px] text-[#F4EFE6]/55">
-                    Note: Nodes/Chiron show when present in the cached natal chart.
-                  </div>
+                  <div className="mt-3 text-[11px] text-[#F4EFE6]/55">Note: Nodes/Chiron show when present in the cached natal chart.</div>
                 </div>
               ) : null}
 
@@ -679,39 +715,44 @@ export default function ProfileClient(props: Props) {
               </SubCard>
             </div>
 
-            {/* DAILY BRIEF (LLM + Sabian) */}
+            {/* DAILY BRIEF */}
             <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Daily Brief</div>
                   <div className="mt-2 text-lg font-semibold text-[#1F1B16]">Phase + Sun Degree (Sabian)</div>
 
-                  <div className="mt-1 text-sm text-[#403A32]/75">
+                  <div className="mt-1 text-sm text-[#403A32]/85">
                     {sabian ? (
                       <>
                         <span className="font-semibold text-[#1F1B16]">{sabian.key}</span>
                         <span className="mx-2">•</span>
-                        <span>{sabian.symbol}</span>
+                        <span>{sabianSentence}</span>
                       </>
                     ) : (
                       "Sabian unavailable (missing current Sun)."
                     )}
                   </div>
+
+                  <div className="mt-1 text-xs text-[#403A32]/65">Day key: {dayKey}</div>
                 </div>
 
                 <button
                   type="button"
                   onClick={generateDailyBrief}
                   disabled={briefLoading}
-                  className="rounded-2xl px-4 py-2 text-sm border border-black/15 hover:bg-black/5"
+                  className={[
+                    "rounded-2xl px-4 py-2 text-sm border transition",
+                    "bg-[#F4EFE6] text-[#1F1B16]",
+                    "border-black/25 hover:bg-black/5",
+                    briefLoading ? "opacity-60 cursor-not-allowed" : "",
+                  ].join(" ")}
                 >
                   {briefLoading ? "Generating…" : brief ? "Refresh" : "Generate"}
                 </button>
               </div>
 
-              {brief && !brief.ok ? (
-                <div className="mt-3 text-sm text-red-700">{brief.error}</div>
-              ) : null}
+              {brief && !brief.ok ? <div className="mt-3 text-sm text-red-700">{brief.error}</div> : null}
 
               {brief && brief.ok ? (
                 <div className="mt-4 space-y-4">
@@ -752,9 +793,7 @@ export default function ProfileClient(props: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="mt-3 text-sm text-[#403A32]/70">
-                  {briefLoading ? "Generating your daily brief…" : "No brief yet."}
-                </div>
+                <div className="mt-3 text-sm text-[#403A32]/70">{briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}</div>
               )}
             </div>
 
