@@ -544,15 +544,6 @@ export default function ProfileClient(props: Props) {
     }
   }
 
-  // optional: auto-generate once when page loads and we have a sun degree
-  useEffect(() => {
-    if (brief) return;
-    if (typeof currentSunLon !== "number") return;
-    // fire once (no loop)
-    generateDailyBrief();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSunLon]);
-
   return (
     <div className="mt-8">
       {/* TOP STRIP */}
