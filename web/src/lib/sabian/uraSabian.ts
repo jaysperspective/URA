@@ -407,8 +407,6 @@ export const SABIAN_360: SabianSymbol[] = [
     journal: "How is this degree asking me to mature or initiate?",
     tags: ["aries", "degree-30"],
   },
-];
-
   {
     idx: 30,
     key: "Taurus 1",
