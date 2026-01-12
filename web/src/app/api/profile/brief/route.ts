@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type BriefOk = {
   ok: true;
@@ -173,6 +174,7 @@ async function callOpenAI(apiKey: string, model: string, content: string) {
         { role: "user", content },
       ],
     }),
+    cache: "no-store",
   });
 
   const data = await r.json().catch(() => null);
@@ -224,13 +226,19 @@ export async function POST(req: NextRequest) {
         error:
           "Missing OPENAI_API_KEY (or URA_OPENAI_API_KEY). Add it to .env.local and restart the server.",
       };
-      return NextResponse.json(err, { status: 500 });
+      return NextResponse.json(err, {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
       const err: BriefErr = { ok: false, code: "BAD_JSON", error: "Invalid JSON body." };
-      return NextResponse.json(err, { status: 400 });
+      return NextResponse.json(err, {
+        status: 400,
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     const model = getModel();
@@ -248,13 +256,20 @@ export async function POST(req: NextRequest) {
       output,
       meta: { model },
     };
-    return NextResponse.json(ok, { status: 200 });
+
+    return NextResponse.json(ok, {
+      status: 200,
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (e: any) {
     const err: BriefErr = {
       ok: false,
       code: "BRIEF_FAILED",
       error: e?.message || "Daily brief failed.",
     };
-    return NextResponse.json(err, { status: 500 });
+    return NextResponse.json(err, {
+      status: 500,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 }
