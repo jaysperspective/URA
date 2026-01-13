@@ -1,7 +1,7 @@
 // src/app/astrology/ui/AstrologyClient.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type LookupOk = { ok: true; key: string; card: any };
 type LookupErr = { ok: false; error: string };
@@ -48,10 +48,19 @@ const TOKENS = {
   buttonText: "rgba(15,26,18,0.92)",
 };
 
-function Pill({ children }: { children: React.ReactNode }) {
+function Pill({
+  children,
+  disabled,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
   return (
     <span
-      className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
+      className={[
+        "inline-flex items-center rounded-full border px-3 py-1 text-xs",
+        disabled ? "opacity-60" : "",
+      ].join(" ")}
       style={{
         borderColor: TOKENS.pillBorder,
         background: TOKENS.pillBg,
@@ -101,40 +110,15 @@ function CardShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * ✅ Key fix:
- * The natal chips often include degrees/minutes like: "Moon Capricorn 3° 46'"
- * Your API currently complains without a house; we normalize chips to:
- *   - "Moon Capricorn"
- *   - "Mercury Capricorn"
- *   - "MC Leo"
- *   - "ASC Scorpio"
- *   - "North Node Aquarius"
- *
- * This keeps the lookup useful even when house is unknown.
- */
-function normalizePlacementForLookup(raw: string) {
-  let s = (raw || "").trim();
-  if (!s) return "";
+type NatalChip = {
+  kind: "planet" | "node" | "chiron" | "angle";
+  label: string;
+  query: string | null; // null => display-only (ASC/MC for now)
+};
 
-  // Remove degree/minute chunks: "21° 18'" or "21°18'" etc
-  s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\s*'?\b/g, "").trim();
-  s = s.replace(/\b\d{1,2}\s*°\b/g, "").trim();
-  s = s.replace(/\s{2,}/g, " ").trim();
-
-  // Remove stray punctuation
-  s = s.replace(/[•·]/g, " ").replace(/\s{2,}/g, " ").trim();
-
-  // Normalize some labels that appear in natal chips
-  // Keep MC/ASC as-is; they are valid "placements" without house.
-  // Convert "North Node" / "South Node" spacing is fine.
-  // If someone passes "Moon Capricorn" we keep it.
-
-  // If string is like "Sun Aquarius" already fine.
-  // If it starts with sign then planet (rare), don't try to over-fix.
-
-  return s;
-}
+type NatalApiOk = { ok: true; version: "1.0"; placements: NatalChip[] };
+type NatalApiErr = { ok: false; error: string };
+type NatalApiResp = NatalApiOk | NatalApiErr;
 
 export default function AstrologyClient() {
   const [mode, setMode] = useState<Mode>("placement");
@@ -152,11 +136,7 @@ export default function AstrologyClient() {
   const [pairErr, setPairErr] = useState<string | null>(null);
 
   // Mini (3–6)
-  const [miniInputs, setMiniInputs] = useState<string[]>([
-    "Sun Capricorn",
-    "Moon Cancer",
-    "Mercury Aquarius",
-  ]);
+  const [miniInputs, setMiniInputs] = useState<string[]>(["Sun Capricorn", "Moon Cancer", "Mercury Aquarius"]);
   const [miniLoading, setMiniLoading] = useState(false);
   const [miniCards, setMiniCards] = useState<{ key: string; card: any }[] | null>(null);
   const [miniErr, setMiniErr] = useState<string | null>(null);
@@ -167,27 +147,10 @@ export default function AstrologyClient() {
   const [sxLoading, setSxLoading] = useState(false);
   const [sx, setSx] = useState<SxResp | null>(null);
 
-  // ✅ This list is what your Profile->Astrology bridge should populate.
-  // For now it’s a placeholder set; you can later feed it via URL params or session.
-  const natalPlacements = useMemo(
-    () => [
-      "MC Leo 21° 18'",
-      "Sun Aquarius 4° 00'",
-      "Moon Capricorn 3° 46'",
-      "Mercury Capricorn 10° 44'",
-      "Venus Capricorn 25° 25'",
-      "Mars Sagittarius 26° 10'",
-      "Jupiter Cancer 2° 25'",
-      "Saturn Capricorn 18° 20'",
-      "Uranus Capricorn 7° 06'",
-      "Neptune Capricorn 12° 53'",
-      "Pluto Scorpio 17° 35'",
-      "Chiron Cancer 12° 17'",
-      "North Node Aquarius 16° 30'",
-      "South Node Leo 16° 30'",
-    ],
-    []
-  );
+  // ✅ Natal placements from cache
+  const [natalLoading, setNatalLoading] = useState(false);
+  const [natalErr, setNatalErr] = useState<string | null>(null);
+  const [natalPlacements, setNatalPlacements] = useState<NatalChip[]>([]);
 
   const examples = useMemo(
     () => [
@@ -199,7 +162,7 @@ export default function AstrologyClient() {
       "Chiron Aries",
       "North Node Aquarius",
       "South Node Leo",
-      // still allowed:
+      // still allowed if user knows it:
       "Sun Capricorn 10th house",
       "Moon Cancer 4th house",
     ],
@@ -209,6 +172,30 @@ export default function AstrologyClient() {
   function resetSynthesis() {
     setSx(null);
   }
+
+  async function fetchNatalPlacements() {
+    setNatalLoading(true);
+    setNatalErr(null);
+
+    try {
+      const r = await fetch("/api/astrology/natal", { method: "GET", cache: "no-store" });
+      const data = (await r.json()) as NatalApiResp;
+
+      if (!data.ok) throw new Error((data as any).error || "Failed to load natal placements.");
+      setNatalPlacements((data as any).placements ?? []);
+    } catch (e: any) {
+      setNatalErr(e?.message || "Failed to load natal placements.");
+      setNatalPlacements([]);
+    } finally {
+      setNatalLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    // Always load the user's cached natal chips when landing here
+    fetchNatalPlacements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function lookupOne(query: string): Promise<{ key: string; card: any }> {
     const r = await fetch(`/api/astrology?q=${encodeURIComponent(query)}`, {
@@ -477,7 +464,7 @@ export default function AstrologyClient() {
 
   return (
     <section className="space-y-4">
-      {/* ✅ Natal placements quick panel */}
+      {/* ✅ Natal placements quick panel (from cached natalChartJson) */}
       <Panel>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -485,46 +472,55 @@ export default function AstrologyClient() {
               Natal placements
             </div>
             <div className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
-              Click a placement to auto-fill and run lookup.
+              Click a placement to auto-fill and run lookup. (ASC/MC are display-only for now.)
             </div>
+            {natalErr ? (
+              <div className="mt-2 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
+                {natalErr}
+              </div>
+            ) : null}
           </div>
 
           <button
             type="button"
-            onClick={() => {
-              // simple "refresh" behavior: clears synthesis/results; keeps current mode
-              setResp(null);
-              setPairCards(null);
-              setMiniCards(null);
-              resetSynthesis();
-            }}
+            onClick={fetchNatalPlacements}
+            disabled={natalLoading}
             className="rounded-xl px-4 py-2 text-sm font-semibold transition"
             style={{
-              background: TOKENS.buttonBg,
+              background: natalLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
               color: TOKENS.buttonText,
+              opacity: natalLoading ? 0.75 : 1,
             }}
           >
-            Refresh natal
+            {natalLoading ? "Refreshing…" : "Refresh natal"}
           </button>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          {natalPlacements.map((raw) => {
-            const normalized = normalizePlacementForLookup(raw);
+          {natalPlacements.length === 0 && !natalLoading ? (
+            <div className="text-sm" style={{ color: TOKENS.textSoft }}>
+              No natal placements loaded yet.
+            </div>
+          ) : null}
+
+          {natalPlacements.map((chip, idx) => {
+            const disabled = !chip.query;
             return (
               <button
-                key={raw}
+                key={`${chip.label}-${idx}`}
                 type="button"
+                disabled={disabled}
                 onClick={() => {
+                  if (!chip.query) return;
                   setMode("placement");
-                  setQ(normalized);
+                  setQ(chip.query);
                   resetSynthesis();
-                  // run immediately
-                  runLookup(normalized);
+                  runLookup(chip.query);
                 }}
-                title={`Lookup: ${normalized}`}
+                title={chip.query ? `Lookup: ${chip.query}` : "Display only"}
+                className={disabled ? "cursor-not-allowed" : ""}
               >
-                <Pill>{raw}</Pill>
+                <Pill disabled={disabled}>{chip.label}</Pill>
               </button>
             );
           })}
