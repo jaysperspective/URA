@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
@@ -98,16 +98,37 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
+/** small deterministic hash for daily micro-changes */
+function hash01(input: string) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // 0..1
+  return ((h >>> 0) % 10000) / 10000;
+}
+
 /**
- * ✅ Mobile-first Cycle Waveform
- * - No overflow-x scroll
- * - Full-width responsive SVG
- * - Clear marker (hairline + dot)
- * - Season anchors (SPRG/SUMR/FALL/WNTR)
+ * ✅ Mobile-first Cycle Waveform + Visual micro-change
+ * - no overflow-x scroll
+ * - responsive svg
+ * - subtle daily variation in stroke/glow (deterministic via dayKey + phase)
  */
-function AscYearWaveform({ cyclePosDeg }: { cyclePosDeg: number }) {
+function AscYearWaveform({
+  cyclePosDeg,
+  phaseId,
+  dayKey,
+}: {
+  cyclePosDeg: number;
+  phaseId: number;
+  dayKey: string;
+}) {
   const pos = norm360(cyclePosDeg);
   const t01 = pos / 360;
+
+  // micro-change seed: day + phase
+  const seed = useMemo(() => hash01(`${dayKey}::${phaseId}`), [dayKey, phaseId]);
 
   const pathD = useMemo(() => {
     const W = 1000;
@@ -120,7 +141,6 @@ function AscYearWaveform({ cyclePosDeg }: { cyclePosDeg: number }) {
       const x01 = i / samples;
       const x = x01 * W;
 
-      // peaks at 0.25 (SUMR), trough at 0.75 (WNTR)
       const yNorm = Math.sin(x01 * Math.PI * 2); // -1..1
       const y = mid - yNorm * amp;
 
@@ -141,6 +161,14 @@ function AscYearWaveform({ cyclePosDeg }: { cyclePosDeg: number }) {
     return { x, y };
   }, [t01]);
 
+  // subtle variation knobs (no new colors, just alpha/width)
+  const strokeAlpha = 0.48 + seed * 0.22; // ~0.48..0.70
+  const strokeW = 5.2 + seed * 2.2; // ~5.2..7.4
+  const glowAlpha = 0.08 + seed * 0.10; // ~0.08..0.18
+
+  // slightly different marker “presence” each day
+  const markerOuter = 12 + Math.round(seed * 6); // 12..18
+
   return (
     <div className="mx-auto w-full max-w-[820px]">
       <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
@@ -150,23 +178,26 @@ function AscYearWaveform({ cyclePosDeg }: { cyclePosDeg: number }) {
         </div>
 
         <div className="mt-4">
-          <svg
-            viewBox="0 0 1000 120"
-            width="100%"
-            height="96"
-            className="block"
-            role="img"
-            aria-label={`Cycle waveform marker at ${pos.toFixed(2)} degrees`}
-          >
+          <svg viewBox="0 0 1000 120" width="100%" height="96" className="block" role="img">
             {/* baseline */}
             <line x1="0" y1="60" x2="1000" y2="60" stroke="rgba(0,0,0,0.10)" strokeWidth="2" />
+
+            {/* soft “glow” pass (micro-change) */}
+            <path
+              d={pathD}
+              fill="none"
+              stroke={`rgba(140,131,119,${glowAlpha.toFixed(3)})`}
+              strokeWidth={Math.max(8, strokeW + 4)}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
 
             {/* waveform */}
             <path
               d={pathD}
               fill="none"
-              stroke="rgba(0,0,0,0.58)"
-              strokeWidth="6"
+              stroke={`rgba(0,0,0,${strokeAlpha.toFixed(3)})`}
+              strokeWidth={strokeW}
               strokeLinecap="round"
               strokeLinejoin="round"
             />
@@ -176,7 +207,7 @@ function AscYearWaveform({ cyclePosDeg }: { cyclePosDeg: number }) {
 
             {/* marker dot */}
             <circle cx={marker.x} cy={marker.y} r="8" fill="rgba(140,131,119,0.95)" />
-            <circle cx={marker.x} cy={marker.y} r="14" fill="rgba(140,131,119,0.16)" />
+            <circle cx={marker.x} cy={marker.y} r={markerOuter} fill="rgba(140,131,119,0.16)" />
           </svg>
 
           {/* anchors */}
@@ -336,6 +367,36 @@ function getDayKeyInTZ(tz: string, d = new Date()) {
   }
 }
 
+/** Carry-over thread storage */
+const CARRY_KEY = "ura.profile.carryOver.v1";
+type CarryOver = {
+  savedDayKey: string;
+  headline?: string;
+  journal?: string;
+  sabianKey?: string;
+  sabianSentence?: string;
+};
+
+function safeReadCarryOver(): CarryOver | null {
+  try {
+    const raw = localStorage.getItem(CARRY_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as CarryOver;
+  } catch {
+    return null;
+  }
+}
+
+function safeWriteCarryOver(v: CarryOver) {
+  try {
+    localStorage.setItem(CARRY_KEY, JSON.stringify(v));
+  } catch {
+    // ignore
+  }
+}
+
 export default function ProfileClient(props: Props) {
   const {
     name,
@@ -372,6 +433,9 @@ export default function ProfileClient(props: Props) {
   // Daily Brief (LLM)
   const [briefLoading, setBriefLoading] = useState(false);
   const [brief, setBrief] = useState<BriefResp | null>(null);
+
+  // Carry-over thread (yesterday)
+  const [carryOver, setCarryOver] = useState<CarryOver | null>(null);
 
   const natalAsc = fmtSignPos(natalAscLon);
   const natalMc = fmtSignPos(typeof natalMcLon === "number" ? natalMcLon : null);
@@ -527,6 +591,34 @@ export default function ProfileClient(props: Props) {
 
   const dayKey = useMemo(() => getDayKeyInTZ(timezone), [timezone]);
 
+  // ✅ Load carry-over on mount + whenever dayKey changes
+  useEffect(() => {
+    try {
+      const saved = safeReadCarryOver();
+      if (!saved) {
+        setCarryOver(null);
+        return;
+      }
+      // only show if it's NOT today's entry
+      if (saved.savedDayKey && saved.savedDayKey !== dayKey) setCarryOver(saved);
+      else setCarryOver(null);
+    } catch {
+      setCarryOver(null);
+    }
+  }, [dayKey]);
+
+  // ✅ Phase countdown (degrees remaining in 45° phase; “days” ~= degrees)
+  const phaseCountdown = useMemo(() => {
+    if (!orientation.ok || typeof orientation.uraDegIntoPhase !== "number") return null;
+    const into = orientation.uraDegIntoPhase;
+    const remaining = Math.max(0, 45 - into);
+    const daysApprox = Math.max(0, Math.ceil(remaining)); // 1° ~ 1 day (approx)
+    return {
+      degRemaining: remaining,
+      daysApprox,
+    };
+  }, [orientation.ok, orientation.uraDegIntoPhase]);
+
   async function generateDailyBrief() {
     setBriefLoading(true);
     setBrief(null);
@@ -587,6 +679,21 @@ export default function ProfileClient(props: Props) {
 
       const data = (await r.json()) as BriefResp;
       setBrief(data);
+
+      // ✅ Save today as the next carry-over seed (so tomorrow has a thread)
+      if (data && (data as any).ok) {
+        const ok = data as BriefOk;
+        safeWriteCarryOver({
+          savedDayKey: dayKey,
+          headline: ok.output.headline,
+          journal: ok.output.journal,
+          sabianKey: sabian?.key ?? undefined,
+          sabianSentence: sabianSentence ?? undefined,
+        });
+
+        // once we generate today, hide carry-over (we are now “caught up”)
+        setCarryOver(null);
+      }
     } catch (e: any) {
       setBrief({ ok: false, error: e?.message || "Daily Brief failed." });
     } finally {
@@ -653,8 +760,8 @@ export default function ProfileClient(props: Props) {
               ) : null}
 
               <div className="mt-4 flex flex-wrap gap-6">
-                <Chip k="SUN (PROG)" v={progressedSun} />
-                <Chip k="MOON (PROG)" v={progressedMoon} />
+                <Chip k="SUN (PROG)" v={fmtSignPos(progressedSunLon)} />
+                <Chip k="MOON (PROG)" v={fmtSignPos(progressedMoonLon)} />
                 <Chip k="LUNATION" v={lunationLine} />
               </div>
             </div>
@@ -692,6 +799,35 @@ export default function ProfileClient(props: Props) {
               ) : null}
             </div>
 
+            {/* ✅ Phase Countdown */}
+            <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Phase Countdown</div>
+                  <div className="mt-2 text-sm text-[#403A32]/85">
+                    {phaseCountdown ? (
+                      <>
+                        <span className="font-semibold text-[#1F1B16]">
+                          {phaseCountdown.degRemaining.toFixed(2)}°
+                        </span>{" "}
+                        remaining in this 45° phase
+                        <span className="mx-2">•</span>
+                        ~{phaseCountdown.daysApprox} days (approx)
+                      </>
+                    ) : (
+                      "Countdown unavailable."
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-xs text-[#403A32]/65">
+                  {orientation.ok && typeof orientation.uraDegIntoPhase === "number"
+                    ? `${orientation.uraDegIntoPhase.toFixed(2)}° into Phase ${orientation.uraPhaseId}`
+                    : "—"}
+                </div>
+              </div>
+            </div>
+
             {/* ✅ Foundation panel moved ABOVE Daily Brief */}
             <div className="mt-4">
               <URAFoundationPanel
@@ -703,7 +839,44 @@ export default function ProfileClient(props: Props) {
               />
             </div>
 
-            {/* DAILY BRIEF (now after Foundation) */}
+            {/* ✅ Carry-Over Thread (yesterday) */}
+            {carryOver ? (
+              <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
+                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Carry-Over Thread</div>
+                <div className="mt-2 text-sm text-[#403A32]/85">
+                  <span className="text-xs text-[#403A32]/60">Saved from </span>
+                  <span className="font-semibold text-[#1F1B16]">{carryOver.savedDayKey}</span>
+                </div>
+
+                {carryOver.headline ? (
+                  <div className="mt-3">
+                    <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Headline</div>
+                    <div className="mt-1 text-sm font-semibold text-[#1F1B16]">{carryOver.headline}</div>
+                  </div>
+                ) : null}
+
+                {carryOver.journal ? (
+                  <div className="mt-3 rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
+                    <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Journal thread</div>
+                    <div className="mt-2 text-sm font-semibold text-[#1F1B16]">{carryOver.journal}</div>
+                  </div>
+                ) : null}
+
+                {carryOver.sabianKey && carryOver.sabianSentence ? (
+                  <div className="mt-3 text-sm text-[#403A32]/85">
+                    <span className="font-semibold text-[#1F1B16]">{carryOver.sabianKey}</span>
+                    <span className="mx-2">•</span>
+                    <span>{carryOver.sabianSentence}</span>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 text-xs text-[#403A32]/65">
+                  Tip: generate today’s brief to “advance” the thread forward.
+                </div>
+              </div>
+            ) : null}
+
+            {/* DAILY BRIEF (after Foundation) */}
             <div className="mt-4 rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -781,9 +954,7 @@ export default function ProfileClient(props: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="mt-3 text-sm text-[#403A32]/70">
-                  {briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}
-                </div>
+                <div className="mt-3 text-sm text-[#403A32]/70">{briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}</div>
               )}
             </div>
 
@@ -822,10 +993,10 @@ export default function ProfileClient(props: Props) {
               </div>
             </div>
 
-            {/* ✅ CYCLE WAVEFORM (mobile-first) */}
+            {/* ✅ CYCLE WAVEFORM (mobile-first) + micro-change */}
             <div className="mt-8">
               {typeof orientation.cyclePos === "number" ? (
-                <AscYearWaveform cyclePosDeg={orientation.cyclePos} />
+                <AscYearWaveform cyclePosDeg={orientation.cyclePos} phaseId={orientation.uraPhaseId} dayKey={dayKey} />
               ) : (
                 <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-10 text-center text-sm text-[#403A32]/70">
                   Cycle position unavailable.
@@ -833,7 +1004,7 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* ✅ TOP ROW moved here (under Cycle Waveform) */}
+            {/* TOP ROW */}
             <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac (As-of Sun)">
                 <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
