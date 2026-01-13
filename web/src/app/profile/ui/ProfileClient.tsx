@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
@@ -98,47 +98,48 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
-  const size = 760;
-  const H = 260;
-  const cx = size / 2;
-  const cy = H / 2;
-
+/**
+ * ✅ Mobile-first Cycle Waveform
+ * - No overflow-x scroll
+ * - Full-width responsive SVG
+ * - Clear marker (hairline + dot)
+ * - Season anchors (SPRG/SUMR/FALL/WNTR)
+ */
+function AscYearWaveform({ cyclePosDeg }: { cyclePosDeg: number }) {
   const pos = norm360(cyclePosDeg);
-  const t = (pos / 360) * Math.PI * 2;
-
-  const a = 290;
-  const b = 95;
-
-  const X = (tt: number) => cx + a * Math.sin(tt);
-  const Y = (tt: number) => cy - b * Math.sin(2 * tt);
+  const t01 = pos / 360;
 
   const pathD = useMemo(() => {
-    const step = 0.02;
-    let d = `M ${X(0).toFixed(2)} ${Y(0).toFixed(2)}`;
-    for (let tt = step; tt <= Math.PI * 2 + step; tt += step) {
-      d += ` L ${X(tt).toFixed(2)} ${Y(tt).toFixed(2)}`;
+    const W = 1000;
+    const mid = 60;
+    const amp = 26;
+
+    const samples = 64;
+    let d = "";
+    for (let i = 0; i <= samples; i++) {
+      const x01 = i / samples;
+      const x = x01 * W;
+
+      // peaks at 0.25 (SUMR), trough at 0.75 (WNTR)
+      const yNorm = Math.sin(x01 * Math.PI * 2); // -1..1
+      const y = mid - yNorm * amp;
+
+      d += i === 0 ? `M ${x.toFixed(1)} ${y.toFixed(1)}` : ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
     }
     return d;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const px = X(t);
-  const py = Y(t);
+  const marker = useMemo(() => {
+    const W = 1000;
+    const mid = 60;
+    const amp = 26;
 
-  const labelStyle: React.CSSProperties = {
-    fill: "rgba(64,58,50,0.65)",
-    fontSize: 11,
-    letterSpacing: "0.14em",
-    fontWeight: 700,
-  };
+    const x = t01 * W;
+    const yNorm = Math.sin(t01 * Math.PI * 2);
+    const y = mid - yNorm * amp;
 
-  const labelFixed = [
-    { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
-    { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
-    { txt: "SPRG", x: cx, y: cy - b - 22, anchor: "middle" as const },
-    { txt: "FALL", x: cx, y: cy + b + 34, anchor: "middle" as const },
-  ];
+    return { x, y };
+  }, [t01]);
 
   return (
     <div className="mx-auto w-full max-w-[820px]">
@@ -148,32 +149,44 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
           <div className="text-xs text-[#403A32]/70">{pos.toFixed(2)}°</div>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
-          <svg width={size} height={H} className="block">
-            <line x1={0} y1={cy} x2={size} y2={cy} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
-            <line x1={cx} y1={0} x2={cx} y2={H} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
+        <div className="mt-4">
+          <svg
+            viewBox="0 0 1000 120"
+            width="100%"
+            height="96"
+            className="block"
+            role="img"
+            aria-label={`Cycle waveform marker at ${pos.toFixed(2)} degrees`}
+          >
+            {/* baseline */}
+            <line x1="0" y1="60" x2="1000" y2="60" stroke="rgba(0,0,0,0.10)" strokeWidth="2" />
 
+            {/* waveform */}
             <path
               d={pathD}
               fill="none"
               stroke="rgba(0,0,0,0.58)"
-              strokeWidth="2.6"
+              strokeWidth="6"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
 
-            <circle cx={px} cy={py} r="6" fill="rgba(140,131,119,0.95)" />
-            <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
+            {/* marker hairline */}
+            <line x1={marker.x} y1="8" x2={marker.x} y2="112" stroke="rgba(0,0,0,0.18)" strokeWidth="2" />
 
-            {labelFixed.map((l) => (
-              <text key={l.txt} x={l.x} y={l.y} textAnchor={l.anchor} style={labelStyle}>
-                {l.txt}
-              </text>
-            ))}
+            {/* marker dot */}
+            <circle cx={marker.x} cy={marker.y} r="8" fill="rgba(140,131,119,0.95)" />
+            <circle cx={marker.x} cy={marker.y} r="14" fill="rgba(140,131,119,0.16)" />
           </svg>
-        </div>
 
-        <div className="mt-3 text-center text-sm text-[#403A32]/75">Sideways ∞ map. Marker = current cycle position (0–360°).</div>
+          {/* anchors */}
+          <div className="mt-2 grid grid-cols-4 text-[10px] tracking-[0.18em] uppercase text-[#403A32]/60">
+            <div>SPRG</div>
+            <div className="text-center">SUMR</div>
+            <div className="text-center">FALL</div>
+            <div className="text-right">WNTR</div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -355,7 +368,6 @@ export default function ProfileClient(props: Props) {
   } = props;
 
   const [showAllPlacements, setShowAllPlacements] = useState(false);
-  const [showPhaseDetails, setShowPhaseDetails] = useState(false);
 
   // Daily Brief (LLM)
   const [briefLoading, setBriefLoading] = useState(false);
@@ -650,8 +662,6 @@ export default function ProfileClient(props: Props) {
         </div>
       </div>
 
-      
-
       {/* MAIN CARD */}
       <div className="mt-8 mx-auto max-w-5xl">
         <CardShell>
@@ -682,8 +692,6 @@ export default function ProfileClient(props: Props) {
               ) : null}
             </div>
 
-
-            
             {/* ✅ Foundation panel moved ABOVE Daily Brief */}
             <div className="mt-4">
               <URAFoundationPanel
@@ -773,7 +781,9 @@ export default function ProfileClient(props: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="mt-3 text-sm text-[#403A32]/70">{briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}</div>
+                <div className="mt-3 text-sm text-[#403A32]/70">
+                  {briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}
+                </div>
               )}
             </div>
 
@@ -812,10 +822,10 @@ export default function ProfileClient(props: Props) {
               </div>
             </div>
 
-            {/* FIGURE-8 */}
+            {/* ✅ CYCLE WAVEFORM (mobile-first) */}
             <div className="mt-8">
               {typeof orientation.cyclePos === "number" ? (
-                <AscYearFigure8 cyclePosDeg={orientation.cyclePos} />
+                <AscYearWaveform cyclePosDeg={orientation.cyclePos} />
               ) : (
                 <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-10 text-center text-sm text-[#403A32]/70">
                   Cycle position unavailable.
@@ -823,7 +833,6 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-           
             {/* ✅ TOP ROW moved here (under Cycle Waveform) */}
             <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
               <SubCard title="Current Zodiac (As-of Sun)">
@@ -858,8 +867,6 @@ export default function ProfileClient(props: Props) {
                 <div className="mt-1 text-sm text-[#403A32]/75"></div>
               </SubCard>
             </div>
-
-
 
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
               <Link
