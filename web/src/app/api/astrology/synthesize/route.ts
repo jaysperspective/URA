@@ -17,7 +17,7 @@ type Mode = "placement" | "pair" | "mini_chart";
 type ReqBody = {
   version: "1.0";
   mode: Mode;
-  keys: string[]; // ✅ doctrine keys (placement-only like "mars|virgo" OR house keys like "mars|virgo|6")
+  keys: string[]; // doctrine keys only: planet|sign|house (but we accept loose casing)
   lens?: Lens;
   question?: string;
   output?: {
@@ -30,7 +30,62 @@ type ReqBody = {
 type DoctrineCard = any;
 
 const CARDS: DoctrineCard[] = (doctrine as any).cards ?? [];
-const LOOKUP = new Map<string, DoctrineCard>(CARDS.map((c) => [c.key, c]));
+
+/**
+ * Normalize doctrine keys so lookups work even if the UI sends:
+ * - moon|capricorn vs Moon|Capricorn
+ * - extra spaces
+ * - "north node" vs "northNode" (basic tolerance)
+ */
+function normKey(k: string) {
+  return String(k || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/\s*\|\s*/g, "|");
+}
+
+function normPlanetToken(p: string) {
+  const x = normKey(p).replace(/\s/g, "");
+  // normalize common node forms
+  if (x === "northnode" || x === "truenode" || x === "meannode" || x === "node") return "northnode";
+  if (x === "southnode") return "southnode";
+  return x;
+}
+
+function normSignToken(s: string) {
+  return normKey(s).replace(/\s/g, "");
+}
+
+function canonizeIncomingKey(raw: string) {
+  const k = normKey(raw);
+  if (!k.includes("|")) return k;
+
+  const [a, b] = k.split("|");
+  // a should be planet, b should be sign/house token
+  const A = normPlanetToken(a);
+  const B = normSignToken(b);
+  return `${A}|${B}`;
+}
+
+// Exact map (original keys)
+const LOOKUP_EXACT = new Map<string, DoctrineCard>(CARDS.map((c) => [c.key, c]));
+
+// Normalized map (case-insensitive / tolerant)
+const LOOKUP_NORM = new Map<string, DoctrineCard>();
+for (const c of CARDS) {
+  const nk = canonizeIncomingKey(c.key);
+  if (!LOOKUP_NORM.has(nk)) LOOKUP_NORM.set(nk, c);
+}
+
+// Resolve incoming keys against both maps
+function resolveCard(key: string) {
+  const exact = LOOKUP_EXACT.get(key);
+  if (exact) return exact;
+
+  const nk = canonizeIncomingKey(key);
+  return LOOKUP_NORM.get(nk) ?? null;
+}
 
 function bad(msg: string, code: string = "BAD_REQUEST", status = 400) {
   return NextResponse.json({ ok: false, error: msg, code }, { status });
@@ -48,12 +103,11 @@ function pickBullets(arr: string[], max = 5) {
 }
 
 function buildMock(keys: string[], lens: Lens, question?: string) {
-  const cards = keys.map((k) => LOOKUP.get(k)).filter(Boolean);
+  const cards = keys.map((k) => resolveCard(k)).filter(Boolean);
   const headline =
     lens === "relationships"
       ? "Pattern shows up most clearly through partnership dynamics."
       : "Grounded theme, expressed through lived choices.";
-
   const coreTheme =
     `This synthesis is generated without an LLM (mock mode). It is grounded in: ${keys.join(", ")}. ` +
     `Use it to verify the pipeline; switch on OPENAI_API_KEY to enable the real synthesis layer.` +
@@ -173,23 +227,25 @@ export async function POST(req: Request) {
   if (!body || body.version !== "1.0") return bad("version must be '1.0'.");
 
   const mode = body.mode;
-  const keys = Array.isArray(body.keys) ? body.keys.map(String) : [];
+  const keysRaw = Array.isArray(body.keys) ? body.keys.map(String) : [];
   const lens: Lens = (body.lens as Lens) || "general";
   const question = (body.question || "").trim();
 
   if (!mode) return bad("mode is required.");
-  if (keys.length < 1) return bad("keys must be a non-empty array.");
-  if (!validateModeCount(mode, keys.length)) return bad(`keys length does not match mode. mode=${mode} keys=${keys.length}`);
+  if (keysRaw.length < 1) return bad("keys must be a non-empty array.");
+  if (!validateModeCount(mode, keysRaw.length)) {
+    return bad(`keys length does not match mode. mode=${mode} keys=${keysRaw.length}`);
+  }
 
-  const cards = keys.map((k) => LOOKUP.get(k));
+  // ✅ Keep original for usedKeys, but resolve tolerant
+  const cards = keysRaw.map((k) => resolveCard(k));
   if (cards.some((c) => !c)) {
-    const missing = keys.filter((k) => !LOOKUP.get(k));
+    const missing = keysRaw.filter((k) => !resolveCard(k));
     return bad(`Unknown doctrine keys: ${missing.join(", ")}`, "NOT_FOUND", 404);
   }
 
-  // MOCK MODE if no API key
   if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json(buildMock(keys, lens, question));
+    return NextResponse.json(buildMock(keysRaw, lens, question));
   }
 
   const maxBullets = body.output?.maxBullets ?? 5;
@@ -213,7 +269,7 @@ export async function POST(req: Request) {
     version: "1.0",
     mode,
     lens,
-    usedKeys: keys,
+    usedKeys: keysRaw,
     output: {
       headline: "string",
       coreTheme: "string",
@@ -261,13 +317,14 @@ export async function POST(req: Request) {
     parsed.version = "1.0";
     parsed.mode = mode;
     parsed.lens = lens;
-    parsed.usedKeys = keys;
+    parsed.usedKeys = keysRaw;
 
     const out = parsed.output || {};
     out.strengths = pickBullets(out.strengths || [], maxBullets);
     out.shadows = pickBullets(out.shadows || [], maxBullets);
     out.directives = pickBullets(out.directives || [], maxBullets);
     if (!includeJournalPrompts) out.journalPrompts = [];
+
     parsed.output = out;
 
     parsed.grounding = {
