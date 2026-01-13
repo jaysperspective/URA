@@ -227,7 +227,8 @@ export default function AstrologyClient() {
       for (const entry of cleaned) outs.push(await lookupOne(entry));
       setMiniCards(outs);
     } catch (e: any) {
-      setMiniErr(e?.message || "Mini lookup failed." });
+      setMiniErr(e?.message || "Mini lookup failed.");
+
     } finally {
       setMiniLoading(false);
     }
