@@ -34,33 +34,20 @@ const TOKENS = {
   panelBg: "rgba(24, 44, 32, 0.68)",
   panelBgSoft: "rgba(28, 52, 38, 0.52)",
   panelBorder: "rgba(244,235,221,0.12)",
-
   inputBg: "rgba(24, 44, 32, 0.45)",
   inputBorder: "rgba(244,235,221,0.14)",
-
   text: "rgba(244,235,221,0.88)",
   textSoft: "rgba(244,235,221,0.70)",
-
   pillBg: "rgba(244,235,221,0.07)",
   pillBorder: "rgba(244,235,221,0.16)",
-
   buttonBg: "rgba(244,235,221,0.82)",
   buttonText: "rgba(15,26,18,0.92)",
 };
 
-function Pill({
-  children,
-  disabled,
-}: {
-  children: React.ReactNode;
-  disabled?: boolean;
-}) {
+function Pill({ children }: { children: React.ReactNode }) {
   return (
     <span
-      className={[
-        "inline-flex items-center rounded-full border px-3 py-1 text-xs",
-        disabled ? "opacity-60" : "",
-      ].join(" ")}
+      className="inline-flex items-center rounded-full border px-3 py-1 text-xs"
       style={{
         borderColor: TOKENS.pillBorder,
         background: TOKENS.pillBg,
@@ -110,15 +97,46 @@ function CardShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-type NatalChip = {
-  kind: "planet" | "node" | "chiron" | "angle";
-  label: string;
-  query: string | null; // null => display-only (ASC/MC for now)
-};
+/**
+ * Normalize natal chips like:
+ *  - "Moon Capricorn 3° 46'" -> "Moon Capricorn"
+ *  - "Mars Sagittarius 26° 10'" -> "Mars Sagittarius"
+ *
+ * If house exists ("Moon Cancer 4th house"), we keep it.
+ */
+function normalizePlacementForLookup(raw: string) {
+  let s = (raw || "").trim();
+  if (!s) return "";
 
-type NatalApiOk = { ok: true; version: "1.0"; placements: NatalChip[] };
-type NatalApiErr = { ok: false; error: string };
-type NatalApiResp = NatalApiOk | NatalApiErr;
+  // Preserve explicit house patterns
+  const hasHouse = /\b(1[0-2]|[1-9])(?:st|nd|rd|th)?\s+house\b/i.test(s);
+  if (hasHouse) {
+    // Still strip degrees
+    s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\s*'?\b/g, "").trim();
+    s = s.replace(/\b\d{1,2}\s*°\b/g, "").trim();
+    s = s.replace(/\s{2,}/g, " ").trim();
+    return s;
+  }
+
+  // Remove degree/minute chunks
+  s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\s*'?\b/g, "").trim();
+  s = s.replace(/\b\d{1,2}\s*°\b/g, "").trim();
+  s = s.replace(/\s{2,}/g, " ").trim();
+
+  // Remove stray punctuation
+  s = s.replace(/[•·]/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  return s;
+}
+
+function readAutoParam(): string | null {
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    return sp.get("auto");
+  } catch {
+    return null;
+  }
+}
 
 export default function AstrologyClient() {
   const [mode, setMode] = useState<Mode>("placement");
@@ -136,7 +154,11 @@ export default function AstrologyClient() {
   const [pairErr, setPairErr] = useState<string | null>(null);
 
   // Mini (3–6)
-  const [miniInputs, setMiniInputs] = useState<string[]>(["Sun Capricorn", "Moon Cancer", "Mercury Aquarius"]);
+  const [miniInputs, setMiniInputs] = useState<string[]>([
+    "Sun Capricorn",
+    "Moon Cancer",
+    "Mercury Aquarius",
+  ]);
   const [miniLoading, setMiniLoading] = useState(false);
   const [miniCards, setMiniCards] = useState<{ key: string; card: any }[] | null>(null);
   const [miniErr, setMiniErr] = useState<string | null>(null);
@@ -147,10 +169,34 @@ export default function AstrologyClient() {
   const [sxLoading, setSxLoading] = useState(false);
   const [sx, setSx] = useState<SxResp | null>(null);
 
-  // ✅ Natal placements from cache
-  const [natalLoading, setNatalLoading] = useState(false);
-  const [natalErr, setNatalErr] = useState<string | null>(null);
-  const [natalPlacements, setNatalPlacements] = useState<NatalChip[]>([]);
+  // ✅ Real natal placements (loaded from sessionStorage set by /profile)
+  const [natalPlacements, setNatalPlacements] = useState<string[]>([]);
+
+  // Load natal placements once (client only)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("ura:natalPlacements");
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      const arr = Array.isArray(parsed?.placements) ? parsed.placements : [];
+      const cleaned = arr.map((x: any) => String(x || "")).map((x: string) => x.trim()).filter(Boolean);
+
+      setNatalPlacements(cleaned);
+
+      // auto-run if requested
+      const auto = readAutoParam();
+      if (auto === "natal" && cleaned.length > 0) {
+        const normalized = normalizePlacementForLookup(cleaned[0]);
+        setMode("placement");
+        setQ(normalized);
+        setTimeout(() => runLookup(normalized), 0);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const examples = useMemo(
     () => [
@@ -162,7 +208,6 @@ export default function AstrologyClient() {
       "Chiron Aries",
       "North Node Aquarius",
       "South Node Leo",
-      // still allowed if user knows it:
       "Sun Capricorn 10th house",
       "Moon Cancer 4th house",
     ],
@@ -173,36 +218,13 @@ export default function AstrologyClient() {
     setSx(null);
   }
 
-  async function fetchNatalPlacements() {
-    setNatalLoading(true);
-    setNatalErr(null);
-
-    try {
-      const r = await fetch("/api/astrology/natal", { method: "GET", cache: "no-store" });
-      const data = (await r.json()) as NatalApiResp;
-
-      if (!data.ok) throw new Error((data as any).error || "Failed to load natal placements.");
-      setNatalPlacements((data as any).placements ?? []);
-    } catch (e: any) {
-      setNatalErr(e?.message || "Failed to load natal placements.");
-      setNatalPlacements([]);
-    } finally {
-      setNatalLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    // Always load the user's cached natal chips when landing here
-    fetchNatalPlacements();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   async function lookupOne(query: string): Promise<{ key: string; card: any }> {
     const r = await fetch(`/api/astrology?q=${encodeURIComponent(query)}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
+
     const data = (await r.json()) as LookupResp;
     if (!data.ok) throw new Error((data as any).error || "Lookup failed.");
     return { key: (data as any).key, card: (data as any).card };
@@ -281,6 +303,7 @@ export default function AstrologyClient() {
           constraints: { noPrediction: true, noNewClaims: true, citeDoctrineKeys: true },
         }),
       });
+
       const data = (await r.json()) as SxResp;
       setSx(data);
     } catch (e: any) {
@@ -464,7 +487,7 @@ export default function AstrologyClient() {
 
   return (
     <section className="space-y-4">
-      {/* ✅ Natal placements quick panel (from cached natalChartJson) */}
+      {/* ✅ Natal placements quick panel */}
       <Panel>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -472,58 +495,50 @@ export default function AstrologyClient() {
               Natal placements
             </div>
             <div className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
-              Click a placement to auto-fill and run lookup. (ASC/MC are display-only for now.)
+              Click a placement to auto-fill and run lookup. (ASC/MC can be displayed but doctrine may not include them.)
             </div>
-            {natalErr ? (
-              <div className="mt-2 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
-                {natalErr}
-              </div>
-            ) : null}
           </div>
 
           <button
             type="button"
-            onClick={fetchNatalPlacements}
-            disabled={natalLoading}
-            className="rounded-xl px-4 py-2 text-sm font-semibold transition"
-            style={{
-              background: natalLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
-              color: TOKENS.buttonText,
-              opacity: natalLoading ? 0.75 : 1,
+            onClick={() => {
+              setResp(null);
+              setPairCards(null);
+              setMiniCards(null);
+              resetSynthesis();
             }}
+            className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+            style={{ background: TOKENS.buttonBg, color: TOKENS.buttonText }}
           >
-            {natalLoading ? "Refreshing…" : "Refresh natal"}
+            Refresh natal
           </button>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          {natalPlacements.length === 0 && !natalLoading ? (
+          {natalPlacements.length === 0 ? (
             <div className="text-sm" style={{ color: TOKENS.textSoft }}>
               No natal placements loaded yet.
             </div>
-          ) : null}
-
-          {natalPlacements.map((chip, idx) => {
-            const disabled = !chip.query;
-            return (
-              <button
-                key={`${chip.label}-${idx}`}
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  if (!chip.query) return;
-                  setMode("placement");
-                  setQ(chip.query);
-                  resetSynthesis();
-                  runLookup(chip.query);
-                }}
-                title={chip.query ? `Lookup: ${chip.query}` : "Display only"}
-                className={disabled ? "cursor-not-allowed" : ""}
-              >
-                <Pill disabled={disabled}>{chip.label}</Pill>
-              </button>
-            );
-          })}
+          ) : (
+            natalPlacements.map((raw) => {
+              const normalized = normalizePlacementForLookup(raw);
+              return (
+                <button
+                  key={raw}
+                  type="button"
+                  onClick={() => {
+                    setMode("placement");
+                    setQ(normalized);
+                    resetSynthesis();
+                    runLookup(normalized);
+                  }}
+                  title={`Lookup: ${normalized}`}
+                >
+                  <Pill>{raw}</Pill>
+                </button>
+              );
+            })
+          )}
         </div>
       </Panel>
 
