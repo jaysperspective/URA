@@ -1,7 +1,8 @@
 // src/app/astrology/ui/AstrologyClient.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type LookupOk = { ok: true; key: string; card: any };
 type LookupErr = { ok: false; error: string };
@@ -31,7 +32,6 @@ type Lens =
   | "growth";
 
 const TOKENS = {
-  // ✅ nudged away from near-black; stays "forest glass"
   panelBg: "rgba(24, 44, 32, 0.68)",
   panelBgSoft: "rgba(28, 52, 38, 0.52)",
   panelBorder: "rgba(244,235,221,0.12)",
@@ -102,7 +102,20 @@ function CardShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+type NatalPlacement = {
+  name: string;
+  label: string;
+  query: string;
+  house: number | null;
+  lon: number;
+  sign: string;
+  deg: number;
+  min: number;
+};
+
 export default function AstrologyClient() {
+  const searchParams = useSearchParams();
+
   const [mode, setMode] = useState<Mode>("placement");
 
   // Single
@@ -126,6 +139,11 @@ export default function AstrologyClient() {
   const [miniLoading, setMiniLoading] = useState(false);
   const [miniCards, setMiniCards] = useState<{ key: string; card: any }[] | null>(null);
   const [miniErr, setMiniErr] = useState<string | null>(null);
+
+  // Auto natal (from profile)
+  const [natalLoading, setNatalLoading] = useState(false);
+  const [natalErr, setNatalErr] = useState<string | null>(null);
+  const [natalPlacements, setNatalPlacements] = useState<NatalPlacement[] | null>(null);
 
   // Shared synthesis
   const [lens, setLens] = useState<Lens>("general");
@@ -209,7 +227,7 @@ export default function AstrologyClient() {
       for (const entry of cleaned) outs.push(await lookupOne(entry));
       setMiniCards(outs);
     } catch (e: any) {
-      setMiniErr(e?.message || "Mini lookup failed.");
+      setMiniErr(e?.message || "Mini lookup failed." });
     } finally {
       setMiniLoading(false);
     }
@@ -406,8 +424,101 @@ export default function AstrologyClient() {
     );
   }
 
+  async function loadNatalFromCache() {
+    setNatalLoading(true);
+    setNatalErr(null);
+
+    try {
+      const r = await fetch("/api/astrology/natal", { method: "GET", headers: { Accept: "application/json" } });
+      const data = (await r.json()) as any;
+      if (!data?.ok) throw new Error(data?.error || "Failed to load natal cache.");
+
+      const list = (data.placements ?? []) as NatalPlacement[];
+      setNatalPlacements(list);
+
+      // Default: drop the user into single-placement mode, ready to click placements.
+      setMode("placement");
+      resetSynthesis();
+
+      // If we have a Sun placement, prefill it (but DON'T auto-run; keeps CPU calm).
+      const sun = list.find((x) => x.name === "Sun") ?? list[0];
+      if (sun?.query) setQ(sun.query);
+    } catch (e: any) {
+      setNatalErr(e?.message || "Failed to load natal cache.");
+    } finally {
+      setNatalLoading(false);
+    }
+  }
+
+  // Auto-load if user came from profile link
+  useEffect(() => {
+    const auto = searchParams.get("auto");
+    if (auto === "natal") {
+      loadNatalFromCache();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   return (
     <section className="space-y-4">
+      {/* If loaded from profile: show natal placement strip */}
+      <Panel>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: TOKENS.textSoft }}>
+              Natal Placements
+            </div>
+            <div className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
+              Click a placement to auto-fill and run lookup.
+            </div>
+          </div>
+
+          <button
+            onClick={loadNatalFromCache}
+            disabled={natalLoading}
+            className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+            style={{
+              background: natalLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+              color: TOKENS.buttonText,
+              opacity: natalLoading ? 0.75 : 1,
+            }}
+          >
+            {natalLoading ? "Loading…" : natalPlacements ? "Refresh natal" : "Load natal"}
+          </button>
+        </div>
+
+        {natalErr ? (
+          <div className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
+            {natalErr}
+          </div>
+        ) : null}
+
+        {natalPlacements?.length ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {natalPlacements.map((p) => (
+              <button
+                key={p.name}
+                onClick={async () => {
+                  setMode("placement");
+                  setQ(p.query);
+                  resetSynthesis();
+                  await Promise.resolve(); // let state settle
+                  runLookup();
+                }}
+                className="text-left"
+                title={p.query}
+              >
+                <Pill>{p.label}</Pill>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-3 text-sm" style={{ color: TOKENS.textSoft }}>
+            Tip: open this page from <span style={{ color: TOKENS.text }}>Profile → Natal placements</span> to auto-load.
+          </div>
+        )}
+      </Panel>
+
       {/* Mode + Lens + Optional Question */}
       <Panel>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -616,7 +727,11 @@ export default function AstrologyClient() {
             </button>
           </div>
 
-          {pairErr && <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>{pairErr}</p>}
+          {pairErr && (
+            <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
+              {pairErr}
+            </p>
+          )}
 
           {pairCards && (
             <div className="mt-5 grid gap-6 sm:grid-cols-2">
@@ -719,7 +834,11 @@ export default function AstrologyClient() {
             </button>
           </div>
 
-          {miniErr && <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>{miniErr}</p>}
+          {miniErr && (
+            <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
+              {miniErr}
+            </p>
+          )}
 
           {miniCards && (
             <div className="mt-6 space-y-6">
