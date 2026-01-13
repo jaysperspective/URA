@@ -17,7 +17,7 @@ type Mode = "placement" | "pair" | "mini_chart";
 type ReqBody = {
   version: "1.0";
   mode: Mode;
-  keys: string[]; // doctrine keys
+  keys: string[]; // ✅ doctrine keys (placement-only like "mars|virgo" OR house keys like "mars|virgo|6")
   lens?: Lens;
   question?: string;
   output?: {
@@ -47,56 +47,13 @@ function pickBullets(arr: string[], max = 5) {
   return Array.isArray(arr) ? arr.slice(0, Math.max(1, Math.min(max, arr.length))) : [];
 }
 
-/**
- * ✅ KEY NORMALIZATION
- * We support multiple doctrine-key shapes:
- * - Full: planet|sign|house  (e.g. mars|virgo|6)
- * - Core: planet|sign        (e.g. mars|virgo)
- * - Core explicit: planet|sign|core
- *
- * The client may send any of these. We normalize to a key that exists in LOOKUP.
- */
-function normalizeDoctrineKey(input: string) {
-  const raw = String(input || "").trim();
-  if (!raw) return raw;
-
-  if (LOOKUP.has(raw)) return raw;
-
-  const parts = raw.split("|").map((p) => p.trim()).filter(Boolean);
-
-  // If "planet|sign" was sent, try also "planet|sign|core"
-  if (parts.length === 2) {
-    const k2 = `${parts[0]}|${parts[1]}`;
-    const k3 = `${parts[0]}|${parts[1]}|core`;
-    if (LOOKUP.has(k2)) return k2;
-    if (LOOKUP.has(k3)) return k3;
-    return raw;
-  }
-
-  // If "planet|sign|something" was sent, try:
-  // - as-is (already checked)
-  // - treat as house and fall back to core keys
-  if (parts.length === 3) {
-    const core2 = `${parts[0]}|${parts[1]}`;
-    const core3 = `${parts[0]}|${parts[1]}|core`;
-    if (LOOKUP.has(core2)) return core2;
-    if (LOOKUP.has(core3)) return core3;
-
-    // If third part was "core" but doctrine stores 2-part
-    if (parts[2] === "core" && LOOKUP.has(core2)) return core2;
-
-    return raw;
-  }
-
-  return raw;
-}
-
 function buildMock(keys: string[], lens: Lens, question?: string) {
   const cards = keys.map((k) => LOOKUP.get(k)).filter(Boolean);
   const headline =
     lens === "relationships"
       ? "Pattern shows up most clearly through partnership dynamics."
       : "Grounded theme, expressed through lived choices.";
+
   const coreTheme =
     `This synthesis is generated without an LLM (mock mode). It is grounded in: ${keys.join(", ")}. ` +
     `Use it to verify the pipeline; switch on OPENAI_API_KEY to enable the real synthesis layer.` +
@@ -118,11 +75,7 @@ function buildMock(keys: string[], lens: Lens, question?: string) {
     ok: true,
     version: "1.0" as const,
     mode:
-      keys.length === 1
-        ? ("placement" as const)
-        : keys.length === 2
-          ? ("pair" as const)
-          : ("mini_chart" as const),
+      keys.length === 1 ? ("placement" as const) : keys.length === 2 ? ("pair" as const) : ("mini_chart" as const),
     lens,
     usedKeys: keys,
     output: {
@@ -131,17 +84,13 @@ function buildMock(keys: string[], lens: Lens, question?: string) {
       strengths,
       shadows,
       directives,
-      livedExamples: [
-        "This is a baseline synthesis. When the LLM is enabled, you’ll get clearer situational phrasing.",
-      ],
+      livedExamples: ["This is a baseline synthesis. When the LLM is enabled, you’ll get clearer situational phrasing."],
       journalPrompts: [
         "Where is this pattern most visible in my week right now?",
         "What boundary or habit would make this placement cleaner?",
         "What am I avoiding that this placement is asking me to face?",
       ],
-      watchFors: [
-        "If you notice you’re spiraling, return to the directives and pick one action you can complete today.",
-      ],
+      watchFors: ["If you notice you’re spiraling, return to the directives and pick one action you can complete today."],
     },
     grounding: { placements },
     meta: { model: "mock", latencyMs: 0 },
@@ -224,19 +173,13 @@ export async function POST(req: Request) {
   if (!body || body.version !== "1.0") return bad("version must be '1.0'.");
 
   const mode = body.mode;
-
-  // ✅ normalize keys BEFORE any validation
-  const rawKeys = Array.isArray(body.keys) ? body.keys.map(String) : [];
-  const keys = rawKeys.map(normalizeDoctrineKey);
-
+  const keys = Array.isArray(body.keys) ? body.keys.map(String) : [];
   const lens: Lens = (body.lens as Lens) || "general";
   const question = (body.question || "").trim();
 
   if (!mode) return bad("mode is required.");
   if (keys.length < 1) return bad("keys must be a non-empty array.");
-  if (!validateModeCount(mode, keys.length)) {
-    return bad(`keys length does not match mode. mode=${mode} keys=${keys.length}`);
-  }
+  if (!validateModeCount(mode, keys.length)) return bad(`keys length does not match mode. mode=${mode} keys=${keys.length}`);
 
   const cards = keys.map((k) => LOOKUP.get(k));
   if (cards.some((c) => !c)) {
@@ -314,21 +257,17 @@ export async function POST(req: Request) {
     const { content, model, latencyMs } = await callLLM(prompt);
     const parsed = safeJsonParse(content);
 
-    // Hard guardrails (server enforcement)
     parsed.ok = true;
     parsed.version = "1.0";
     parsed.mode = mode;
     parsed.lens = lens;
     parsed.usedKeys = keys;
 
-    // Ensure arrays & limits
     const out = parsed.output || {};
     out.strengths = pickBullets(out.strengths || [], maxBullets);
     out.shadows = pickBullets(out.shadows || [], maxBullets);
     out.directives = pickBullets(out.directives || [], maxBullets);
-
     if (!includeJournalPrompts) out.journalPrompts = [];
-
     parsed.output = out;
 
     parsed.grounding = {
