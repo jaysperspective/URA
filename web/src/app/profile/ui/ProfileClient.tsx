@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import React, { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
@@ -173,7 +174,9 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
           </svg>
         </div>
 
-        <div className="mt-3 text-center text-sm text-[#403A32]/75">Sideways ∞ map. Marker = current cycle position (0–360°).</div>
+        <div className="mt-3 text-center text-sm text-[#403A32]/75">
+          Sideways ∞ map. Marker = current cycle position (0–360°).
+        </div>
       </div>
     </div>
   );
@@ -322,7 +325,35 @@ function getDayKeyInTZ(tz: string, d = new Date()) {
   }
 }
 
+// Expand abbreviations to full sign names for /astrology inputs
+const SIGN_EXPAND: Record<(typeof SIGNS)[number], string> = {
+  Ari: "Aries",
+  Tau: "Taurus",
+  Gem: "Gemini",
+  Can: "Cancer",
+  Leo: "Leo",
+  Vir: "Virgo",
+  Lib: "Libra",
+  Sco: "Scorpio",
+  Sag: "Sagittarius",
+  Cap: "Capricorn",
+  Aqu: "Aquarius",
+  Pis: "Pisces",
+};
+
+function expandAbbrevSign(signPos: string) {
+  // "Cap 03° 46'" -> "Capricorn 03° 46'"
+  const parts = (signPos || "").trim().split(/\s+/);
+  if (!parts.length) return signPos;
+  const head = parts[0] as (typeof SIGNS)[number];
+  const full = SIGN_EXPAND[head];
+  if (!full) return signPos;
+  return [full, ...parts.slice(1)].join(" ");
+}
+
 export default function ProfileClient(props: Props) {
+  const router = useRouter();
+
   const {
     name,
     locationLine,
@@ -413,7 +444,8 @@ export default function ProfileClient(props: Props) {
     const withinSeason = ok ? (cyclePos! % 90) : null;
     const seasonProgress01 = withinSeason != null ? withinSeason / 90 : 0;
 
-    const modalityText = ok && withinSeason != null ? modalityFromWithinSeason(withinSeason) : (ascYearModality || "—");
+    const modalityText =
+      ok && withinSeason != null ? modalityFromWithinSeason(withinSeason) : (ascYearModality || "—");
 
     const withinModality =
       ok && withinSeason != null
@@ -476,6 +508,40 @@ export default function ProfileClient(props: Props) {
       label: planetLabel(k),
       value: fmtSignPos(typeof p[k] === "number" ? (p[k] as number) : null),
     }));
+  }, [natalPlanets]);
+
+  // ✅ Build placements to handoff to /astrology (full sign names, keep degrees)
+  const natalPlacementsForAstrology = useMemo(() => {
+    const out: string[] = [];
+    const p = natalPlanets ?? {};
+
+    const add = (label: string, lon: number | null | undefined) => {
+      if (typeof lon !== "number" || !Number.isFinite(lon)) return;
+      const signPos = expandAbbrevSign(fmtSignPos(lon));
+      out.push(`${label} ${signPos}`);
+    };
+
+    add("Sun", typeof p.sun === "number" ? (p.sun as number) : null);
+    add("Moon", typeof p.moon === "number" ? (p.moon as number) : null);
+    add("Mercury", typeof p.mercury === "number" ? (p.mercury as number) : null);
+    add("Venus", typeof p.venus === "number" ? (p.venus as number) : null);
+    add("Mars", typeof p.mars === "number" ? (p.mars as number) : null);
+    add("Jupiter", typeof p.jupiter === "number" ? (p.jupiter as number) : null);
+    add("Saturn", typeof p.saturn === "number" ? (p.saturn as number) : null);
+    add("Uranus", typeof p.uranus === "number" ? (p.uranus as number) : null);
+    add("Neptune", typeof p.neptune === "number" ? (p.neptune as number) : null);
+    add("Pluto", typeof p.pluto === "number" ? (p.pluto as number) : null);
+    add("Chiron", typeof p.chiron === "number" ? (p.chiron as number) : null);
+
+    // Nodes (stored as northNode / southNode in this component)
+    add("North Node", typeof p.northNode === "number" ? (p.northNode as number) : null);
+    add("South Node", typeof p.southNode === "number" ? (p.southNode as number) : null);
+
+    // NOTE: ASC/MC are display-only right now; you can include them later if doctrine supports angles.
+    // if (typeof natalAscLon === "number") out.unshift(`ASC ${expandAbbrevSign(fmtSignPos(natalAscLon))}`);
+    // if (typeof natalMcLon === "number") out.unshift(`MC ${expandAbbrevSign(fmtSignPos(natalMcLon as number))}`);
+
+    return out;
   }, [natalPlanets]);
 
   const sabian = useMemo(() => {
@@ -564,6 +630,22 @@ export default function ProfileClient(props: Props) {
     }
   }
 
+  function openAstrologyWithNatal() {
+    try {
+      sessionStorage.setItem(
+        "ura:natalPlacements",
+        JSON.stringify({
+          v: 1,
+          createdAt: Date.now(),
+          placements: natalPlacementsForAstrology,
+        })
+      );
+    } catch {
+      // ignore
+    }
+    router.push("/astrology?auto=natal");
+  }
+
   return (
     <div className="mt-8">
       {/* TOP STRIP */}
@@ -586,18 +668,24 @@ export default function ProfileClient(props: Props) {
             <div className="rounded-3xl border border-[#E2D9CC]/20 bg-black/20 backdrop-blur px-5 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">Natal placements</div>
+                  <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">
+                    Natal placements
+                  </div>
                   <div className="mt-1 text-sm text-[#F4EFE6]/90">Tap expand to view all planets.</div>
 
-                  {/* ✅ NEW: deep link to astrology */}
+                  {/* ✅ UPDATED: deep link to astrology + writes natal placements to sessionStorage */}
                   <div className="mt-3">
-                    <Link
-                      href="/astrology?auto=natal"
+                    <button
+                      type="button"
+                      onClick={openAstrologyWithNatal}
                       className="inline-flex items-center rounded-full border px-3 py-1.5 text-xs hover:bg-white/10"
-                      style={{ borderColor: "rgba(226,217,204,0.28)", color: "rgba(244,239,230,0.85)" }}
+                      style={{
+                        borderColor: "rgba(226,217,204,0.28)",
+                        color: "rgba(244,239,230,0.85)",
+                      }}
                     >
                       Open in /astrology →
-                    </Link>
+                    </button>
                   </div>
                 </div>
 
@@ -623,13 +711,17 @@ export default function ProfileClient(props: Props) {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {allNatalList.map((row) => (
                       <div key={row.key} className="rounded-xl border border-[#E2D9CC]/10 bg-black/10 px-3 py-2">
-                        <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/55">{row.label}</div>
+                        <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/55">
+                          {row.label}
+                        </div>
                         <div className="mt-1 text-sm text-[#F4EFE6]/90 font-medium">{row.value}</div>
                       </div>
                     ))}
                   </div>
 
-                  <div className="mt-3 text-[11px] text-[#F4EFE6]/55">Note: Nodes/Chiron show when present in the cached natal chart.</div>
+                  <div className="mt-3 text-[11px] text-[#F4EFE6]/55">
+                    Note: Nodes/Chiron show when present in the cached natal chart.
+                  </div>
                 </div>
               ) : null}
 
@@ -648,7 +740,9 @@ export default function ProfileClient(props: Props) {
         <CardShell>
           <div className="px-8 pt-10 pb-8">
             <div className="text-center">
-              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Orientation (Asc-Year)</div>
+              <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+                Orientation (Asc-Year)
+              </div>
 
               <div className="mt-2 text-3xl font-semibold tracking-tight text-[#1F1B16] leading-tight">
                 <div className="flex justify-center">
@@ -682,7 +776,7 @@ export default function ProfileClient(props: Props) {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Daily Brief</div>
-                  <div className="mt-2 text-lg font-semibold text-[#1F1B16]">Phase + Sun Degree </div>
+                  <div className="mt-2 text-lg font-semibold text-[#1F1B16]">Phase + Sun Degree</div>
 
                   <div className="mt-1 text-sm text-[#403A32]/85">
                     {sabian ? (
@@ -755,7 +849,9 @@ export default function ProfileClient(props: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="mt-3 text-sm text-[#403A32]/70">{briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}</div>
+                <div className="mt-3 text-sm text-[#403A32]/70">
+                  {briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}
+                </div>
               )}
             </div>
 
@@ -779,7 +875,7 @@ export default function ProfileClient(props: Props) {
 
               <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
                 <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">45° Season Segment</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season. </div>
+                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season.</div>
 
                 <ProgressBar
                   value={orientation.modalityProgress01}
@@ -818,12 +914,16 @@ export default function ProfileClient(props: Props) {
                 <div className="mt-2 text-sm text-[#403A32]/75">
                   Lunation: <span className="font-semibold text-[#1F1B16]">{lunationLine}</span>
                   {typeof lunationSeparationDeg === "number" ? (
-                    <span className="ml-2 text-xs text-[#403A32]/70">(sep {norm360(lunationSeparationDeg).toFixed(2)}°)</span>
+                    <span className="ml-2 text-xs text-[#403A32]/70">
+                      (sep {norm360(lunationSeparationDeg).toFixed(2)}°)
+                    </span>
                   ) : null}
                 </div>
 
                 <div className="mt-3">
-                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/55">Sub-phase progress (0–15°)</div>
+                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                    Sub-phase progress (0–15°)
+                  </div>
                   <ProgressBar
                     value={subPhaseProgress01}
                     labelLeft="0°"
@@ -834,7 +934,9 @@ export default function ProfileClient(props: Props) {
               </SubCard>
 
               <SubCard title="Modality (30° lens)">
-                <div className="text-sm font-semibold text-[#1F1B16]">{orientation.ok ? orientation.modalityText : "—"}</div>
+                <div className="text-sm font-semibold text-[#1F1B16]">
+                  {orientation.ok ? orientation.modalityText : "—"}
+                </div>
               </SubCard>
             </div>
 
