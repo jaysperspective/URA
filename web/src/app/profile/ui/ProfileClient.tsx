@@ -173,9 +173,7 @@ function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
           </svg>
         </div>
 
-        <div className="mt-3 text-center text-sm text-[#403A32]/75">
-          Sideways ∞ map. Marker = current cycle position (0–360°).
-        </div>
+        <div className="mt-3 text-center text-sm text-[#403A32]/75">Sideways ∞ map. Marker = current cycle position (0–360°).</div>
       </div>
     </div>
   );
@@ -455,17 +453,6 @@ export default function ProfileClient(props: Props) {
 
   const asOfLabelForFoundation = useMemo(() => fmtAsOfLabel(asOfISO, timezone), [asOfISO, timezone]);
 
-  const ascMathCheck = useMemo(() => {
-    if (typeof natalAscLon !== "number" || typeof currentSunLon !== "number" || typeof orientation.cyclePos !== "number") {
-      return null;
-    }
-    const expected = norm360(currentSunLon - natalAscLon);
-    const got = norm360(orientation.cyclePos);
-    const diff = Math.abs(expected - got);
-    const diffWrapped = Math.min(diff, 360 - diff);
-    return { expected, got, diff: diffWrapped };
-  }, [natalAscLon, currentSunLon, orientation.cyclePos]);
-
   const allNatalList = useMemo(() => {
     const p = natalPlanets ?? {};
     const keys: (keyof NatalPlanets)[] = [
@@ -521,7 +508,6 @@ export default function ProfileClient(props: Props) {
       const payload = {
         version: "1.0" as const,
         dayKey,
-
         context: {
           season: orientation.ok ? orientation.seasonText : (ascYearSeason || "—"),
           phaseId: orientation.uraPhaseId,
@@ -600,39 +586,29 @@ export default function ProfileClient(props: Props) {
             <div className="rounded-3xl border border-[#E2D9CC]/20 bg-black/20 backdrop-blur px-5 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">
-                    Natal placements
-                  </div>
-                  <div className="mt-1 text-sm text-[#F4EFE6]/90">
-                    Tap expand to view all planets.
+                  <div className="text-[10px] tracking-[0.18em] uppercase text-[#F4EFE6]/60">Natal placements</div>
+                  <div className="mt-1 text-sm text-[#F4EFE6]/90">Tap expand to view all planets.</div>
+
+                  {/* ✅ NEW: deep link to astrology */}
+                  <div className="mt-3">
+                    <Link
+                      href="/astrology?auto=natal"
+                      className="inline-flex items-center rounded-full border px-3 py-1.5 text-xs hover:bg-white/10"
+                      style={{ borderColor: "rgba(226,217,204,0.28)", color: "rgba(244,239,230,0.85)" }}
+                    >
+                      Open in /astrology →
+                    </Link>
                   </div>
                 </div>
 
-                {/* ✅ ACTIONS */}
-                <div className="flex items-center gap-2">
-                  <Link
-                    href={{ pathname: "/astrology", query: { preset: "natal", source: "profile" } }}
-                    className="rounded-full border px-3 py-1.5 text-xs hover:bg-white/10"
-                    style={{
-                      borderColor: "rgba(226,217,204,0.28)",
-                      color: "rgba(244,239,230,0.85)",
-                    }}
-                  >
-                    View natal chart →
-                  </Link>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowAllPlacements((v) => !v)}
-                    className="rounded-full border px-3 py-1.5 text-xs hover:bg-white/10"
-                    style={{
-                      borderColor: "rgba(226,217,204,0.28)",
-                      color: "rgba(244,239,230,0.85)",
-                    }}
-                  >
-                    {showAllPlacements ? "Collapse" : "Expand"}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAllPlacements((v) => !v)}
+                  className="rounded-full border px-3 py-1.5 text-xs hover:bg-white/10"
+                  style={{ borderColor: "rgba(226,217,204,0.28)", color: "rgba(244,239,230,0.85)" }}
+                >
+                  {showAllPlacements ? "Collapse" : "Expand"}
+                </button>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-6">
@@ -653,9 +629,7 @@ export default function ProfileClient(props: Props) {
                     ))}
                   </div>
 
-                  <div className="mt-3 text-[11px] text-[#F4EFE6]/55">
-                    Note: Nodes/Chiron show when present in the cached natal chart.
-                  </div>
+                  <div className="mt-3 text-[11px] text-[#F4EFE6]/55">Note: Nodes/Chiron show when present in the cached natal chart.</div>
                 </div>
               ) : null}
 
@@ -690,15 +664,9 @@ export default function ProfileClient(props: Props) {
                   ? `Asc-Year cycle position: ${orientation.cyclePos.toFixed(2)}° (0–360)`
                   : "Cycle position unavailable."}
               </div>
-
-              {ascMathCheck ? (
-                <div className="mt-2 text-xs text-[#403A32]/70">
-                  ASC math check: expected {ascMathCheck.expected.toFixed(2)}° • got {ascMathCheck.got.toFixed(2)}° • Δ{" "}
-                  {ascMathCheck.diff.toFixed(4)}°
-                </div>
-              ) : null}
             </div>
 
+            {/* ✅ Foundation panel moved ABOVE Daily Brief */}
             <div className="mt-4">
               <URAFoundationPanel
                 solarPhaseId={orientation.uraPhaseId}
@@ -714,7 +682,7 @@ export default function ProfileClient(props: Props) {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Daily Brief</div>
-                  <div className="mt-2 text-lg font-semibold text-[#1F1B16]">Phase + Sun Degree</div>
+                  <div className="mt-2 text-lg font-semibold text-[#1F1B16]">Phase + Sun Degree </div>
 
                   <div className="mt-1 text-sm text-[#403A32]/85">
                     {sabian ? (
@@ -787,9 +755,7 @@ export default function ProfileClient(props: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="mt-3 text-sm text-[#403A32]/70">
-                  {briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}
-                </div>
+                <div className="mt-3 text-sm text-[#403A32]/70">{briefLoading ? "Generating your daily brief…" : "No brief yet. Click Generate."}</div>
               )}
             </div>
 
@@ -813,7 +779,7 @@ export default function ProfileClient(props: Props) {
 
               <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
                 <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">45° Season Segment</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season.</div>
+                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season. </div>
 
                 <ProgressBar
                   value={orientation.modalityProgress01}
@@ -852,9 +818,7 @@ export default function ProfileClient(props: Props) {
                 <div className="mt-2 text-sm text-[#403A32]/75">
                   Lunation: <span className="font-semibold text-[#1F1B16]">{lunationLine}</span>
                   {typeof lunationSeparationDeg === "number" ? (
-                    <span className="ml-2 text-xs text-[#403A32]/70">
-                      (sep {norm360(lunationSeparationDeg).toFixed(2)}°)
-                    </span>
+                    <span className="ml-2 text-xs text-[#403A32]/70">(sep {norm360(lunationSeparationDeg).toFixed(2)}°)</span>
                   ) : null}
                 </div>
 
