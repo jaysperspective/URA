@@ -108,18 +108,22 @@ function normalizePlacementForLookup(raw: string) {
   let s = (raw || "").trim();
   if (!s) return "";
 
+  // remove “prime” type characters that sometimes survive the degree regex
+  // (', ’, ′, ″) — these are NOT meaningful for doctrine lookup
+  s = s.replace(/[’'′″]/g, "");
+
   // Preserve explicit house patterns
   const hasHouse = /\b(1[0-2]|[1-9])(?:st|nd|rd|th)?\s+house\b/i.test(s);
   if (hasHouse) {
     // Still strip degrees
-    s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\s*'?\b/g, "").trim();
+    s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\b/g, "").trim();
     s = s.replace(/\b\d{1,2}\s*°\b/g, "").trim();
     s = s.replace(/\s{2,}/g, " ").trim();
     return s;
   }
 
   // Remove degree/minute chunks
-  s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\s*'?\b/g, "").trim();
+  s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\b/g, "").trim();
   s = s.replace(/\b\d{1,2}\s*°\b/g, "").trim();
   s = s.replace(/\s{2,}/g, " ").trim();
 
@@ -127,6 +131,54 @@ function normalizePlacementForLookup(raw: string) {
   s = s.replace(/[•·]/g, " ").replace(/\s{2,}/g, " ").trim();
 
   return s;
+}
+
+/**
+ * Canonicalize user input to increase hit rate:
+ * - trims
+ * - collapses spaces
+ * - title-cases planet/sign words (Moon Capricorn, not moon capricorn)
+ * - keeps "North Node" / "South Node" as two words
+ * - keeps "10th house" as-is
+ */
+function canonicalizeQuery(raw: string) {
+  let s = normalizePlacementForLookup(raw);
+  if (!s) return "";
+
+  // collapse spaces
+  s = s.replace(/\s+/g, " ").trim();
+
+  // If it includes "house", just title-case the planet/sign portion and leave house intact.
+  const mHouse = s.match(/^(.+?)\s+((?:1[0-2]|[1-9])(?:st|nd|rd|th)?\s+house)$/i);
+  const base = mHouse ? mHouse[1] : s;
+  const housePart = mHouse ? ` ${mHouse[2].toLowerCase()}` : "";
+
+  // normalize common multiword planets/nodes
+  const baseLower = base.toLowerCase();
+
+  const planetVariants: Array<[RegExp, string]> = [
+    [/^north\s*node\b/i, "North Node"],
+    [/^south\s*node\b/i, "South Node"],
+    [/^true\s*node\b/i, "North Node"],
+    [/^mean\s*node\b/i, "North Node"],
+  ];
+
+  let rewritten = base;
+  for (const [rx, rep] of planetVariants) {
+    if (rx.test(baseLower)) {
+      rewritten = rewritten.replace(rx, rep);
+      break;
+    }
+  }
+
+  // title-case each word except small ordinals are already handled via housePart
+  const words = rewritten.split(" ").filter(Boolean);
+  const tc = (w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+
+  // keep common planet abbreviations clean if user types weird
+  const out = words.map(tc).join(" ");
+
+  return (out + housePart).trim();
 }
 
 function readAutoParam(): string | null {
@@ -154,11 +206,7 @@ export default function AstrologyClient() {
   const [pairErr, setPairErr] = useState<string | null>(null);
 
   // Mini (3–6)
-  const [miniInputs, setMiniInputs] = useState<string[]>([
-    "Sun Capricorn",
-    "Moon Cancer",
-    "Mercury Aquarius",
-  ]);
+  const [miniInputs, setMiniInputs] = useState<string[]>(["Sun Capricorn", "Moon Cancer", "Mercury Aquarius"]);
   const [miniLoading, setMiniLoading] = useState(false);
   const [miniCards, setMiniCards] = useState<{ key: string; card: any }[] | null>(null);
   const [miniErr, setMiniErr] = useState<string | null>(null);
@@ -169,34 +217,8 @@ export default function AstrologyClient() {
   const [sxLoading, setSxLoading] = useState(false);
   const [sx, setSx] = useState<SxResp | null>(null);
 
-  // ✅ Real natal placements (loaded from sessionStorage set by /profile)
+  // Natal placements
   const [natalPlacements, setNatalPlacements] = useState<string[]>([]);
-
-  // Load natal placements once (client only)
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem("ura:natalPlacements");
-      if (!raw) return;
-
-      const parsed = JSON.parse(raw);
-      const arr = Array.isArray(parsed?.placements) ? parsed.placements : [];
-      const cleaned = arr.map((x: any) => String(x || "")).map((x: string) => x.trim()).filter(Boolean);
-
-      setNatalPlacements(cleaned);
-
-      // auto-run if requested
-      const auto = readAutoParam();
-      if (auto === "natal" && cleaned.length > 0) {
-        const normalized = normalizePlacementForLookup(cleaned[0]);
-        setMode("placement");
-        setQ(normalized);
-        setTimeout(() => runLookup(normalized), 0);
-      }
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const examples = useMemo(
     () => [
@@ -218,7 +240,36 @@ export default function AstrologyClient() {
     setSx(null);
   }
 
-  async function lookupOne(query: string): Promise<{ key: string; card: any }> {
+  // Load natal placements once (client only)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("ura:natalPlacements");
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      const arr = Array.isArray(parsed?.placements) ? parsed.placements : [];
+      const cleaned = arr
+        .map((x: any) => String(x || ""))
+        .map((x: string) => x.trim())
+        .filter(Boolean);
+
+      setNatalPlacements(cleaned);
+
+      const auto = readAutoParam();
+      if (auto === "natal" && cleaned.length > 0) {
+        const normalized = canonicalizeQuery(cleaned[0]);
+        setMode("placement");
+        setQ(normalized);
+        setTimeout(() => runLookup(normalized), 0);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function lookupOne(queryRaw: string): Promise<{ key: string; card: any }> {
+    const query = canonicalizeQuery(queryRaw);
     const r = await fetch(`/api/astrology?q=${encodeURIComponent(query)}`, {
       method: "GET",
       headers: { Accept: "application/json" },
@@ -231,7 +282,7 @@ export default function AstrologyClient() {
   }
 
   async function runLookup(forceQuery?: string) {
-    const query = (forceQuery ?? q).trim();
+    const query = canonicalizeQuery((forceQuery ?? q).trim());
     if (!query) return;
 
     setLoading(true);
@@ -272,7 +323,7 @@ export default function AstrologyClient() {
     resetSynthesis();
 
     try {
-      const cleaned = miniInputs.map((x) => x.trim()).filter(Boolean);
+      const cleaned = miniInputs.map((x) => canonicalizeQuery(x)).filter(Boolean);
       if (cleaned.length < 3 || cleaned.length > 6) throw new Error("Mini chart needs 3–6 placements.");
 
       const outs: { key: string; card: any }[] = [];
@@ -487,7 +538,7 @@ export default function AstrologyClient() {
 
   return (
     <section className="space-y-4">
-      {/* ✅ Natal placements quick panel */}
+      {/* Natal placements quick panel */}
       <Panel>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -506,6 +557,21 @@ export default function AstrologyClient() {
               setPairCards(null);
               setMiniCards(null);
               resetSynthesis();
+              // re-read session storage in case profile was updated
+              try {
+                const raw = sessionStorage.getItem("ura:natalPlacements");
+                if (raw) {
+                  const parsed = JSON.parse(raw);
+                  const arr = Array.isArray(parsed?.placements) ? parsed.placements : [];
+                  const cleaned = arr
+                    .map((x: any) => String(x || ""))
+                    .map((x: string) => x.trim())
+                    .filter(Boolean);
+                  setNatalPlacements(cleaned);
+                }
+              } catch {
+                // ignore
+              }
             }}
             className="rounded-xl px-4 py-2 text-sm font-semibold transition"
             style={{ background: TOKENS.buttonBg, color: TOKENS.buttonText }}
@@ -521,7 +587,7 @@ export default function AstrologyClient() {
             </div>
           ) : (
             natalPlacements.map((raw) => {
-              const normalized = normalizePlacementForLookup(raw);
+              const normalized = canonicalizeQuery(raw);
               return (
                 <button
                   key={raw}
