@@ -17,7 +17,7 @@ type Mode = "placement" | "pair" | "mini_chart";
 type ReqBody = {
   version: "1.0";
   mode: Mode;
-  keys: string[]; // doctrine keys only: planet|sign|house
+  keys: string[]; // doctrine keys
   lens?: Lens;
   question?: string;
   output?: {
@@ -47,9 +47,56 @@ function pickBullets(arr: string[], max = 5) {
   return Array.isArray(arr) ? arr.slice(0, Math.max(1, Math.min(max, arr.length))) : [];
 }
 
+/**
+ * ✅ KEY NORMALIZATION
+ * We support multiple doctrine-key shapes:
+ * - Full: planet|sign|house  (e.g. mars|virgo|6)
+ * - Core: planet|sign        (e.g. mars|virgo)
+ * - Core explicit: planet|sign|core
+ *
+ * The client may send any of these. We normalize to a key that exists in LOOKUP.
+ */
+function normalizeDoctrineKey(input: string) {
+  const raw = String(input || "").trim();
+  if (!raw) return raw;
+
+  if (LOOKUP.has(raw)) return raw;
+
+  const parts = raw.split("|").map((p) => p.trim()).filter(Boolean);
+
+  // If "planet|sign" was sent, try also "planet|sign|core"
+  if (parts.length === 2) {
+    const k2 = `${parts[0]}|${parts[1]}`;
+    const k3 = `${parts[0]}|${parts[1]}|core`;
+    if (LOOKUP.has(k2)) return k2;
+    if (LOOKUP.has(k3)) return k3;
+    return raw;
+  }
+
+  // If "planet|sign|something" was sent, try:
+  // - as-is (already checked)
+  // - treat as house and fall back to core keys
+  if (parts.length === 3) {
+    const core2 = `${parts[0]}|${parts[1]}`;
+    const core3 = `${parts[0]}|${parts[1]}|core`;
+    if (LOOKUP.has(core2)) return core2;
+    if (LOOKUP.has(core3)) return core3;
+
+    // If third part was "core" but doctrine stores 2-part
+    if (parts[2] === "core" && LOOKUP.has(core2)) return core2;
+
+    return raw;
+  }
+
+  return raw;
+}
+
 function buildMock(keys: string[], lens: Lens, question?: string) {
   const cards = keys.map((k) => LOOKUP.get(k)).filter(Boolean);
-  const headline = lens === "relationships" ? "Pattern shows up most clearly through partnership dynamics." : "Grounded theme, expressed through lived choices.";
+  const headline =
+    lens === "relationships"
+      ? "Pattern shows up most clearly through partnership dynamics."
+      : "Grounded theme, expressed through lived choices.";
   const coreTheme =
     `This synthesis is generated without an LLM (mock mode). It is grounded in: ${keys.join(", ")}. ` +
     `Use it to verify the pipeline; switch on OPENAI_API_KEY to enable the real synthesis layer.` +
@@ -70,7 +117,12 @@ function buildMock(keys: string[], lens: Lens, question?: string) {
   return {
     ok: true,
     version: "1.0" as const,
-    mode: keys.length === 1 ? ("placement" as const) : keys.length === 2 ? ("pair" as const) : ("mini_chart" as const),
+    mode:
+      keys.length === 1
+        ? ("placement" as const)
+        : keys.length === 2
+          ? ("pair" as const)
+          : ("mini_chart" as const),
     lens,
     usedKeys: keys,
     output: {
@@ -97,8 +149,6 @@ function buildMock(keys: string[], lens: Lens, question?: string) {
 }
 
 // --- LLM CALL (OpenAI via fetch) ---
-// Uses /v1/chat/completions for widest compatibility.
-// Set OPENAI_API_KEY in env, and optionally OPENAI_MODEL.
 async function callLLM(prompt: string) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not set.");
@@ -109,7 +159,7 @@ async function callLLM(prompt: string) {
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -119,16 +169,15 @@ async function callLLM(prompt: string) {
       messages: [
         {
           role: "system",
-          content:
-            [
-              "You are a synthesis layer for a deterministic astrology doctrine.",
-              "Rules:",
-              "- Use ONLY the provided doctrine cards. Do not introduce new meanings, archetypes, or claims.",
-              "- No predictions. No fate statements. No emojis. No fluff.",
-              "- Output MUST be valid JSON only (no markdown, no extra text).",
-              "- Keep tone grounded, precise, and practical.",
-              "- If the user asks a question, answer it using only the doctrine content.",
-            ].join("\n"),
+          content: [
+            "You are a synthesis layer for a deterministic astrology doctrine.",
+            "Rules:",
+            "- Use ONLY the provided doctrine cards. Do not introduce new meanings, archetypes, or claims.",
+            "- No predictions. No fate statements. No emojis. No fluff.",
+            "- Output MUST be valid JSON only (no markdown, no extra text).",
+            "- Keep tone grounded, precise, and practical.",
+            "- If the user asks a question, answer it using only the doctrine content.",
+          ].join("\n"),
         },
         { role: "user", content: prompt },
       ],
@@ -153,7 +202,6 @@ function safeJsonParse(s: string) {
   try {
     return JSON.parse(s);
   } catch {
-    // Try to extract first {...} block if the model wrapped output unexpectedly
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
     if (start >= 0 && end > start) {
@@ -176,7 +224,11 @@ export async function POST(req: Request) {
   if (!body || body.version !== "1.0") return bad("version must be '1.0'.");
 
   const mode = body.mode;
-  const keys = Array.isArray(body.keys) ? body.keys.map(String) : [];
+
+  // ✅ normalize keys BEFORE any validation
+  const rawKeys = Array.isArray(body.keys) ? body.keys.map(String) : [];
+  const keys = rawKeys.map(normalizeDoctrineKey);
+
   const lens: Lens = (body.lens as Lens) || "general";
   const question = (body.question || "").trim();
 
@@ -240,24 +292,23 @@ export async function POST(req: Request) {
     },
   };
 
-  const prompt =
-    [
-      `TASK: Synthesize the doctrine grounding into a ${format} interpretation.`,
-      `LENS: ${lens}`,
-      question ? `USER_QUESTION: ${question}` : "",
-      `CONSTRAINTS:`,
-      `- Do not add new meanings. Use only grounding.`,
-      `- No predictions.`,
-      `- Keep it practical and clear.`,
-      `OUTPUT: Return JSON matching this shape (values real, not placeholders):`,
-      JSON.stringify(schemaHint, null, 2),
-      `GROUNDING (authoritative doctrine cards):`,
-      JSON.stringify(grounding, null, 2),
-      `BULLET_LIMIT: ${maxBullets}`,
-      `INCLUDE_JOURNAL_PROMPTS: ${includeJournalPrompts ? "true" : "false"}`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+  const prompt = [
+    `TASK: Synthesize the doctrine grounding into a ${format} interpretation.`,
+    `LENS: ${lens}`,
+    question ? `USER_QUESTION: ${question}` : "",
+    `CONSTRAINTS:`,
+    `- Do not add new meanings. Use only grounding.`,
+    `- No predictions.`,
+    `- Keep it practical and clear.`,
+    `OUTPUT: Return JSON matching this shape (values real, not placeholders):`,
+    JSON.stringify(schemaHint, null, 2),
+    `GROUNDING (authoritative doctrine cards):`,
+    JSON.stringify(grounding, null, 2),
+    `BULLET_LIMIT: ${maxBullets}`,
+    `INCLUDE_JOURNAL_PROMPTS: ${includeJournalPrompts ? "true" : "false"}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   try {
     const { content, model, latencyMs } = await callLLM(prompt);
