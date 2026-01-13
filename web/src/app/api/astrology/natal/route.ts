@@ -9,226 +9,229 @@ function norm360(d: number) {
   return x;
 }
 
-const SIGNS_FULL = [
-  "Aries",
-  "Taurus",
-  "Gemini",
-  "Cancer",
-  "Leo",
-  "Virgo",
-  "Libra",
-  "Scorpio",
-  "Sagittarius",
-  "Capricorn",
-  "Aquarius",
-  "Pisces",
-] as const;
+const SIGNS = [
+  { name: "Aries", slug: "aries" },
+  { name: "Taurus", slug: "taurus" },
+  { name: "Gemini", slug: "gemini" },
+  { name: "Cancer", slug: "cancer" },
+  { name: "Leo", slug: "leo" },
+  { name: "Virgo", slug: "virgo" },
+  { name: "Libra", slug: "libra" },
+  { name: "Scorpio", slug: "scorpio" },
+  { name: "Sagittarius", slug: "sagittarius" },
+  { name: "Capricorn", slug: "capricorn" },
+  { name: "Aquarius", slug: "aquarius" },
+  { name: "Pisces", slug: "pisces" },
+];
 
-function signFromLonFull(lon: number) {
+function signNameFromLon(lon: number) {
   const idx = Math.floor(norm360(lon) / 30) % 12;
-  return SIGNS_FULL[idx];
+  return SIGNS[idx]?.name ?? "Aries";
 }
 
-function degInSign(lon: number) {
+function fmtDegMin(lon: number) {
   const x = norm360(lon);
-  const within = x % 30;
-  const d = Math.floor(within);
-  const m = Math.floor((within - d) * 60);
-  return { d, m };
+  const degInSign = x % 30;
+  const d = Math.floor(degInSign);
+  const m = Math.floor((degInSign - d) * 60);
+  return `${d}° ${String(m).padStart(2, "0")}'`;
 }
 
-function ordinal(n: number) {
+function ord(n: number) {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-// House calculation from cusps (best-effort)
-// Accepts cusps length 12 or 13. If 13, cusp[0] is often house 1 and cusp[12] repeats.
-function lonToHouse(cuspsRaw: number[], lon: number): number | null {
-  const cusps = cuspsRaw
-    .map((x) => (typeof x === "number" && Number.isFinite(x) ? norm360(x) : null))
-    .filter((x): x is number => x != null);
+function planetDisplayName(slug: string) {
+  const map: Record<string, string> = {
+    sun: "Sun",
+    moon: "Moon",
+    mercury: "Mercury",
+    venus: "Venus",
+    mars: "Mars",
+    jupiter: "Jupiter",
+    saturn: "Saturn",
+    uranus: "Uranus",
+    neptune: "Neptune",
+    pluto: "Pluto",
+    chiron: "Chiron",
+    northnode: "North Node",
+    north_node: "North Node",
+    southnode: "South Node",
+    south_node: "South Node",
+  };
+  return map[slug] ?? slug[0]?.toUpperCase() + slug.slice(1);
+}
 
-  if (cusps.length < 12) return null;
+type Chip = {
+  kind: "planet" | "node" | "chiron" | "angle";
+  label: string;
+  query: string | null; // null => display-only (e.g., ASC/MC for now)
+};
 
-  // Normalize to 12 cusps starting at house 1
-  const c = cusps.length >= 13 ? cusps.slice(0, 12) : cusps.slice(0, 12);
+function coerceHouse(h: any): number | null {
+  const n = Number(h);
+  if (Number.isFinite(n) && n >= 1 && n <= 12) return n;
+  return null;
+}
 
-  const L = norm360(lon);
+function coerceLon(x: any): number | null {
+  const n = Number(x);
+  if (Number.isFinite(n)) return n;
+  return null;
+}
 
-  // Houses are segments [cusp_i, cusp_{i+1}) going forward, wrapping at 360
-  for (let i = 0; i < 12; i++) {
-    const a = c[i];
-    const b = c[(i + 1) % 12];
+/**
+ * Try to read a wide variety of natalChartJson shapes.
+ * We only need: planet name + lon + (optional) house.
+ */
+function extractChipsFromNatal(natal: any): Chip[] {
+  const chips: Chip[] = [];
 
-    if (a <= b) {
-      // normal segment
-      if (L >= a && L < b) return i + 1;
-    } else {
-      // wraps 360
-      if (L >= a || L < b) return i + 1;
+  // ---- Angles (display-only for now) ----
+  // Try common locations for ASC/MC
+  const ascLon =
+    coerceLon(natal?.angles?.asc) ??
+    coerceLon(natal?.angles?.ascendant) ??
+    coerceLon(natal?.asc) ??
+    coerceLon(natal?.ascendant);
+
+  const mcLon =
+    coerceLon(natal?.angles?.mc) ??
+    coerceLon(natal?.angles?.midheaven) ??
+    coerceLon(natal?.mc) ??
+    coerceLon(natal?.midheaven);
+
+  if (typeof ascLon === "number") {
+    chips.push({
+      kind: "angle",
+      label: `ASC ${signNameFromLon(ascLon)} ${fmtDegMin(ascLon)}`,
+      query: null,
+    });
+  }
+  if (typeof mcLon === "number") {
+    chips.push({
+      kind: "angle",
+      label: `MC ${signNameFromLon(mcLon)} ${fmtDegMin(mcLon)}`,
+      query: null,
+    });
+  }
+
+  // ---- Planet list extraction ----
+  // Common shapes:
+  // natal.planets: [{ name, lon, house }]
+  // natal.planetsByName: { sun: { lon, house }, ... }
+  // natal.bodies: ...
+  const planetRows: Array<{ slug: string; lon: number; house?: number | null }> = [];
+
+  const arr = natal?.planets ?? natal?.bodies ?? natal?.objects ?? null;
+  if (Array.isArray(arr)) {
+    for (const p of arr) {
+      const slug = String(p?.name ?? p?.id ?? p?.key ?? "").toLowerCase().trim();
+      const lon = coerceLon(p?.lon ?? p?.longitude ?? p?.lng);
+      const house = coerceHouse(p?.house ?? p?.houseNum ?? p?.house_number);
+      if (!slug || typeof lon !== "number") continue;
+      planetRows.push({ slug, lon, house });
     }
   }
-  return null;
-}
 
-function pickFirstNumber(...xs: any[]): number | null {
-  for (const x of xs) {
-    if (typeof x === "number" && Number.isFinite(x)) return x;
+  const byName = natal?.planetsByName ?? natal?.bodiesByName ?? natal?.pointsByName ?? null;
+  if (byName && typeof byName === "object" && !Array.isArray(byName)) {
+    for (const [k, v] of Object.entries(byName)) {
+      const slug = String(k).toLowerCase().trim();
+      const lon = coerceLon((v as any)?.lon ?? (v as any)?.longitude ?? (v as any)?.lng);
+      const house = coerceHouse((v as any)?.house ?? (v as any)?.houseNum ?? (v as any)?.house_number);
+      if (!slug || typeof lon !== "number") continue;
+      planetRows.push({ slug, lon, house });
+    }
   }
-  return null;
-}
 
-// Attempts to extract a map of body -> longitude from common chart shapes
-function extractBodyLons(natal: any) {
-  const out: Record<string, number> = {};
+  // Deduplicate by slug (prefer row with house if duplicates)
+  const best = new Map<string, { slug: string; lon: number; house?: number | null }>();
+  for (const row of planetRows) {
+    const prev = best.get(row.slug);
+    if (!prev) best.set(row.slug, row);
+    else if ((prev.house == null) && row.house != null) best.set(row.slug, row);
+  }
 
-  const candidates = [
-    natal?.planets,
-    natal?.bodies,
-    natal?.objects,
-    natal?.points,
-    natal?.data?.planets,
-    natal?.data?.bodies,
-    natal?.chart?.planets,
-    natal?.chart?.bodies,
-  ].filter(Boolean);
-
-  // Common canonical names we want
-  const WANT: { key: string; aliases: string[] }[] = [
-    { key: "Sun", aliases: ["sun", "Sun", "sol"] },
-    { key: "Moon", aliases: ["moon", "Moon", "luna"] },
-    { key: "Mercury", aliases: ["mercury", "Mercury"] },
-    { key: "Venus", aliases: ["venus", "Venus"] },
-    { key: "Mars", aliases: ["mars", "Mars"] },
-    { key: "Jupiter", aliases: ["jupiter", "Jupiter"] },
-    { key: "Saturn", aliases: ["saturn", "Saturn"] },
-    { key: "Uranus", aliases: ["uranus", "Uranus"] },
-    { key: "Neptune", aliases: ["neptune", "Neptune"] },
-    { key: "Pluto", aliases: ["pluto", "Pluto"] },
-    { key: "Chiron", aliases: ["chiron", "Chiron"] },
-    { key: "North Node", aliases: ["northNode", "north_node", "meanNode", "trueNode", "NorthNode", "North Node"] },
-    { key: "South Node", aliases: ["southNode", "south_node", "SouthNode", "South Node"] },
-    { key: "ASC", aliases: ["asc", "ASC", "Ascendant", "ascendant"] },
-    { key: "MC", aliases: ["mc", "MC", "Midheaven", "midheaven"] },
+  // Order we want
+  const order = [
+    "sun",
+    "moon",
+    "mercury",
+    "venus",
+    "mars",
+    "jupiter",
+    "saturn",
+    "uranus",
+    "neptune",
+    "pluto",
+    "chiron",
+    "north_node",
+    "northnode",
+    "south_node",
+    "southnode",
   ];
 
-  function readLon(obj: any): number | null {
-    if (!obj) return null;
-    return pickFirstNumber(obj.lon, obj.lng, obj.longitude, obj.long, obj.eclipticLon, obj.eclLon);
+  const rowsSorted = Array.from(best.values()).sort((a, b) => {
+    const ia = order.indexOf(a.slug);
+    const ib = order.indexOf(b.slug);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+
+  for (const row of rowsSorted) {
+    const name = planetDisplayName(row.slug);
+    const sign = signNameFromLon(row.lon);
+    const deg = fmtDegMin(row.lon);
+    const house = row.house != null ? row.house : null;
+
+    const isNode = row.slug.includes("node");
+    const kind: Chip["kind"] =
+      row.slug === "chiron" ? "chiron" : isNode ? "node" : "planet";
+
+    // Query:
+    // - if house known: "Moon Capricorn 4th house"
+    // - else: "Moon Capricorn"
+    const query = house ? `${name} ${sign} ${ord(house)} house` : `${name} ${sign}`;
+
+    chips.push({
+      kind,
+      label: `${name} ${sign} ${deg}${house ? ` • ${ord(house)}` : ""}`,
+      query,
+    });
   }
 
-  // Pass 1: scan candidate containers
-  for (const bag of candidates) {
-    for (const want of WANT) {
-      if (out[want.key] != null) continue;
-      for (const alias of want.aliases) {
-        const v = bag?.[alias];
-        const lon = readLon(v);
-        if (lon != null) {
-          out[want.key] = norm360(lon);
-          break;
-        }
-      }
-    }
-  }
-
-  // Pass 2: sometimes angles live elsewhere
-  if (out["ASC"] == null) {
-    const lon = pickFirstNumber(natal?.angles?.asc, natal?.angles?.ASC, natal?.asc, natal?.ASC, natal?.data?.asc);
-    if (lon != null) out["ASC"] = norm360(lon);
-  }
-  if (out["MC"] == null) {
-    const lon = pickFirstNumber(natal?.angles?.mc, natal?.angles?.MC, natal?.mc, natal?.MC, natal?.data?.mc);
-    if (lon != null) out["MC"] = norm360(lon);
-  }
-
-  return out;
-}
-
-function extractCusps(natal: any): number[] | null {
-  const raw =
-    natal?.houses?.cusps ||
-    natal?.houses?.houseCusps ||
-    natal?.houseCusps ||
-    natal?.cusps ||
-    natal?.data?.houses?.cusps ||
-    natal?.chart?.houses?.cusps;
-
-  if (!raw) return null;
-  if (!Array.isArray(raw)) return null;
-
-  const nums = raw.map((x: any) => (typeof x === "number" ? x : null)).filter((x: any) => typeof x === "number");
-  if (nums.length < 12) return null;
-  return nums as number[];
+  return chips;
 }
 
 export async function GET() {
   try {
     const user = await requireUser();
-    const profile = await prisma.profile.findUnique({ where: { userId: user.id } });
-    if (!profile) return NextResponse.json({ ok: false, error: "Profile not found." }, { status: 404 });
+    const profile = await prisma.profile.findUnique({
+      where: { userId: user.id },
+      select: { natalChartJson: true },
+    });
 
-    const natal = profile.natalChartJson as any;
-    if (!natal) return NextResponse.json({ ok: false, error: "Natal cache missing." }, { status: 404 });
+    const natal = profile?.natalChartJson as any;
+    if (!natal) {
+      return NextResponse.json(
+        { ok: false, error: "No natalChartJson cached yet." },
+        { status: 404 }
+      );
+    }
 
-    const bodies = extractBodyLons(natal);
-    const cusps = extractCusps(natal);
-
-    // Build placements list for UI + query strings for /api/astrology
-    const order = [
-      "ASC",
-      "MC",
-      "Sun",
-      "Moon",
-      "Mercury",
-      "Venus",
-      "Mars",
-      "Jupiter",
-      "Saturn",
-      "Uranus",
-      "Neptune",
-      "Pluto",
-      "Chiron",
-      "North Node",
-      "South Node",
-    ];
-
-    const placements = order
-      .map((name) => {
-        const lon = bodies[name];
-        if (typeof lon !== "number") return null;
-
-        const sign = signFromLonFull(lon);
-        const { d, m } = degInSign(lon);
-        const house = cusps ? lonToHouse(cusps, lon) : null;
-
-        // Query format AstrologyClient already uses.
-        // If house known: "Sun Capricorn 10th house"
-        // Else: "Sun Capricorn"
-        const query = house ? `${name} ${sign} ${ordinal(house)} house` : `${name} ${sign}`;
-
-        return {
-          name,
-          lon,
-          sign,
-          deg: d,
-          min: m,
-          house,
-          label: `${name} ${sign} ${d}° ${String(m).padStart(2, "0")}'${house ? ` · ${ordinal(house)}` : ""}`,
-          query,
-        };
-      })
-      .filter(Boolean);
+    const placements = extractChipsFromNatal(natal);
 
     return NextResponse.json({
       ok: true,
-      source: "profile.natalChartJson",
+      version: "1.0",
       placements,
-      hasCusps: Boolean(cusps),
     });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Failed to load natal cache." }, { status: 500 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unknown error" },
+      { status: 400 }
+    );
   }
 }
