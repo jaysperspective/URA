@@ -1,8 +1,7 @@
 // src/app/astrology/ui/AstrologyClient.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useMemo, useState } from "react";
 
 type LookupOk = { ok: true; key: string; card: any };
 type LookupErr = { ok: false; error: string };
@@ -102,48 +101,65 @@ function CardShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-type NatalPlacement = {
-  name: string;
-  label: string;
-  query: string;
-  house: number | null;
-  lon: number;
-  sign: string;
-  deg: number;
-  min: number;
-};
+/**
+ * ✅ Key fix:
+ * The natal chips often include degrees/minutes like: "Moon Capricorn 3° 46'"
+ * Your API currently complains without a house; we normalize chips to:
+ *   - "Moon Capricorn"
+ *   - "Mercury Capricorn"
+ *   - "MC Leo"
+ *   - "ASC Scorpio"
+ *   - "North Node Aquarius"
+ *
+ * This keeps the lookup useful even when house is unknown.
+ */
+function normalizePlacementForLookup(raw: string) {
+  let s = (raw || "").trim();
+  if (!s) return "";
+
+  // Remove degree/minute chunks: "21° 18'" or "21°18'" etc
+  s = s.replace(/\b\d{1,2}\s*°\s*\d{1,2}\s*'?\b/g, "").trim();
+  s = s.replace(/\b\d{1,2}\s*°\b/g, "").trim();
+  s = s.replace(/\s{2,}/g, " ").trim();
+
+  // Remove stray punctuation
+  s = s.replace(/[•·]/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  // Normalize some labels that appear in natal chips
+  // Keep MC/ASC as-is; they are valid "placements" without house.
+  // Convert "North Node" / "South Node" spacing is fine.
+  // If someone passes "Moon Capricorn" we keep it.
+
+  // If string is like "Sun Aquarius" already fine.
+  // If it starts with sign then planet (rare), don't try to over-fix.
+
+  return s;
+}
 
 export default function AstrologyClient() {
-  const searchParams = useSearchParams();
-
   const [mode, setMode] = useState<Mode>("placement");
 
   // Single
-  const [q, setQ] = useState("Mars in Virgo 6th house");
+  const [q, setQ] = useState("Mars Virgo");
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<LookupResp | null>(null);
 
   // Pair
-  const [pairA, setPairA] = useState("Venus Scorpio 7th house");
-  const [pairB, setPairB] = useState("Mars Virgo 6th house");
+  const [pairA, setPairA] = useState("Venus Scorpio");
+  const [pairB, setPairB] = useState("Mars Virgo");
   const [pairLoading, setPairLoading] = useState(false);
   const [pairCards, setPairCards] = useState<{ key: string; card: any }[] | null>(null);
   const [pairErr, setPairErr] = useState<string | null>(null);
 
   // Mini (3–6)
   const [miniInputs, setMiniInputs] = useState<string[]>([
-    "Sun Capricorn 10th house",
-    "Moon Cancer 4",
-    "Mercury Aquarius 3rd",
+    "Sun Capricorn",
+    "Moon Cancer",
+    "Mercury Aquarius",
   ]);
   const [miniLoading, setMiniLoading] = useState(false);
   const [miniCards, setMiniCards] = useState<{ key: string; card: any }[] | null>(null);
   const [miniErr, setMiniErr] = useState<string | null>(null);
-
-  // Auto natal (from profile)
-  const [natalLoading, setNatalLoading] = useState(false);
-  const [natalErr, setNatalErr] = useState<string | null>(null);
-  const [natalPlacements, setNatalPlacements] = useState<NatalPlacement[] | null>(null);
 
   // Shared synthesis
   const [lens, setLens] = useState<Lens>("general");
@@ -151,16 +167,41 @@ export default function AstrologyClient() {
   const [sxLoading, setSxLoading] = useState(false);
   const [sx, setSx] = useState<SxResp | null>(null);
 
+  // ✅ This list is what your Profile->Astrology bridge should populate.
+  // For now it’s a placeholder set; you can later feed it via URL params or session.
+  const natalPlacements = useMemo(
+    () => [
+      "MC Leo 21° 18'",
+      "Sun Aquarius 4° 00'",
+      "Moon Capricorn 3° 46'",
+      "Mercury Capricorn 10° 44'",
+      "Venus Capricorn 25° 25'",
+      "Mars Sagittarius 26° 10'",
+      "Jupiter Cancer 2° 25'",
+      "Saturn Capricorn 18° 20'",
+      "Uranus Capricorn 7° 06'",
+      "Neptune Capricorn 12° 53'",
+      "Pluto Scorpio 17° 35'",
+      "Chiron Cancer 12° 17'",
+      "North Node Aquarius 16° 30'",
+      "South Node Leo 16° 30'",
+    ],
+    []
+  );
+
   const examples = useMemo(
     () => [
+      "Sun Capricorn",
+      "Moon Cancer",
+      "Mercury Aquarius",
+      "Venus Scorpio",
+      "Mars Virgo",
+      "Chiron Aries",
+      "North Node Aquarius",
+      "South Node Leo",
+      // still allowed:
       "Sun Capricorn 10th house",
-      "Moon Cancer 4",
-      "Mercury Aquarius 3rd",
-      "Venus Scorpio 7th house",
-      "Mars Virgo 6",
-      "Chiron Aries 1st",
-      "North Node Aquarius 11",
-      "South Node Leo 5",
+      "Moon Cancer 4th house",
     ],
     []
   );
@@ -173,14 +214,15 @@ export default function AstrologyClient() {
     const r = await fetch(`/api/astrology?q=${encodeURIComponent(query)}`, {
       method: "GET",
       headers: { Accept: "application/json" },
+      cache: "no-store",
     });
     const data = (await r.json()) as LookupResp;
     if (!data.ok) throw new Error((data as any).error || "Lookup failed.");
     return { key: (data as any).key, card: (data as any).card };
   }
 
-  async function runLookup() {
-    const query = q.trim();
+  async function runLookup(forceQuery?: string) {
+    const query = (forceQuery ?? q).trim();
     if (!query) return;
 
     setLoading(true);
@@ -223,12 +265,12 @@ export default function AstrologyClient() {
     try {
       const cleaned = miniInputs.map((x) => x.trim()).filter(Boolean);
       if (cleaned.length < 3 || cleaned.length > 6) throw new Error("Mini chart needs 3–6 placements.");
+
       const outs: { key: string; card: any }[] = [];
       for (const entry of cleaned) outs.push(await lookupOne(entry));
       setMiniCards(outs);
     } catch (e: any) {
       setMiniErr(e?.message || "Mini lookup failed.");
-
     } finally {
       setMiniLoading(false);
     }
@@ -265,30 +307,38 @@ export default function AstrologyClient() {
     return (
       <div className="space-y-3 text-sm leading-relaxed" style={{ color: TOKENS.text }}>
         <div className="flex flex-wrap gap-2">
-          <Pill>Element: {card.labels?.element}</Pill>
-          <Pill>Modality: {card.labels?.modality}</Pill>
+          {card.labels?.element ? <Pill>Element: {card.labels.element}</Pill> : null}
+          {card.labels?.modality ? <Pill>Modality: {card.labels.modality}</Pill> : null}
           <Pill>Key: {card.key}</Pill>
         </div>
 
-        <div>
-          <SectionTitle>Function (Planet)</SectionTitle>
-          <div>{card.function?.core}</div>
-        </div>
+        {card.function?.core ? (
+          <div>
+            <SectionTitle>Function (Planet)</SectionTitle>
+            <div>{card.function.core}</div>
+          </div>
+        ) : null}
 
-        <div>
-          <SectionTitle>Style (Sign)</SectionTitle>
-          <div>{card.style?.strategy}</div>
-        </div>
+        {card.style?.strategy ? (
+          <div>
+            <SectionTitle>Style (Sign)</SectionTitle>
+            <div>{card.style.strategy}</div>
+          </div>
+        ) : null}
 
-        <div>
-          <SectionTitle>Arena (House)</SectionTitle>
-          <div>{card.arena?.domain}</div>
-        </div>
+        {card.arena?.domain ? (
+          <div>
+            <SectionTitle>Arena (House)</SectionTitle>
+            <div>{card.arena.domain}</div>
+          </div>
+        ) : null}
 
-        <div>
-          <SectionTitle>Synthesis</SectionTitle>
-          <div>{card.synthesis}</div>
-        </div>
+        {card.synthesis ? (
+          <div>
+            <SectionTitle>Synthesis</SectionTitle>
+            <div>{card.synthesis}</div>
+          </div>
+        ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
           <div className="sm:w-1/2">
@@ -425,49 +475,14 @@ export default function AstrologyClient() {
     );
   }
 
-  async function loadNatalFromCache() {
-    setNatalLoading(true);
-    setNatalErr(null);
-
-    try {
-      const r = await fetch("/api/astrology/natal", { method: "GET", headers: { Accept: "application/json" } });
-      const data = (await r.json()) as any;
-      if (!data?.ok) throw new Error(data?.error || "Failed to load natal cache.");
-
-      const list = (data.placements ?? []) as NatalPlacement[];
-      setNatalPlacements(list);
-
-      // Default: drop the user into single-placement mode, ready to click placements.
-      setMode("placement");
-      resetSynthesis();
-
-      // If we have a Sun placement, prefill it (but DON'T auto-run; keeps CPU calm).
-      const sun = list.find((x) => x.name === "Sun") ?? list[0];
-      if (sun?.query) setQ(sun.query);
-    } catch (e: any) {
-      setNatalErr(e?.message || "Failed to load natal cache.");
-    } finally {
-      setNatalLoading(false);
-    }
-  }
-
-  // Auto-load if user came from profile link
-  useEffect(() => {
-    const auto = searchParams.get("auto");
-    if (auto === "natal") {
-      loadNatalFromCache();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
   return (
     <section className="space-y-4">
-      {/* If loaded from profile: show natal placement strip */}
+      {/* ✅ Natal placements quick panel */}
       <Panel>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: TOKENS.textSoft }}>
-              Natal Placements
+              Natal placements
             </div>
             <div className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
               Click a placement to auto-fill and run lookup.
@@ -475,49 +490,45 @@ export default function AstrologyClient() {
           </div>
 
           <button
-            onClick={loadNatalFromCache}
-            disabled={natalLoading}
+            type="button"
+            onClick={() => {
+              // simple "refresh" behavior: clears synthesis/results; keeps current mode
+              setResp(null);
+              setPairCards(null);
+              setMiniCards(null);
+              resetSynthesis();
+            }}
             className="rounded-xl px-4 py-2 text-sm font-semibold transition"
             style={{
-              background: natalLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+              background: TOKENS.buttonBg,
               color: TOKENS.buttonText,
-              opacity: natalLoading ? 0.75 : 1,
             }}
           >
-            {natalLoading ? "Loading…" : natalPlacements ? "Refresh natal" : "Load natal"}
+            Refresh natal
           </button>
         </div>
 
-        {natalErr ? (
-          <div className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
-            {natalErr}
-          </div>
-        ) : null}
-
-        {natalPlacements?.length ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {natalPlacements.map((p) => (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {natalPlacements.map((raw) => {
+            const normalized = normalizePlacementForLookup(raw);
+            return (
               <button
-                key={p.name}
-                onClick={async () => {
+                key={raw}
+                type="button"
+                onClick={() => {
                   setMode("placement");
-                  setQ(p.query);
+                  setQ(normalized);
                   resetSynthesis();
-                  await Promise.resolve(); // let state settle
-                  runLookup();
+                  // run immediately
+                  runLookup(normalized);
                 }}
-                className="text-left"
-                title={p.query}
+                title={`Lookup: ${normalized}`}
               >
-                <Pill>{p.label}</Pill>
+                <Pill>{raw}</Pill>
               </button>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-3 text-sm" style={{ color: TOKENS.textSoft }}>
-            Tip: open this page from <span style={{ color: TOKENS.text }}>Profile → Natal placements</span> to auto-load.
-          </div>
-        )}
+            );
+          })}
+        </div>
       </Panel>
 
       {/* Mode + Lens + Optional Question */}
@@ -629,7 +640,7 @@ export default function AstrologyClient() {
                 }}
               />
               <button
-                onClick={runLookup}
+                onClick={() => runLookup()}
                 disabled={loading}
                 className="rounded-xl px-5 py-3 text-sm font-semibold transition"
                 style={{
@@ -652,7 +663,7 @@ export default function AstrologyClient() {
           {resp && resp.ok && (
             <CardShell>
               <h2 className="text-lg font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
-                {resp.card.labels?.placement}
+                {resp.card.labels?.placement ?? "Placement"}
               </h2>
 
               <div className="mt-4">{renderDoctrineCard(resp.card)}</div>
@@ -739,7 +750,7 @@ export default function AstrologyClient() {
               {pairCards.map((x) => (
                 <div key={x.key}>
                   <h3 className="text-base font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
-                    {x.card.labels?.placement}
+                    {x.card.labels?.placement ?? "Placement"}
                   </h3>
                   <div className="mt-3">{renderDoctrineCard(x.card)}</div>
                 </div>
@@ -758,7 +769,7 @@ export default function AstrologyClient() {
             Mini chart mode
           </h2>
           <p className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
-            Add 3–6 placements (planets / chiron / nodes).
+            Add 3–6 placements (planets / chiron / nodes). Houses optional.
           </p>
 
           <div className="mt-4 space-y-2">
@@ -846,7 +857,7 @@ export default function AstrologyClient() {
               {miniCards.map((x) => (
                 <div key={x.key}>
                   <h3 className="text-base font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
-                    {x.card.labels?.placement}
+                    {x.card.labels?.placement ?? "Placement"}
                   </h3>
                   <div className="mt-3">{renderDoctrineCard(x.card)}</div>
                 </div>
