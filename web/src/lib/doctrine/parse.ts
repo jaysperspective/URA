@@ -1,7 +1,7 @@
 // src/lib/doctrine/parse.ts
 import { PLANETS, SIGNS, HOUSES, type PlanetSlug, type SignSlug } from "./primitives";
 
-const planetAliases: Record<string, PlanetSlug> = {
+const planetAliases: Record<string, PlanetSlug | "asc" | "mc"> = {
   sun: "sun",
   moon: "moon",
   mercury: "mercury",
@@ -19,16 +19,23 @@ const planetAliases: Record<string, PlanetSlug> = {
   "south node": "south_node",
   southnode: "south_node",
   sn: "south_node",
+
+  // Angles (not necessarily supported by doctrine cards yet, but we can detect them)
+  asc: "asc",
+  ascendant: "asc",
+  mc: "mc",
+  midheaven: "mc",
 };
 
 const signAliases: Record<string, SignSlug> = Object.fromEntries(
-  SIGNS.map(s => [s.name.toLowerCase(), s.slug])
+  SIGNS.map((s) => [s.name.toLowerCase(), s.slug])
 ) as any;
 
 function normalize(s: string) {
   return s
     .toLowerCase()
     .replace(/[\u2019']/g, "'")
+    // keep digits for house parsing, strip punctuation into spaces
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -42,7 +49,11 @@ function parseHouseToken(tok: string): number | null {
   return null;
 }
 
-export type ParsedPlacement = { planet: PlanetSlug; sign: SignSlug; house: number };
+export type ParsedPlacement = {
+  planet: PlanetSlug;
+  sign: SignSlug;
+  house?: number | null;
+};
 
 export function parsePlacement(input: string): ParsedPlacement {
   const raw = normalize(input);
@@ -50,12 +61,12 @@ export function parsePlacement(input: string): ParsedPlacement {
   // Prefer longest phrases first (so "north node" beats "node")
   const candidates = Object.keys(planetAliases).sort((a, b) => b.length - a.length);
 
-  let planet: PlanetSlug | null = null;
+  let planet: PlanetSlug | "asc" | "mc" | null = null;
   let rest = raw;
 
   for (const phrase of candidates) {
     if (raw.includes(phrase)) {
-      planet = planetAliases[phrase];
+      planet = planetAliases[phrase] as any;
       rest = raw.replace(phrase, " ");
       break;
     }
@@ -63,16 +74,24 @@ export function parsePlacement(input: string): ParsedPlacement {
 
   if (!planet) {
     const tks = raw.split(" ");
-    const hit = tks.find(t => planetAliases[t]);
+    const hit = tks.find((t) => planetAliases[t]);
     if (hit) {
-      planet = planetAliases[hit];
+      planet = planetAliases[hit] as any;
       rest = raw.replace(hit, " ");
     }
   }
 
   if (!planet) throw new Error("Could not find a planet/body (try: Mars, Venus, Chiron, North Node).");
 
-  const tokens = rest.split(" ").filter(Boolean);
+  // Angles detected but not part of doctrine planet set (handle upstream)
+  if (planet === "asc" || planet === "mc") {
+    throw new Error("ASC/MC lookups aren’t supported in doctrine yet. Use planets/nodes/chiron for now.");
+  }
+
+  const tokens = rest
+    .split(" ")
+    .filter(Boolean)
+    .filter((t) => t !== "in" && t !== "house"); // allow natural language without breaking
 
   let sign: SignSlug | null = null;
   let house: number | null = null;
@@ -86,12 +105,15 @@ export function parsePlacement(input: string): ParsedPlacement {
   }
 
   if (!sign) throw new Error("Could not find a sign (try: Virgo, Aquarius, Scorpio).");
-  if (!house) throw new Error("Could not find a house number 1–12 (try: '6th house').");
 
-  // Validate
-  if (!PLANETS.some(p => p.slug === planet)) throw new Error("Invalid planet.");
-  if (!SIGNS.some(s => s.slug === sign)) throw new Error("Invalid sign.");
-  if (!HOUSES.some(h => h.num === house)) throw new Error("Invalid house.");
+  // Validate planet + sign
+  if (!PLANETS.some((p) => p.slug === planet)) throw new Error("Invalid planet.");
+  if (!SIGNS.some((s) => s.slug === sign)) throw new Error("Invalid sign.");
+
+  // House optional — only validate if present
+  if (house != null) {
+    if (!HOUSES.some((h) => h.num === house)) throw new Error("Invalid house.");
+  }
 
   return { planet, sign, house };
 }
