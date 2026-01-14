@@ -207,21 +207,63 @@ function MoonDisc({
   );
 }
 
+// --- robust JSON fetch (prevents HTML 404 / ok:false crashes) ---
+async function fetchOkJson<T>(url: string): Promise<
+  | { ok: true; json: T }
+  | { ok: false; error: string; status?: number; raw?: string; json?: any }
+> {
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: "no-store" });
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+
+  const status = res.status;
+  const text = await res.text();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "Non-JSON response", status, raw: text };
+  }
+
+  if (!res.ok) {
+    return { ok: false, error: parsed?.error ?? `HTTP ${status}`, status, json: parsed };
+  }
+
+  if (parsed?.ok !== true) {
+    return { ok: false, error: parsed?.error ?? "ok:false", status, json: parsed };
+  }
+
+  return { ok: true, json: parsed as T };
+}
+
 export default function MoonClient() {
   const [ymd, setYmd] = useState<string | null>(null);
   const [data, setData] = useState<CalendarAPI | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function load(targetYmd?: string) {
     setLoading(true);
+    setError(null);
     try {
       const url = targetYmd
         ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}`
         : "/api/calendar";
-      const res = await fetch(url, { cache: "no-store" });
-      const json = (await res.json()) as CalendarAPI;
-      setData(json);
-      setYmd(json.gregorian.ymd);
+
+      const r = await fetchOkJson<CalendarAPI>(url);
+
+      if (!r.ok) {
+        setData(null);
+        setError(r.error);
+        return;
+      }
+
+      setData(r.json);
+      setYmd(r.json?.gregorian?.ymd ?? null);
     } finally {
       setLoading(false);
     }
@@ -233,7 +275,10 @@ export default function MoonClient() {
 
   function nav(deltaDays: number) {
     if (!ymd) return;
-    const [yy, mm, dd] = ymd.split("-").map(Number);
+    const parts = ymd.split("-").map(Number);
+    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return;
+
+    const [yy, mm, dd] = parts;
     const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
     d.setUTCDate(d.getUTCDate() + deltaDays);
 
@@ -252,7 +297,10 @@ export default function MoonClient() {
     });
   }, [data?.lunar?.phaseAngleDeg, data?.lunar?.phaseName]);
 
-  const lunarCopy = useMemo(() => microcopyForPhase(lunarPhaseId), [lunarPhaseId]);
+  const lunarCopy = useMemo(
+    () => microcopyForPhase(lunarPhaseId),
+    [lunarPhaseId]
+  );
 
   const cardStyle: CSSProperties = {
     background:
@@ -267,7 +315,8 @@ export default function MoonClient() {
   };
 
   const currentMoonPhaseName =
-    MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ?? (data?.lunar?.phaseName ?? "—");
+    MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ??
+    (data?.lunar?.phaseName ?? "—");
 
   return (
     <div className="space-y-5">
@@ -276,8 +325,28 @@ export default function MoonClient() {
           MOON CYCLE
         </div>
 
+        {/* error / loading strip */}
+        <div className="mt-3">
+          {error ? (
+            <div
+              className="mx-auto max-w-[520px] rounded-2xl border px-4 py-3 text-left text-sm"
+              style={{
+                borderColor: "rgba(18,22,32,0.14)",
+                background: "rgba(255,255,255,0.55)",
+                color: M.ink,
+              }}
+            >
+              <div className="font-semibold">Moon data unavailable</div>
+              <div style={{ color: M.inkMuted }}>{error}</div>
+            </div>
+          ) : null}
+        </div>
+
         <div className="mt-5 flex justify-center">
-          <MoonDisc phaseName={data?.lunar?.phaseName ?? "—"} phaseAngleDeg={data?.lunar?.phaseAngleDeg} />
+          <MoonDisc
+            phaseName={data?.lunar?.phaseName ?? "—"}
+            phaseAngleDeg={data?.lunar?.phaseAngleDeg}
+          />
         </div>
 
         <div className="text-4xl font-semibold tracking-tight mt-3" style={{ color: M.ink }}>
@@ -330,21 +399,23 @@ export default function MoonClient() {
             <div className="mt-1 text-sm" style={{ color: M.inkMuted }}>
               As of{" "}
               <span style={{ color: M.ink }} className="opacity-85">
-                {data?.gregorian.asOfLocal ?? "—"}
+                {data?.gregorian?.asOfLocal ?? "—"}
               </span>
             </div>
             <div className="text-sm" style={{ color: M.inkMuted }}>
               Enters{" "}
               <span style={{ color: M.ink }} className="opacity-85">
-                {data?.astro.moonEntersSign ?? "—"}
+                {data?.astro?.moonEntersSign ?? "—"}
               </span>{" "}
               <span style={{ color: M.ink }} className="opacity-85">
-                {data?.astro.moonEntersLocal ?? "—"}
+                {data?.astro?.moonEntersLocal ?? "—"}
               </span>
             </div>
             <div className="mt-2 text-xs" style={{ color: M.inkSoft }}>
               Lunar Day:{" "}
-              <span style={{ color: M.inkMuted }}>{data?.lunar?.lunarDay ?? "—"}</span>
+              <span style={{ color: M.inkMuted }}>
+                {data?.lunar?.lunarDay ?? "—"}
+              </span>
             </div>
           </div>
         </div>
@@ -369,8 +440,12 @@ export default function MoonClient() {
                     key={p.id}
                     className="rounded-2xl border px-4 py-4 text-center"
                     style={{
-                      borderColor: isCurrent ? "rgba(18,22,32,0.22)" : "rgba(18,22,32,0.12)",
-                      background: isCurrent ? "rgba(255,255,255,0.70)" : "rgba(255,255,255,0.50)",
+                      borderColor: isCurrent
+                        ? "rgba(18,22,32,0.22)"
+                        : "rgba(18,22,32,0.12)",
+                      background: isCurrent
+                        ? "rgba(255,255,255,0.70)"
+                        : "rgba(255,255,255,0.50)",
                       boxShadow: isCurrent ? "0 14px 40px rgba(0,0,0,0.12)" : undefined,
                     }}
                     title={`${p.name} • URA Phase ${p.id} • ${copy.orisha}`}
@@ -470,9 +545,9 @@ export default function MoonClient() {
         </div>
 
         <div className="mt-5 text-xs" style={{ color: M.inkMuted }}>
-          {loading ? "…" : data?.lunar.label ?? ""}
+          {loading ? "…" : data?.lunar?.label ?? ""}
           <span style={{ color: M.inkSoft }}> • </span>
-          {data?.solar.label ?? ""}
+          {data?.solar?.label ?? ""}
         </div>
       </div>
     </div>
