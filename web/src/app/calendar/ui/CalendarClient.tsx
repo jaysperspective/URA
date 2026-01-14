@@ -381,7 +381,7 @@ export default function CalendarClient() {
             }}
           >
             <div style={{ color: C.ink }}>
-              The Moon is in <span className="font-semibold">{data?.astro.moonSign ?? "—"}</span>
+              The Moon is in <span className="font-semibold">{data?.astro?.moonSign ?? "—"}</span>
             </div>
             <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
               As of{" "}
@@ -392,10 +392,10 @@ export default function CalendarClient() {
             <div className="text-sm" style={{ color: C.inkMuted }}>
               Enters{" "}
               <span style={{ color: C.ink }} className="opacity-85">
-                {data?.astro.moonEntersSign ?? "—"}
+                {data?.astro?.moonEntersSign ?? "—"}
               </span>{" "}
               <span style={{ color: C.ink }} className="opacity-85">
-                {data?.astro.moonEntersLocal ?? "—"}
+                {data?.astro?.moonEntersLocal ?? "—"}
               </span>
             </div>
           </div>
@@ -581,7 +581,7 @@ export default function CalendarClient() {
         </div>
 
         <div style={{ borderBottom: `1px solid ${C.divider}` }}>
-          <Row left="Sun" right={data?.astro.sunPos ?? "—"} icon="☉" />
+          <Row left="Sun" right={data?.astro?.sunPos ?? "—"} icon="☉" />
         </div>
 
         <div style={{ borderBottom: `1px solid ${C.divider}` }}>
