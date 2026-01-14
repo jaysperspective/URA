@@ -46,21 +46,11 @@ type CalendarAPI = {
   lunation: { markers: Marker[] };
 };
 
-// Dark-sky + Moonstone palette (for /moon)
 const M = {
-  sky: "#050814",
-  sky2: "#070B17",
-  sky3: "#040612",
-
   moonstone: "#F8F4EE",
-  moonstone2: "#EFE7DD",
-  moonstone3: "#E7DDD1",
-
   ink: "rgba(18,22,32,0.92)",
   inkMuted: "rgba(18,22,32,0.70)",
   inkSoft: "rgba(18,22,32,0.52)",
-
-  border: "rgba(255,255,255,0.14)",
   borderSoft: "rgba(255,255,255,0.10)",
   shadow: "0 26px 90px rgba(0,0,0,0.45)",
 };
@@ -86,29 +76,18 @@ function inferPhaseAngleDeg(phaseName?: string) {
   return 120;
 }
 
-function lunarURAPhaseId(params: {
-  phaseAngleDeg?: number;
-  phaseName?: string;
-}): PhaseId {
+function lunarURAPhaseId(params: { phaseAngleDeg?: number; phaseName?: string }): PhaseId {
   const aRaw =
     typeof params.phaseAngleDeg === "number"
       ? normalizeAngle0to360(params.phaseAngleDeg)
       : inferPhaseAngleDeg(params.phaseName);
 
   const a = normalizeAngle0to360(aRaw);
-  const idx = Math.floor((a + 22.5) / 45) % 8; // 0..7
+  const idx = Math.floor((a + 22.5) / 45) % 8;
   return (idx + 1) as PhaseId;
 }
 
-/**
- * 8 moon phases aligned to your 8-phase URA lens.
- */
-const MOON_PHASES_8: Array<{
-  id: PhaseId;
-  name: string;
-  glyph: string;
-  boundaryDeg: number;
-}> = [
+const MOON_PHASES_8: Array<{ id: PhaseId; name: string; glyph: string; boundaryDeg: number }> = [
   { id: 1, name: "New Moon", glyph: "◯", boundaryDeg: 0 },
   { id: 2, name: "Waxing Crescent", glyph: "◔", boundaryDeg: 45 },
   { id: 3, name: "First Quarter", glyph: "◐", boundaryDeg: 90 },
@@ -119,13 +98,7 @@ const MOON_PHASES_8: Array<{
   { id: 8, name: "Waning Crescent", glyph: "◗", boundaryDeg: 315 },
 ];
 
-function MoonDisc({
-  phaseName,
-  phaseAngleDeg,
-}: {
-  phaseName: string;
-  phaseAngleDeg?: number;
-}) {
+function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleDeg?: number }) {
   const aRaw =
     typeof phaseAngleDeg === "number"
       ? normalizeAngle0to360(phaseAngleDeg)
@@ -207,11 +180,21 @@ function MoonDisc({
   );
 }
 
-// --- robust JSON fetch (prevents HTML 404 / ok:false crashes) ---
-async function fetchOkJson<T>(url: string): Promise<
-  | { ok: true; json: T }
-  | { ok: false; error: string; status?: number; raw?: string; json?: any }
-> {
+function normalizeCalendarPayload(raw: any): CalendarAPI | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  // allow: {ok:true, ...fields} OR {ok:true, data:{...}} OR {ok:true, calendar:{...}}
+  const candidate = raw?.gregorian ? raw : raw?.data?.gregorian ? raw.data : raw?.calendar?.gregorian ? raw.calendar : null;
+  if (!candidate) return null;
+
+  // require minimum fields we render a lot
+  if (!candidate?.gregorian?.ymd || !candidate?.gregorian?.asOfLocal) return null;
+  if (!candidate?.lunar?.phaseName) return null;
+
+  return candidate as CalendarAPI;
+}
+
+async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { ok: false; error: string }> {
   let res: Response;
   try {
     res = await fetch(url, { cache: "no-store" });
@@ -219,25 +202,18 @@ async function fetchOkJson<T>(url: string): Promise<
     return { ok: false, error: e?.message ?? "fetch failed" };
   }
 
-  const status = res.status;
   const text = await res.text();
-
   let parsed: any;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, error: "Non-JSON response", status, raw: text };
+    return { ok: false, error: "Non-JSON response" };
   }
 
-  if (!res.ok) {
-    return { ok: false, error: parsed?.error ?? `HTTP ${status}`, status, json: parsed };
-  }
+  if (!res.ok) return { ok: false, error: parsed?.error ?? `HTTP ${res.status}` };
+  if (parsed?.ok === false) return { ok: false, error: parsed?.error ?? "ok:false" };
 
-  if (parsed?.ok !== true) {
-    return { ok: false, error: parsed?.error ?? "ok:false", status, json: parsed };
-  }
-
-  return { ok: true, json: parsed as T };
+  return { ok: true, json: parsed };
 }
 
 export default function MoonClient() {
@@ -250,11 +226,8 @@ export default function MoonClient() {
     setLoading(true);
     setError(null);
     try {
-      const url = targetYmd
-        ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}`
-        : "/api/calendar";
-
-      const r = await fetchOkJson<CalendarAPI>(url);
+      const url = targetYmd ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}` : "/api/calendar";
+      const r = await fetchJsonLoose(url);
 
       if (!r.ok) {
         setData(null);
@@ -262,8 +235,15 @@ export default function MoonClient() {
         return;
       }
 
-      setData(r.json);
-      setYmd(r.json?.gregorian?.ymd ?? null);
+      const normalized = normalizeCalendarPayload(r.json);
+      if (!normalized) {
+        setData(null);
+        setError("Malformed /api/calendar payload (missing expected fields).");
+        return;
+      }
+
+      setData(normalized);
+      setYmd(normalized.gregorian.ymd);
     } finally {
       setLoading(false);
     }
@@ -282,25 +262,23 @@ export default function MoonClient() {
     const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
     d.setUTCDate(d.getUTCDate() + deltaDays);
 
-    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+      d.getUTCDate()
+    ).padStart(2, "0")}`;
 
     load(next).catch(() => {});
   }
 
-  const lunarPhaseId = useMemo(() => {
-    return lunarURAPhaseId({
-      phaseAngleDeg: data?.lunar?.phaseAngleDeg,
-      phaseName: data?.lunar?.phaseName,
-    });
-  }, [data?.lunar?.phaseAngleDeg, data?.lunar?.phaseName]);
-
-  const lunarCopy = useMemo(
-    () => microcopyForPhase(lunarPhaseId),
-    [lunarPhaseId]
+  const lunarPhaseId = useMemo(
+    () =>
+      lunarURAPhaseId({
+        phaseAngleDeg: data?.lunar?.phaseAngleDeg,
+        phaseName: data?.lunar?.phaseName,
+      }),
+    [data?.lunar?.phaseAngleDeg, data?.lunar?.phaseName]
   );
+
+  const lunarCopy = useMemo(() => microcopyForPhase(lunarPhaseId), [lunarPhaseId]);
 
   const cardStyle: CSSProperties = {
     background:
@@ -315,8 +293,7 @@ export default function MoonClient() {
   };
 
   const currentMoonPhaseName =
-    MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ??
-    (data?.lunar?.phaseName ?? "—");
+    MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ?? (data?.lunar?.phaseName ?? "—");
 
   return (
     <div className="space-y-5">
@@ -325,28 +302,22 @@ export default function MoonClient() {
           MOON CYCLE
         </div>
 
-        {/* error / loading strip */}
-        <div className="mt-3">
-          {error ? (
-            <div
-              className="mx-auto max-w-[520px] rounded-2xl border px-4 py-3 text-left text-sm"
-              style={{
-                borderColor: "rgba(18,22,32,0.14)",
-                background: "rgba(255,255,255,0.55)",
-                color: M.ink,
-              }}
-            >
-              <div className="font-semibold">Moon data unavailable</div>
-              <div style={{ color: M.inkMuted }}>{error}</div>
-            </div>
-          ) : null}
-        </div>
+        {error ? (
+          <div
+            className="mt-3 mx-auto max-w-[560px] rounded-2xl border px-4 py-3 text-left text-sm"
+            style={{
+              borderColor: "rgba(18,22,32,0.14)",
+              background: "rgba(255,255,255,0.55)",
+              color: M.ink,
+            }}
+          >
+            <div className="font-semibold">Moon data unavailable</div>
+            <div style={{ color: M.inkMuted }}>{error}</div>
+          </div>
+        ) : null}
 
         <div className="mt-5 flex justify-center">
-          <MoonDisc
-            phaseName={data?.lunar?.phaseName ?? "—"}
-            phaseAngleDeg={data?.lunar?.phaseAngleDeg}
-          />
+          <MoonDisc phaseName={data?.lunar?.phaseName ?? "—"} phaseAngleDeg={data?.lunar?.phaseAngleDeg} />
         </div>
 
         <div className="text-4xl font-semibold tracking-tight mt-3" style={{ color: M.ink }}>
@@ -379,7 +350,6 @@ export default function MoonClient() {
           </div>
         </div>
 
-        {/* Moon sign box */}
         <div className="mt-3 flex justify-center">
           <div
             className="rounded-2xl border px-5 py-3 text-sm text-left"
@@ -393,8 +363,7 @@ export default function MoonClient() {
             }}
           >
             <div>
-              The Moon is in{" "}
-              <span className="font-semibold">{data?.astro?.moonSign ?? "—"}</span>
+              The Moon is in <span className="font-semibold">{data?.astro?.moonSign ?? "—"}</span>
             </div>
             <div className="mt-1 text-sm" style={{ color: M.inkMuted }}>
               As of{" "}
@@ -413,14 +382,11 @@ export default function MoonClient() {
             </div>
             <div className="mt-2 text-xs" style={{ color: M.inkSoft }}>
               Lunar Day:{" "}
-              <span style={{ color: M.inkMuted }}>
-                {data?.lunar?.lunarDay ?? "—"}
-              </span>
+              <span style={{ color: M.inkMuted }}>{data?.lunar?.lunarDay ?? "—"}</span>
             </div>
           </div>
         </div>
 
-        {/* MOON PHASES (8) */}
         <div className="mt-5 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
@@ -440,12 +406,8 @@ export default function MoonClient() {
                     key={p.id}
                     className="rounded-2xl border px-4 py-4 text-center"
                     style={{
-                      borderColor: isCurrent
-                        ? "rgba(18,22,32,0.22)"
-                        : "rgba(18,22,32,0.12)",
-                      background: isCurrent
-                        ? "rgba(255,255,255,0.70)"
-                        : "rgba(255,255,255,0.50)",
+                      borderColor: isCurrent ? "rgba(18,22,32,0.22)" : "rgba(18,22,32,0.12)",
+                      background: isCurrent ? "rgba(255,255,255,0.70)" : "rgba(255,255,255,0.50)",
                       boxShadow: isCurrent ? "0 14px 40px rgba(0,0,0,0.12)" : undefined,
                     }}
                     title={`${p.name} • URA Phase ${p.id} • ${copy.orisha}`}
@@ -465,22 +427,6 @@ export default function MoonClient() {
                     <div className="mt-2 text-xs" style={{ color: M.inkMuted }}>
                       {copy.oneLine}
                     </div>
-
-                    {copy.actionHint ? (
-                      <div className="mt-2 text-[11px]" style={{ color: M.inkSoft }}>
-                        Directive:{" "}
-                        <span style={{ color: M.inkMuted, fontWeight: 600 }}>
-                          {copy.actionHint}
-                        </span>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-2 text-[11px]" style={{ color: M.inkSoft }}>
-                      {p.boundaryDeg}°
-                      {isCurrent ? (
-                        <span style={{ color: M.inkMuted, fontWeight: 700 }}> • CURRENT</span>
-                      ) : null}
-                    </div>
                   </div>
                 );
               })}
@@ -494,7 +440,6 @@ export default function MoonClient() {
           </div>
         </div>
 
-        {/* Lunar microcopy */}
         <div className="mt-4 text-left">
           <PhaseMicrocopyCard
             copy={lunarCopy}
@@ -505,7 +450,6 @@ export default function MoonClient() {
           />
         </div>
 
-        {/* Nav */}
         <div className="mt-6 flex items-center justify-between">
           <button
             onClick={() => nav(-1)}
