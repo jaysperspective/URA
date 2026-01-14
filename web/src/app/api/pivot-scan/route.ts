@@ -29,16 +29,8 @@ function ymdInTimeZone(date: Date, timeZone: string) {
   return `${y}-${m}-${d}`;
 }
 
-function addDaysUTC(ymd: string, deltaDays: number) {
-  const [y, m, d] = ymd.split("-").map((n) => parseInt(n, 10));
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + deltaDays);
-  return ymdInTimeZone(dt, "UTC");
-}
-
-function toISODateOnly(ymd: string) {
-  return `${ymd}T00:00:00Z`;
-}
+const memCache = new Map<string, { at: number; body: any }>();
+const CACHE_MS = 25_000; // 25s
 
 // --- STOCK: Polygon OHLCV bars ---
 async function fetchPolygonBars(symbol: string, timeframe: "1d" | "4h" | "1h", lookback: number) {
@@ -124,7 +116,6 @@ async function fetchCoinbaseBars(productId: string, timeframe: "1d" | "4h" | "1h
 
 function findSwingPivot(bars: Array<{ t: number; o: number; h: number; l: number; c: number }>) {
   // Simple swing logic: last local extremum in lookback window
-  // (you can replace with your existing swing algo if you already have it)
   if (bars.length < 5) return null;
 
   let bestIdx = -1;
@@ -136,7 +127,7 @@ function findSwingPivot(bars: Array<{ t: number; o: number; h: number; l: number
     const next1 = bars[i + 1], next2 = bars[i + 2];
 
     const isSwingHigh = b.h > prev1.h && b.h > prev2.h && b.h > next1.h && b.h > next2.h;
-    const isSwingLow  = b.l < prev1.l && b.l < prev2.l && b.l < next1.l && b.l < next2.l;
+    const isSwingLow = b.l < prev1.l && b.l < prev2.l && b.l < next1.l && b.l < next2.l;
 
     if (!isSwingHigh && !isSwingLow) continue;
 
@@ -151,8 +142,7 @@ function findSwingPivot(bars: Array<{ t: number; o: number; h: number; l: number
   if (bestIdx === -1) return null;
 
   const pivot = bars[bestIdx];
-  const kind = pivot.h - pivot.l >= 0 ? (pivot.c >= pivot.o ? "swing" : "swing") : "swing";
-  return { idx: bestIdx, pivot, kind };
+  return { idx: bestIdx, pivot };
 }
 
 export async function POST(req: Request) {
@@ -165,11 +155,14 @@ export async function POST(req: Request) {
     if (!symbolRaw) return NextResponse.json({ ok: false, error: "Missing symbol" }, { status: 400 });
 
     const symbol = symbolRaw.toUpperCase();
-    const crypto = isCryptoSymbol(symbol);
+    const cacheKey = `${symbol}|${timeframe}|${lookback}`;
+    const hit = memCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < CACHE_MS) {
+      return NextResponse.json(hit.body);
+    }
 
-    const bars = crypto
-      ? await fetchCoinbaseBars(symbol, timeframe, lookback)
-      : await fetchPolygonBars(symbol, timeframe, lookback);
+    const crypto = isCryptoSymbol(symbol);
+    const bars = crypto ? await fetchCoinbaseBars(symbol, timeframe, lookback) : await fetchPolygonBars(symbol, timeframe, lookback);
 
     if (!bars.length) return NextResponse.json({ ok: false, error: "No bars returned" }, { status: 502 });
 
@@ -180,7 +173,7 @@ export async function POST(req: Request) {
     const tz = crypto ? "UTC" : "America/New_York";
     const ymd = ymdInTimeZone(new Date(last.t), tz);
 
-    return NextResponse.json({
+    const bodyOut = {
       ok: true,
       kind: crypto ? "crypto" : "stock",
       provider: crypto ? "coinbase" : "polygon",
@@ -200,10 +193,11 @@ export async function POST(req: Request) {
             idx: swing.idx,
           }
         : null,
-      note: crypto
-        ? "Crypto via Coinbase candles."
-        : "Stock via Polygon aggregates.",
-    });
+      note: crypto ? "Crypto via Coinbase candles." : "Stock via Polygon aggregates.",
+    };
+
+    memCache.set(cacheKey, { at: Date.now(), body: bodyOut });
+    return NextResponse.json(bodyOut);
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });
   }
