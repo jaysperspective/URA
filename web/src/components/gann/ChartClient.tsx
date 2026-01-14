@@ -246,6 +246,31 @@ export default function ChartClient() {
     }
   }
 
+  
+
+ 
+  const pivotISO = new Date(pivotDateTime).toISOString();
+
+  const r = await fetch("/api/gann-scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbols: parseSymbols(scanSymbolsText),
+      pivotISO,
+      cycleDays: Number(marketCycleDays),
+      tickSize: Number(tickSize) || 0.01,
+      anchorSource: pivotAnchorMode,
+      tolDeg: Number(scanTolDeg) || 5,
+      returnAll: false,
+      maxSymbols: Number(scanMax) || 15,
+    }),
+  });
+
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "Scan failed");
+  setScanRows(j.rows || []);
+  if (!(j.rows || []).length) setScanErr(`No matches within ±${scanTolDeg}° of opposition.`);
+
   const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
 
   const pivotCandleForCard =
