@@ -1,40 +1,7 @@
 // src/app/api/gann-scan/route.ts
 import { NextResponse } from "next/server";
 
-type PivotAnchorMode = "low" | "high" | "close" | "open";
-
-type ScanRow = {
-  symbol: string;
-  kind: "stock" | "crypto";
-  provider: "polygon" | "coinbase";
-
-  pivotISO: string;
-  anchorSource: PivotAnchorMode;
-  anchor: number;
-
-  price: number;
-  asOfISO: string;
-
-  timeDeg: number;
-  priceDeg: number;
-
-  gapUnsigned: number;     // 0..360
-  gapSignedAbs: number;    // 0..180
-  oppositionDist: number;  // 0..180
-
-  leadLabel: "IN SYNC" | "TIME LEADS" | "PRICE LEADS";
-};
-
-type ReqBody = {
-  symbols: string[];
-  pivotISO: string;            // ISO string (client should send new Date(pivotDateTime).toISOString())
-  cycleDays: number;           // e.g. 90
-  tickSize?: number;           // for rounding anchor
-  anchorSource?: PivotAnchorMode;
-  tolDeg?: number;             // e.g. 5
-  returnAll?: boolean;         // if true, return all rows (even non-matches)
-  maxSymbols?: number;         // safety cap
-};
+type AnchorSource = "low" | "high" | "close" | "open";
 
 function isCryptoSymbol(symbolRaw: string) {
   return symbolRaw.toUpperCase().trim().includes("-");
@@ -52,15 +19,6 @@ function signedAngleDiffDeg(a: number, b: number) {
   return d === -180 ? 180 : d;
 }
 
-function getLeadLabel(timeDeg: number, priceDeg: number, tolDeg: number) {
-  const d = signedAngleDiffDeg(timeDeg, priceDeg); // + time ahead
-  const abs = Math.abs(d);
-  if (abs <= tolDeg) return "IN SYNC" as const;
-  if (d > 0) return "TIME LEADS" as const;
-  return "PRICE LEADS" as const;
-}
-
-// Same mapping you use in ChartClient
 function computePriceAngleDeg(anchor: number, price: number) {
   if (!Number.isFinite(anchor) || anchor <= 0) return null;
   if (!Number.isFinite(price) || price <= 0) return null;
@@ -68,51 +26,166 @@ function computePriceAngleDeg(anchor: number, price: number) {
   return norm360(raw);
 }
 
-function roundToTick(value: number, tick: number) {
-  if (!Number.isFinite(value) || !Number.isFinite(tick) || tick <= 0) return value;
-  return Math.round(value / tick) * tick;
+function computeTimeDeg(pivotISO: string, cycleDays: number) {
+  const pivotMs = new Date(pivotISO).getTime();
+  if (!Number.isFinite(pivotMs)) return null;
+  if (!Number.isFinite(cycleDays) || cycleDays <= 0) return null;
+
+  const nowMs = Date.now();
+  const deltaDays = (nowMs - pivotMs) / (1000 * 60 * 60 * 24);
+  const prog01 = (((deltaDays % cycleDays) + cycleDays) % cycleDays) / cycleDays;
+  return prog01 * 360;
 }
 
-function parseSymbols(symbols: any): string[] {
-  if (Array.isArray(symbols)) return symbols.map((s) => String(s).trim()).filter(Boolean);
-  const s = String(symbols ?? "");
-  return s
-    .replace(/\n/g, " ")
-    .split(/[, ]+/)
-    .map((x) => x.trim())
-    .filter(Boolean);
+function ymdInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const d = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${y}-${m}-${d}`;
 }
 
-// --- Simple in-memory cache (best-effort) ---
-type CacheEntry = { exp: number; data: any };
-const cache = new Map<string, CacheEntry>();
-function cacheKey(body: ReqBody) {
-  const s = (body.symbols || []).map((x) => String(x).toUpperCase()).sort().join(",");
-  return [
-    "v1",
-    s,
-    body.pivotISO,
-    String(body.cycleDays),
-    String(body.tickSize ?? ""),
-    String(body.anchorSource ?? ""),
-    String(body.tolDeg ?? ""),
-    String(body.returnAll ?? ""),
-  ].join("|");
+function addDaysUTC(ymd: string, deltaDays: number) {
+  const [y, m, d] = ymd.split("-").map((n) => parseInt(n, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return ymdInTimeZone(dt, "UTC");
 }
-function getCache(k: string) {
-  const e = cache.get(k);
-  if (!e) return null;
-  if (Date.now() > e.exp) {
-    cache.delete(k);
-    return null;
+
+async function fetchPolygonPivotCandle(symbol: string, pivotISO: string) {
+  const apiKey = process.env.POLYGON_API_KEY;
+  if (!apiKey) throw new Error("Missing POLYGON_API_KEY");
+
+  // pivot session day in NY
+  const pivotDate = new Date(pivotISO);
+  const sessionYMD = ymdInTimeZone(pivotDate, "America/New_York");
+
+  // Fetch a 3-day window so we can map bars to NY day labels reliably
+  const from = addDaysUTC(sessionYMD, -1);
+  const to = addDaysUTC(sessionYMD, +1);
+
+  const url =
+    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}` +
+    `/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
+
+  const r = await fetch(url, { next: { revalidate: 0 } });
+  if (!r.ok) throw new Error(`Polygon error (${r.status}): ${await r.text().catch(() => r.statusText)}`);
+  const j: any = await r.json();
+
+  const rows: any[] = Array.isArray(j?.results) ? j.results : [];
+  const byYMD = new Map<string, any>();
+
+  for (const row of rows) {
+    const t = typeof row?.t === "number" ? row.t : null;
+    if (!t) continue;
+    const ymdNY = ymdInTimeZone(new Date(t), "America/New_York");
+    byYMD.set(ymdNY, row);
   }
-  return e.data;
-}
-function setCache(k: string, data: any, ttlMs: number) {
-  cache.set(k, { exp: Date.now() + ttlMs, data });
+
+  const pivot = byYMD.get(sessionYMD);
+  if (!pivot) throw new Error("No pivot candle returned by Polygon for that NY session day.");
+
+  return {
+    kind: "stock" as const,
+    provider: "polygon" as const,
+    timezoneUsed: "America/New_York" as const,
+    sessionDayYMD: sessionYMD,
+    candle: {
+      o: Number(pivot.o),
+      h: Number(pivot.h),
+      l: Number(pivot.l),
+      c: Number(pivot.c),
+      t: Number(pivot.t),
+    },
+  };
 }
 
-// --- Concurrency limiter ---
+async function fetchCoinbasePivotCandle(productId: string, pivotISO: string) {
+  const pivotDate = new Date(pivotISO);
+  const pivotUTCYMD = ymdInTimeZone(pivotDate, "UTC");
+
+  const startUTC = `${addDaysUTC(pivotUTCYMD, -1)}T00:00:00Z`;
+  const endUTC = `${addDaysUTC(pivotUTCYMD, +2)}T00:00:00Z`;
+
+  const url =
+    `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId)}/candles` +
+    `?granularity=86400&start=${encodeURIComponent(startUTC)}&end=${encodeURIComponent(endUTC)}`;
+
+  const r = await fetch(url, {
+    headers: { Accept: "application/json", "User-Agent": "URA-Gann-Scan/1.0" },
+    next: { revalidate: 0 },
+  });
+
+  if (!r.ok) throw new Error(`Coinbase error (${r.status}): ${await r.text().catch(() => r.statusText)}`);
+
+  const rows: any[] = await r.json();
+  if (!Array.isArray(rows)) throw new Error("Coinbase returned non-array candles");
+
+  // find candle for pivotUTCYMD
+  const map = new Map<string, any>();
+  for (const a of rows) {
+    const tSec = Number(a?.[0]);
+    if (!Number.isFinite(tSec)) continue;
+    const ymd = ymdInTimeZone(new Date(tSec * 1000), "UTC");
+    map.set(ymd, a);
+  }
+
+  const c = map.get(pivotUTCYMD);
+  if (!c) throw new Error("No pivot candle returned by Coinbase for that UTC day.");
+
+  return {
+    kind: "crypto" as const,
+    provider: "coinbase" as const,
+    timezoneUsed: "UTC" as const,
+    sessionDayYMD: pivotUTCYMD,
+    candle: {
+      t: Number(c?.[0]) * 1000,
+      l: Number(c?.[1]),
+      h: Number(c?.[2]),
+      o: Number(c?.[3]),
+      c: Number(c?.[4]),
+    },
+  };
+}
+
+async function fetchCoinbaseTicker(productId: string) {
+  const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId)}/ticker`;
+  const r = await fetch(url, {
+    headers: { Accept: "application/json", "User-Agent": "URA-Gann-Scan/1.0" },
+    next: { revalidate: 0 },
+  });
+  if (!r.ok) throw new Error(`Coinbase (${r.status}): ${await r.text().catch(() => r.statusText)}`);
+  const j: any = await r.json();
+  const price = Number(j?.price);
+  if (!Number.isFinite(price)) throw new Error("Coinbase returned invalid price");
+  return { price, asOfISO: new Date().toISOString() };
+}
+
+async function fetchPolygonPrevClose(symbol: string) {
+  const apiKey = process.env.POLYGON_API_KEY;
+  if (!apiKey) throw new Error("Missing POLYGON_API_KEY");
+
+  const url =
+    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/prev?adjusted=true&apiKey=${encodeURIComponent(apiKey)}`;
+
+  const r = await fetch(url, { next: { revalidate: 0 } });
+  if (!r.ok) throw new Error(`Polygon (${r.status}): ${await r.text().catch(() => r.statusText)}`);
+
+  const j: any = await r.json();
+  const row = Array.isArray(j?.results) ? j.results[0] : null;
+  const price = Number(row?.c);
+  const t = Number(row?.t);
+
+  if (!Number.isFinite(price)) throw new Error("Polygon prev agg missing close (c)");
+  return { price, asOfISO: Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString() };
+}
+
 async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, i: number) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let idx = 0;
@@ -129,207 +202,95 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, i: number) =
   return out;
 }
 
-// --- Fetch helpers (server-side) ---
-async function fetchCoinbaseTicker(productId: string) {
-  const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId)}/ticker`;
-  const r = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": "URA-Gann-Scan/1.0" },
-    next: { revalidate: 0 },
-  });
-
-  if (!r.ok) throw new Error(`Coinbase (${r.status}): ${await r.text().catch(() => r.statusText)}`);
-  const j: any = await r.json();
-  const price = Number(j?.price);
-  if (!Number.isFinite(price)) throw new Error("Coinbase returned invalid price");
-  return { price, asOfISO: new Date().toISOString() };
-}
-
-async function fetchPolygonPrevClose(symbol: string) {
-  const apiKey = process.env.POLYGON_API_KEY;
-  if (!apiKey) throw new Error("Missing POLYGON_API_KEY");
-
-  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(
-    symbol
-  )}/prev?adjusted=true&apiKey=${encodeURIComponent(apiKey)}`;
-
-  const r = await fetch(url, { next: { revalidate: 0 } });
-  if (!r.ok) throw new Error(`Polygon (${r.status}): ${await r.text().catch(() => r.statusText)}`);
-
-  const j: any = await r.json();
-  const row = Array.isArray(j?.results) ? j.results[0] : null;
-  const price = Number(row?.c);
-  const t = Number(row?.t);
-  if (!Number.isFinite(price)) throw new Error("Polygon prev agg missing close (c)");
-  return { price, asOfISO: Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString() };
-}
-
-async function fetchPivotCandleViaInternalApi(symbol: string, pivotISO: string) {
-  // Calls your existing route so we don't duplicate timezone/bucketing logic here
-  const r = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/market-candle`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    // IMPORTANT: this is server-side, so absolute URL is nicer, but relative works in Next runtime too.
-    body: JSON.stringify({ symbol, pivotISO }),
-    next: { revalidate: 0 },
-  }).catch(async () => {
-    // fallback to relative if absolute fails (common in server env)
-    return fetch("/api/market-candle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol, pivotISO }),
-      next: { revalidate: 0 },
-    });
-  });
-
-  const j: any = await r.json().catch(() => null);
-  if (!r.ok || !j) throw new Error(`market-candle failed (${r.status})`);
-  if (!j.ok) throw new Error(String(j.error || "market-candle error"));
-
-  const pivot = Array.isArray(j.candles) ? j.candles.find((x: any) => x?.label === "Pivot") : null;
-  if (!pivot) throw new Error("No Pivot candle returned");
-
-  return {
-    kind: j.kind as "stock" | "crypto",
-    provider: (j.provider ?? (j.kind === "crypto" ? "coinbase" : "polygon")) as "coinbase" | "polygon",
-    pivot,
-  };
-}
-
-function computeTimeDeg(pivotISO: string, cycleDays: number) {
-  const pivotMs = new Date(pivotISO).getTime();
-  if (!Number.isFinite(pivotMs)) return null;
-  if (!Number.isFinite(cycleDays) || cycleDays <= 0) return null;
-
-  const nowMs = Date.now();
-  const deltaDays = (nowMs - pivotMs) / (1000 * 60 * 60 * 24);
-  const prog01 = (((deltaDays % cycleDays) + cycleDays) % cycleDays) / cycleDays;
-  return prog01 * 360;
+function parseSymbols(s: any): string[] {
+  if (Array.isArray(s)) return s.map((x) => String(x).trim()).filter(Boolean);
+  return String(s ?? "")
+    .replace(/\n/g, " ")
+    .split(/[, ]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
 export async function POST(req: Request) {
   try {
-    const bodyRaw = (await req.json().catch(() => ({}))) as Partial<ReqBody>;
+    const body = await req.json().catch(() => ({}));
 
-    const pivotISO = String(bodyRaw.pivotISO ?? "").trim();
-    const cycleDays = Number(bodyRaw.cycleDays);
-    const tolDeg = Number(bodyRaw.tolDeg ?? 5);
-    const tickSize = Number(bodyRaw.tickSize ?? 0.01);
-    const anchorSource = (String(bodyRaw.anchorSource ?? "close") as PivotAnchorMode) || "close";
-    const returnAll = Boolean(bodyRaw.returnAll);
-    const maxSymbols = Math.max(1, Math.min(300, Math.floor(Number(bodyRaw.maxSymbols ?? 80))));
+    const symbols = parseSymbols(body.symbols).map((x) => x.toUpperCase()).slice(0, Math.max(1, Math.min(300, Number(body.maxSymbols ?? 80))));
+    const pivotISO = String(body.pivotISO ?? "").trim();
+    const cycleDays = Number(body.cycleDays);
+    const tolDeg = Number(body.tolDeg ?? 5);
+    const anchorSource = (String(body.anchorSource ?? "close") as AnchorSource) || "close";
+    const tickSize = Number(body.tickSize ?? 0.01);
+    const closestN = Math.max(3, Math.min(30, Number(body.closestN ?? 8)));
 
-    if (!pivotISO) return NextResponse.json({ ok: false, error: "Missing pivotISO" }, { status: 400 });
-    if (!Number.isFinite(cycleDays) || cycleDays <= 0)
-      return NextResponse.json({ ok: false, error: "Invalid cycleDays" }, { status: 400 });
-    if (!Number.isFinite(tolDeg) || tolDeg <= 0 || tolDeg > 45)
-      return NextResponse.json({ ok: false, error: "tolDeg must be between 0 and 45" }, { status: 400 });
-
-    const symbols = parseSymbols(bodyRaw.symbols).slice(0, maxSymbols).map((s) => s.toUpperCase());
     if (!symbols.length) return NextResponse.json({ ok: false, error: "No symbols provided" }, { status: 400 });
-
-    const k = cacheKey({
-      symbols,
-      pivotISO,
-      cycleDays,
-      tickSize,
-      anchorSource,
-      tolDeg,
-      returnAll,
-    });
-
-    const cached = getCache(k);
-    if (cached) return NextResponse.json({ ok: true, cached: true, ...cached });
+    if (!pivotISO) return NextResponse.json({ ok: false, error: "Missing pivotISO" }, { status: 400 });
+    if (!Number.isFinite(cycleDays) || cycleDays <= 0) return NextResponse.json({ ok: false, error: "Invalid cycleDays" }, { status: 400 });
 
     const timeDeg = computeTimeDeg(pivotISO, cycleDays);
-    if (timeDeg == null) {
-      return NextResponse.json({ ok: false, error: "Could not compute timeDeg" }, { status: 400 });
-    }
+    if (timeDeg == null) return NextResponse.json({ ok: false, error: "Could not compute timeDeg" }, { status: 400 });
 
-    const rows = await mapLimit(symbols, 6, async (sym) => {
+    const results = await mapLimit(symbols, 6, async (sym) => {
       try {
-        // 1) pivot candle (uses your existing /api/market-candle logic)
-        const candle = await fetchPivotCandleViaInternalApi(sym, pivotISO);
-        const p = candle.pivot;
+        const crypto = isCryptoSymbol(sym);
+
+        const pivotRes = crypto
+          ? await fetchCoinbasePivotCandle(sym, pivotISO)
+          : await fetchPolygonPivotCandle(sym, pivotISO);
+
+        const p = pivotRes.candle;
 
         const picked =
-          anchorSource === "low"
-            ? Number(p.l)
-            : anchorSource === "high"
-            ? Number(p.h)
-            : anchorSource === "open"
-            ? Number(p.o)
-            : Number(p.c);
+          anchorSource === "low" ? Number(p.l)
+          : anchorSource === "high" ? Number(p.h)
+          : anchorSource === "open" ? Number(p.o)
+          : Number(p.c);
 
-        const anchor = roundToTick(picked, tickSize);
+        const anchor = Math.round(picked / tickSize) * tickSize;
 
-        // 2) price
-        let price: number;
-        let asOfISO: string;
-        let provider: "polygon" | "coinbase";
-        let kind: "stock" | "crypto";
-
-        if (isCryptoSymbol(sym)) {
-          const tkr = await fetchCoinbaseTicker(sym);
-          price = tkr.price;
-          asOfISO = tkr.asOfISO;
-          provider = "coinbase";
-          kind = "crypto";
-        } else {
-          const prev = await fetchPolygonPrevClose(sym);
-          price = prev.price;
-          asOfISO = prev.asOfISO;
-          provider = "polygon";
-          kind = "stock";
-        }
-
-        const priceDeg = computePriceAngleDeg(anchor, price);
+        const px = crypto ? await fetchCoinbaseTicker(sym) : await fetchPolygonPrevClose(sym);
+        const priceDeg = computePriceAngleDeg(anchor, px.price);
         if (priceDeg == null) throw new Error("Bad priceDeg calc");
 
         const gapUnsigned = norm360(timeDeg - priceDeg);
-        const gapSigned = signedAngleDiffDeg(timeDeg, priceDeg);
-        const gapSignedAbs = Math.abs(gapSigned);
         const oppositionDist = Math.abs(gapUnsigned - 180);
-        const leadLabel = getLeadLabel(timeDeg, priceDeg, 12);
 
-        const row: ScanRow = {
-          symbol: sym,
-          kind,
-          provider,
-          pivotISO,
-          anchorSource,
-          anchor,
-          price,
-          asOfISO,
-          timeDeg,
-          priceDeg,
-          gapUnsigned,
-          gapSignedAbs,
-          oppositionDist,
-          leadLabel,
+        return {
+          ok: true as const,
+          row: {
+            symbol: sym,
+            kind: crypto ? "crypto" : "stock",
+            provider: crypto ? "coinbase" : "polygon",
+            pivotISO,
+            timeDeg,
+            priceDeg,
+            anchorSource,
+            anchor,
+            price: px.price,
+            asOfISO: px.asOfISO,
+            oppositionDist,
+            gapSignedAbs: Math.abs(signedAngleDiffDeg(timeDeg, priceDeg)),
+          },
         };
-
-        return { ok: true as const, row };
       } catch (e: any) {
         return { ok: false as const, symbol: sym, error: e?.message || "scan error" };
       }
     });
 
-    const okRows = rows.filter((x) => x.ok).map((x: any) => x.row as ScanRow);
-    okRows.sort((a, b) => a.oppositionDist - b.oppositionDist);
+    const okRows = results.filter((x) => (x as any).ok).map((x: any) => x.row);
+    okRows.sort((a: any, b: any) => a.oppositionDist - b.oppositionDist);
 
-    const matches = okRows.filter((r) => r.oppositionDist <= tolDeg);
+    const matches = okRows.filter((r: any) => r.oppositionDist <= tolDeg);
+    const closest = okRows.slice(0, closestN);
 
-    const payload = {
+    return NextResponse.json({
+      ok: true,
       timeDeg,
-      count: returnAll ? okRows.length : matches.length,
-      rows: returnAll ? okRows : matches,
-      errors: rows.filter((x) => !x.ok),
-    };
-
-    // cache for 25 seconds (scanner UX feels instant, but price still “fresh enough”)
-    setCache(k, payload, 25_000);
-
-    return NextResponse.json({ ok: true, cached: false, ...payload });
+      tolDeg,
+      matches,
+      closest,
+      errors: results.filter((x) => !(x as any).ok),
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });
   }
