@@ -1,63 +1,9 @@
 // src/app/api/pivot-scan/route.ts
 import { NextResponse } from "next/server";
 
-type Timeframe = "1d" | "4h" | "1h";
-type PivotType = "SWING_LOW" | "SWING_HIGH";
-
-const COINBASE_BASE = "https://api.exchange.coinbase.com"; // public candles endpoint
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function tfToSeconds(tf: Timeframe) {
-  if (tf === "1h") return 60 * 60;
-  if (tf === "4h") return 4 * 60 * 60;
-  return 24 * 60 * 60;
-}
-
-function tfToCoinbaseGranularity(tf: Timeframe) {
-  // Coinbase accepted granularities: 60, 300, 900, 3600, 21600, 86400
-  if (tf === "1h") return 3600;
-  if (tf === "4h") return 21600;
-  return 86400; // 1d
-}
-
-function normalizeCoinbaseProduct(symbol: string) {
-  return symbol.trim().toUpperCase();
-}
-
-async function fetchCoinbaseCandles(params: {
-  product: string;
-  granularity: number;
-  startISO: string;
-  endISO: string;
-}) {
-  const { product, granularity, startISO, endISO } = params;
-
-  const url = new URL(`${COINBASE_BASE}/products/${encodeURIComponent(product)}/candles`);
-  url.searchParams.set("start", startISO);
-  url.searchParams.set("end", endISO);
-  url.searchParams.set("granularity", String(granularity));
-
-  const r = await fetch(url.toString(), {
-    method: "GET",
-    headers: { "User-Agent": "URA" },
-    cache: "no-store",
-  });
-
-  if (!r.ok) {
-    const text = await r.text();
-    throw new Error(`Coinbase error: ${r.status} ${text}`);
-  }
-
-  // [ time, low, high, open, close, volume ] newest-first
-  const raw = (await r.json()) as number[][];
-  return raw;
-}
-
-type Candle = {
-  t: string; // ISO
+type Pivot = {
+  t: number; // ms epoch
+  ymd: string;
   o: number;
   h: number;
   l: number;
@@ -65,278 +11,200 @@ type Candle = {
   v?: number;
 };
 
-type Candidate = {
-  idx: number;
-  pivotISO: string;
-  pivotType: PivotType;
-  anchorSource: "low" | "high";
-  anchorPrice: number; // raw, UI will round to tick size
-  score: number; // 0..10
-  breakdown: {
-    legBirth: number; // 0..3
-    structure: number; // 0..2
-    followThrough: number; // 0..2
-    timeFit: number; // 0..2
-    sanity: number; // 0..1
-  };
-  notes: string[];
-};
-
-function isSwingLow(candles: Candle[], i: number, left = 2, right = 2) {
-  const x = candles[i]?.l;
-  if (x == null) return false;
-  for (let k = i - left; k <= i + right; k++) {
-    if (k === i) continue;
-    if (candles[k] == null) return false;
-    if (candles[k].l <= x) return false;
-  }
-  return true;
+function isCryptoSymbol(symbolRaw: string) {
+  return symbolRaw.toUpperCase().trim().includes("-"); // e.g. BTC-USD
 }
 
-function isSwingHigh(candles: Candle[], i: number, left = 2, right = 2) {
-  const x = candles[i]?.h;
-  if (x == null) return false;
-  for (let k = i - left; k <= i + right; k++) {
-    if (k === i) continue;
-    if (candles[k] == null) return false;
-    if (candles[k].h >= x) return false;
-  }
-  return true;
+function ymdInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const d = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${y}-${m}-${d}`;
 }
 
-// Helpers for scoring
-function pctMove(from: number, to: number) {
-  if (!Number.isFinite(from) || from === 0) return 0;
-  return ((to - from) / Math.abs(from)) * 100;
+function addDaysUTC(ymd: string, deltaDays: number) {
+  const [y, m, d] = ymd.split("-").map((n) => parseInt(n, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return ymdInTimeZone(dt, "UTC");
 }
 
-function scoreCandidate(candles: Candle[], i: number, type: PivotType): Candidate {
-  const c = candles[i];
-  const notes: string[] = [];
-
-  const next1 = candles[i + 1];
-  const next5 = candles[i + 5];
-  const next10 = candles[i + 10];
-  const prev1 = candles[i - 1];
-  const prev5 = candles[i - 5];
-
-  // Basic direction expectation
-  const wantsUp = type === "SWING_LOW";
-  const anchorSource: "low" | "high" = wantsUp ? "low" : "high";
-  const anchorPrice = wantsUp ? c.l : c.h;
-
-  // ---------------- Leg Birth (0..3)
-  let legBirth = 0;
-  if (prev1 && next1) {
-    const prevDir = prev1.c - prev1.o;
-    const nextDir = next1.c - next1.o;
-
-    // For swing low: prefer a down candle into pivot then up candle out.
-    // For swing high: prefer up candle into pivot then down candle out.
-    const goodFlip = wantsUp ? prevDir < 0 && nextDir > 0 : prevDir > 0 && nextDir < 0;
-
-    if (goodFlip) legBirth = 2;
-
-    // Strength: travel away within 5 bars
-    if (next5) {
-      const move = wantsUp ? pctMove(anchorPrice, next5.h) : pctMove(anchorPrice, next5.l);
-      if (Math.abs(move) >= 6) legBirth = 3;
-      else if (Math.abs(move) >= 3 && legBirth >= 2) legBirth = 2;
-      else if (Math.abs(move) >= 1.5) legBirth = Math.max(legBirth, 1);
-    } else {
-      legBirth = Math.max(legBirth, 1);
-    }
-
-    if (!goodFlip) notes.push("Leg birth: weak flip (no clean reversal candle).");
-  } else {
-    legBirth = 1;
-    notes.push("Leg birth: limited context near edges.");
-  }
-
-  // ---------------- Structure (0..2)
-  // For swing low: look for a higher-low within next ~5–10 bars (micro-structure).
-  // For swing high: look for a lower-high within next ~5–10 bars.
-  let structure = 0;
-  if (next5 && next10) {
-    if (wantsUp) {
-      // higher-low: the lowest low of bars i+1..i+10 should be > pivot low (or close)
-      const lows = candles.slice(i + 1, i + 11).map((x) => x.l);
-      const minLow = Math.min(...lows);
-      if (minLow > c.l) structure = 2;
-      else if (minLow >= c.l * 0.997) structure = 1; // tiny undercut allowed
-    } else {
-      const highs = candles.slice(i + 1, i + 11).map((x) => x.h);
-      const maxHigh = Math.max(...highs);
-      if (maxHigh < c.h) structure = 2;
-      else if (maxHigh <= c.h * 1.003) structure = 1;
-    }
-  } else {
-    structure = 1;
-    notes.push("Structure: limited next 10 bars.");
-  }
-
-  if (structure === 0) notes.push("Structure: no confirmation (HL/LH not present).");
-
-  // ---------------- Follow-through (0..2)
-  let followThrough = 0;
-  if (next10) {
-    const move = wantsUp ? pctMove(anchorPrice, next10.h) : pctMove(anchorPrice, next10.l);
-    if (Math.abs(move) >= 10) followThrough = 2;
-    else if (Math.abs(move) >= 5) followThrough = 1;
-  } else if (next5) {
-    const move = wantsUp ? pctMove(anchorPrice, next5.h) : pctMove(anchorPrice, next5.l);
-    if (Math.abs(move) >= 6) followThrough = 1;
-  }
-
-  if (followThrough === 0) notes.push("Follow-through: price didn’t travel meaningfully.");
-
-  // ---------------- Time symmetry fit (0..2)
-  // We’re just checking if there’s a recognizable 3-act: base (quiet) -> expansion -> stall.
-  // Minimal but useful: expansion if 2..6 bars show range growth + later bars show slowing.
-  let timeFit = 0;
-  const w1 = candles.slice(i + 1, i + 6);
-  const w2 = candles.slice(i + 6, i + 11);
-
-  if (w1.length >= 4 && w2.length >= 4) {
-    const r1 = w1.reduce((a, x) => a + (x.h - x.l), 0) / w1.length;
-    const r2 = w2.reduce((a, x) => a + (x.h - x.l), 0) / w2.length;
-
-    if (r2 > r1 * 1.15) timeFit = 1; // expansion
-    if (r2 > r1 * 1.15) {
-      // look for slowdown: last 3 bars smaller average range than expansion window
-      const last3 = candles.slice(i + 11, i + 14);
-      if (last3.length >= 3) {
-        const r3 = last3.reduce((a, x) => a + (x.h - x.l), 0) / last3.length;
-        if (r3 < r2 * 0.85) timeFit = 2;
-      }
-    }
-  } else {
-    timeFit = 1;
-    notes.push("Time fit: limited bars for symmetry check.");
-  }
-
-  if (timeFit === 0) notes.push("Time fit: cycle shape not expressing cleanly yet.");
-
-  // ---------------- Sanity (0..1)
-  // Reject “messy” pivots: huge wick / news spike style bars.
-  let sanity = 1;
-  const body = Math.abs(c.c - c.o);
-  const range = Math.max(1e-9, c.h - c.l);
-  const bodyRatio = body / range;
-  if (bodyRatio < 0.12) {
-    sanity = 0;
-    notes.push("Sanity: pivot candle is wick-dominant (spiky / less trustworthy).");
-  }
-
-  const score = legBirth + structure + followThrough + timeFit + sanity;
-
-  return {
-    idx: i,
-    pivotISO: c.t,
-    pivotType: type,
-    anchorSource,
-    anchorPrice,
-    score,
-    breakdown: { legBirth, structure, followThrough, timeFit, sanity },
-    notes,
-  };
+function toISODateOnly(ymd: string) {
+  return `${ymd}T00:00:00Z`;
 }
 
-function pickTopCandidates(candles: Candle[]) {
-  const left = 2;
-  const right = 2;
+// --- STOCK: Polygon OHLCV bars ---
+async function fetchPolygonBars(symbol: string, timeframe: "1d" | "4h" | "1h", lookback: number) {
+  const apiKey = process.env.POLYGON_API_KEY;
+  if (!apiKey) throw new Error("Missing POLYGON_API_KEY in .env.local");
 
-  const candidates: Candidate[] = [];
-  for (let i = left; i < candles.length - right; i++) {
-    if (isSwingLow(candles, i, left, right)) candidates.push(scoreCandidate(candles, i, "SWING_LOW"));
-    if (isSwingHigh(candles, i, left, right)) candidates.push(scoreCandidate(candles, i, "SWING_HIGH"));
-  }
+  const now = new Date();
+  // buffer window: lookback bars + extra
+  const daysBack = timeframe === "1d" ? lookback + 10 : 90;
+  const from = ymdInTimeZone(new Date(now.getTime() - daysBack * 86400 * 1000), "UTC");
+  const to = ymdInTimeZone(now, "UTC");
 
-  // Sort: score desc, then newer pivots slightly favored
-  candidates.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return b.idx - a.idx;
+  const { multiplier, timespan } =
+    timeframe === "1d"
+      ? { multiplier: 1, timespan: "day" as const }
+      : timeframe === "4h"
+      ? { multiplier: 4, timespan: "hour" as const }
+      : { multiplier: 1, timespan: "hour" as const };
+
+  const url =
+    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}` +
+    `/range/${multiplier}/${timespan}/${from}/${to}` +
+    `?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
+
+  const r = await fetch(url, { next: { revalidate: 0 } });
+  if (!r.ok) throw new Error(`Polygon error (${r.status}): ${await r.text().catch(() => r.statusText)}`);
+  const j: any = await r.json();
+
+  const rows: any[] = Array.isArray(j?.results) ? j.results : [];
+  return rows.map((x) => ({
+    t: Number(x.t),
+    o: Number(x.o),
+    h: Number(x.h),
+    l: Number(x.l),
+    c: Number(x.c),
+    v: Number(x.v ?? 0),
+  }));
+}
+
+// --- CRYPTO: Coinbase candles ---
+async function fetchCoinbaseBars(productId: string, timeframe: "1d" | "4h" | "1h", lookback: number) {
+  const granularity = timeframe === "1d" ? 86400 : timeframe === "4h" ? 14400 : 3600;
+
+  // Coinbase is picky. Keep it reasonable.
+  const max = 300;
+  const lb = Math.min(Math.max(10, lookback), max);
+
+  const end = new Date();
+  const seconds = lb * granularity + granularity * 5;
+  const start = new Date(end.getTime() - seconds * 1000);
+
+  const url =
+    `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId)}/candles` +
+    `?start=${encodeURIComponent(start.toISOString())}` +
+    `&end=${encodeURIComponent(end.toISOString())}` +
+    `&granularity=${granularity}`;
+
+  const r = await fetch(url, {
+    headers: { Accept: "application/json", "User-Agent": "URA-Pivot-Scan/1.0" },
+    next: { revalidate: 0 },
   });
 
-  const top = candidates.slice(0, 12);
-  const recommended = top[0] ?? null;
+  if (!r.ok) throw new Error(`Coinbase error (${r.status}): ${await r.text().catch(() => r.statusText)}`);
 
-  return { candidates: top, recommended };
+  const rows: any[] = await r.json();
+  if (!Array.isArray(rows)) throw new Error("Coinbase returned non-array candles");
+
+  // Coinbase: [ time, low, high, open, close, volume ] where time is seconds
+  const bars = rows
+    .map((a) => ({
+      t: Number(a?.[0]) * 1000,
+      l: Number(a?.[1]),
+      h: Number(a?.[2]),
+      o: Number(a?.[3]),
+      c: Number(a?.[4]),
+      v: Number(a?.[5] ?? 0),
+    }))
+    .filter((x) => Number.isFinite(x.t) && Number.isFinite(x.o) && Number.isFinite(x.h) && Number.isFinite(x.l) && Number.isFinite(x.c))
+    .sort((a, b) => a.t - b.t);
+
+  return bars;
+}
+
+function findSwingPivot(bars: Array<{ t: number; o: number; h: number; l: number; c: number }>) {
+  // Simple swing logic: last local extremum in lookback window
+  // (you can replace with your existing swing algo if you already have it)
+  if (bars.length < 5) return null;
+
+  let bestIdx = -1;
+  let bestScore = -Infinity;
+
+  for (let i = 2; i < bars.length - 2; i++) {
+    const b = bars[i];
+    const prev1 = bars[i - 1], prev2 = bars[i - 2];
+    const next1 = bars[i + 1], next2 = bars[i + 2];
+
+    const isSwingHigh = b.h > prev1.h && b.h > prev2.h && b.h > next1.h && b.h > next2.h;
+    const isSwingLow  = b.l < prev1.l && b.l < prev2.l && b.l < next1.l && b.l < next2.l;
+
+    if (!isSwingHigh && !isSwingLow) continue;
+
+    // Score by “impulse” size
+    const impulse = isSwingHigh ? (b.h - Math.min(prev2.l, next2.l)) : (Math.max(prev2.h, next2.h) - b.l);
+    if (impulse > bestScore) {
+      bestScore = impulse;
+      bestIdx = i;
+    }
+  }
+
+  if (bestIdx === -1) return null;
+
+  const pivot = bars[bestIdx];
+  const kind = pivot.h - pivot.l >= 0 ? (pivot.c >= pivot.o ? "swing" : "swing") : "swing";
+  return { idx: bestIdx, pivot, kind };
 }
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      symbol: string;
-      kind?: "crypto" | "stock";
-      timeframe?: Timeframe;
-      lookbackBars?: number;
-    };
+    const body = await req.json().catch(() => ({}));
+    const symbolRaw = String(body?.symbol ?? "").trim();
+    const timeframe = (String(body?.timeframe ?? "1d") as "1d" | "4h" | "1h") || "1d";
+    const lookback = Math.max(20, Math.min(500, Math.floor(Number(body?.lookback ?? 180))));
 
-    const symbol = String(body.symbol || "").trim();
-    if (!symbol) return NextResponse.json({ ok: false, error: "symbol is required" }, { status: 400 });
+    if (!symbolRaw) return NextResponse.json({ ok: false, error: "Missing symbol" }, { status: 400 });
 
-    const timeframe: Timeframe = (body.timeframe as Timeframe) || "1d";
-    const granularity = tfToCoinbaseGranularity(timeframe);
+    const symbol = symbolRaw.toUpperCase();
+    const crypto = isCryptoSymbol(symbol);
 
-    // Coinbase: cap candles at 300
-    const requestedBars = clamp(Number(body.lookbackBars ?? 180), 30, 300);
-    const bars = requestedBars;
+    const bars = crypto
+      ? await fetchCoinbaseBars(symbol, timeframe, lookback)
+      : await fetchPolygonBars(symbol, timeframe, lookback);
 
-    const now = Date.now();
-    const end = new Date(now);
-    const secsPerBar = tfToSeconds(timeframe);
-    const start = new Date(now - bars * secsPerBar * 1000);
+    if (!bars.length) return NextResponse.json({ ok: false, error: "No bars returned" }, { status: 502 });
 
-    const startISO = start.toISOString();
-    const endISO = end.toISOString();
+    const swing = findSwingPivot(bars);
+    const last = bars[bars.length - 1];
 
-    const product = normalizeCoinbaseProduct(symbol);
-
-    const raw = await fetchCoinbaseCandles({ product, granularity, startISO, endISO });
-
-    // Normalize -> oldest-first candles
-    const candles: Candle[] = raw
-      .slice()
-      .reverse()
-      .map((row) => {
-        const [time, low, high, open, close, volume] = row;
-        return {
-          t: new Date(time * 1000).toISOString(),
-          o: open,
-          h: high,
-          l: low,
-          c: close,
-          v: volume,
-        };
-      });
-
-    const { candidates, recommended } = pickTopCandidates(candles);
+    // For display day label
+    const tz = crypto ? "UTC" : "America/New_York";
+    const ymd = ymdInTimeZone(new Date(last.t), tz);
 
     return NextResponse.json({
       ok: true,
-      kind: "crypto" as const,
-      provider: "coinbase" as const,
-      symbol: product,
+      kind: crypto ? "crypto" : "stock",
+      provider: crypto ? "coinbase" : "polygon",
+      symbol,
       timeframe,
-      granularity,
-      requestedBars,
-      returnedBars: candles.length,
-      startISO,
-      endISO,
-      candles,
-      candidates,
-      recommended,
-      note:
-        requestedBars >= 300
-          ? "Coinbase limits candle aggregations; scan capped at 300 bars."
-          : undefined,
+      lookbackUsed: lookback,
+      timezoneUsed: tz,
+      last: { t: last.t, ymd, o: last.o, h: last.h, l: last.l, c: last.c, v: last.v ?? 0 },
+      pivot: swing
+        ? {
+            t: swing.pivot.t,
+            ymd: ymdInTimeZone(new Date(swing.pivot.t), tz),
+            o: swing.pivot.o,
+            h: swing.pivot.h,
+            l: swing.pivot.l,
+            c: swing.pivot.c,
+            idx: swing.idx,
+          }
+        : null,
+      note: crypto
+        ? "Crypto via Coinbase candles."
+        : "Stock via Polygon aggregates.",
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "pivot scan failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });
   }
 }
-
