@@ -1,3 +1,4 @@
+// src/app/api/moon-calendar/route.ts
 import { NextResponse } from "next/server";
 
 type DayRow = {
@@ -55,11 +56,7 @@ function moonSignFromLon(lon: number) {
  * - OR keep your existing value; this code will normalize it.
  */
 function getAstroServiceChartUrl() {
-  const raw =
-    process.env.ASTRO_SERVICE_URL ||
-    "http://127.0.0.1:3002"; // base default (NOT /chart)
-
-  // If someone set it to ".../chart", strip it to base then append cleanly.
+  const raw = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
   const base = raw.replace(/\/+$/, "").replace(/\/chart$/, "");
   return `${base}/chart`;
 }
@@ -68,13 +65,22 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const year = Number(searchParams.get("year"));
-    const month = Number(searchParams.get("month")); // 1..12
+    // ✅ Defaults: current UTC year/month if missing
+    const now = new Date();
+    const defaultYear = now.getUTCFullYear();
+    const defaultMonth = now.getUTCMonth() + 1;
+
+    const yearRaw = searchParams.get("year");
+    const monthRaw = searchParams.get("month");
+
+    const year = yearRaw ? Number(yearRaw) : defaultYear;
+    const month = monthRaw ? Number(monthRaw) : defaultMonth; // 1..12
+
     const tzOffsetMin = Number(searchParams.get("tzOffsetMin") ?? "0"); // minutes east of UTC
     const latitude = Number(searchParams.get("lat") ?? "0");
     const longitude = Number(searchParams.get("lon") ?? "0");
 
-    if (!year || !month || month < 1 || month > 12) {
+    if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
       return NextResponse.json(
         { ok: false, error: "Missing/invalid year or month (month is 1..12)" },
         { status: 400 }
@@ -114,9 +120,7 @@ export async function GET(req: Request) {
 
       if (!r.ok) {
         const t = await r.text();
-        throw new Error(
-          `astro-service error (${r.status}) at ${chartUrl}: ${t.slice(0, 160)}`
-        );
+        throw new Error(`astro-service error (${r.status}) at ${chartUrl}: ${t.slice(0, 160)}`);
       }
 
       const json = await r.json();
@@ -136,7 +140,7 @@ export async function GET(req: Request) {
       rows.push({
         dateISO,
         day: d,
-        illuminationPct: Math.round(illum * 1000) / 10, // 1 decimal
+        illuminationPct: Math.round(illum * 1000) / 10,
         phaseAngleDeg: Math.round(phaseAngleDeg * 10) / 10,
         moonLon: Math.round(normalize360(moonLon) * 1000) / 1000,
         moonSign: sign.name,
@@ -151,9 +155,6 @@ export async function GET(req: Request) {
       rows,
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err?.message ?? "Unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message ?? "Unknown error" }, { status: 500 });
   }
 }
