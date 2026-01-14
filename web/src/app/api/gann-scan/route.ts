@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 type AnchorSource = "low" | "high" | "close" | "open";
 
 function isCryptoSymbol(symbolRaw: string) {
+  // safest heuristic: Coinbase products are like BTC-USD
   return symbolRaw.toUpperCase().trim().includes("-");
 }
 
@@ -58,20 +59,29 @@ function addDaysUTC(ymd: string, deltaDays: number) {
   return ymdInTimeZone(dt, "UTC");
 }
 
+function roundToTick(x: number, tickSize: number) {
+  const t = Number(tickSize);
+  if (!Number.isFinite(t) || t <= 0) return x;
+  return Math.round(x / t) * t;
+}
+
 async function fetchPolygonPivotCandle(symbol: string, pivotISO: string) {
   const apiKey = process.env.POLYGON_API_KEY;
   if (!apiKey) throw new Error("Missing POLYGON_API_KEY");
 
-  // pivot session day in NY
   const pivotDate = new Date(pivotISO);
-  const sessionYMD = ymdInTimeZone(pivotDate, "America/New_York");
+  if (Number.isNaN(pivotDate.getTime())) throw new Error("Invalid pivotISO date");
 
-  // Fetch a 3-day window so we can map bars to NY day labels reliably
-  const from = addDaysUTC(sessionYMD, -1);
-  const to = addDaysUTC(sessionYMD, +1);
+  // What the UI thinks of as “the session day”
+  const sessionYMD_NY = ymdInTimeZone(pivotDate, "America/New_York");
+  const sessionYMD_UTC = ymdInTimeZone(pivotDate, "UTC");
+
+  // 3-day window request (strings)
+  const from = addDaysUTC(sessionYMD_NY, -1);
+  const to = addDaysUTC(sessionYMD_NY, +1);
 
   const url =
-    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}` +
+    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.toUpperCase().trim())}` +
     `/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
 
   const r = await fetch(url, { next: { revalidate: 0 } });
@@ -79,23 +89,62 @@ async function fetchPolygonPivotCandle(symbol: string, pivotISO: string) {
   const j: any = await r.json();
 
   const rows: any[] = Array.isArray(j?.results) ? j.results : [];
-  const byYMD = new Map<string, any>();
+  if (!rows.length) throw new Error("Polygon returned 0 daily bars for requested window.");
 
+  // IMPORTANT FIX:
+  // Polygon daily bars may be stamped at 00:00Z, which can map to the *previous* NY date.
+  // So we index each row by BOTH UTC and NY day keys.
+  const byKey = new Map<string, any>();
   for (const row of rows) {
     const t = typeof row?.t === "number" ? row.t : null;
     if (!t) continue;
-    const ymdNY = ymdInTimeZone(new Date(t), "America/New_York");
-    byYMD.set(ymdNY, row);
+    const dt = new Date(t);
+    const ymdUTC = ymdInTimeZone(dt, "UTC");
+    const ymdNY = ymdInTimeZone(dt, "America/New_York");
+    byKey.set(ymdUTC, row);
+    byKey.set(ymdNY, row);
   }
 
-  const pivot = byYMD.get(sessionYMD);
-  if (!pivot) throw new Error("No pivot candle returned by Polygon for that NY session day.");
+  // Prefer NY label, fallback to UTC label
+  const pivot = byKey.get(sessionYMD_NY) ?? byKey.get(sessionYMD_UTC);
+
+  if (!pivot) {
+    // last-resort: pick the bar whose UTC date is closest to the NY session day
+    // (this is safer than “not found” when timestamps are weird)
+    const target = Date.parse(`${sessionYMD_NY}T00:00:00Z`);
+    let best: any = null;
+    let bestDist = Infinity;
+    for (const row of rows) {
+      const t = typeof row?.t === "number" ? row.t : null;
+      if (!t) continue;
+      const dist = Math.abs(t - target);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = row;
+      }
+    }
+    if (!best) throw new Error("No usable pivot candle returned by Polygon.");
+    return {
+      kind: "stock" as const,
+      provider: "polygon" as const,
+      timezoneUsed: "America/New_York" as const,
+      sessionDayYMD: sessionYMD_NY,
+      candle: {
+        o: Number(best.o),
+        h: Number(best.h),
+        l: Number(best.l),
+        c: Number(best.c),
+        t: Number(best.t),
+      },
+      _note: "Pivot day matched by closest timestamp fallback (Polygon daily stamp mismatch).",
+    };
+  }
 
   return {
     kind: "stock" as const,
     provider: "polygon" as const,
     timezoneUsed: "America/New_York" as const,
-    sessionDayYMD: sessionYMD,
+    sessionDayYMD: sessionYMD_NY,
     candle: {
       o: Number(pivot.o),
       h: Number(pivot.h),
@@ -108,13 +157,15 @@ async function fetchPolygonPivotCandle(symbol: string, pivotISO: string) {
 
 async function fetchCoinbasePivotCandle(productId: string, pivotISO: string) {
   const pivotDate = new Date(pivotISO);
+  if (Number.isNaN(pivotDate.getTime())) throw new Error("Invalid pivotISO date");
+
   const pivotUTCYMD = ymdInTimeZone(pivotDate, "UTC");
 
   const startUTC = `${addDaysUTC(pivotUTCYMD, -1)}T00:00:00Z`;
   const endUTC = `${addDaysUTC(pivotUTCYMD, +2)}T00:00:00Z`;
 
   const url =
-    `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId)}/candles` +
+    `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId.toUpperCase().trim())}/candles` +
     `?granularity=86400&start=${encodeURIComponent(startUTC)}&end=${encodeURIComponent(endUTC)}`;
 
   const r = await fetch(url, {
@@ -127,7 +178,6 @@ async function fetchCoinbasePivotCandle(productId: string, pivotISO: string) {
   const rows: any[] = await r.json();
   if (!Array.isArray(rows)) throw new Error("Coinbase returned non-array candles");
 
-  // find candle for pivotUTCYMD
   const map = new Map<string, any>();
   for (const a of rows) {
     const tSec = Number(a?.[0]);
@@ -155,7 +205,7 @@ async function fetchCoinbasePivotCandle(productId: string, pivotISO: string) {
 }
 
 async function fetchCoinbaseTicker(productId: string) {
-  const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId)}/ticker`;
+  const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId.toUpperCase().trim())}/ticker`;
   const r = await fetch(url, {
     headers: { Accept: "application/json", "User-Agent": "URA-Gann-Scan/1.0" },
     next: { revalidate: 0 },
@@ -172,7 +222,9 @@ async function fetchPolygonPrevClose(symbol: string) {
   if (!apiKey) throw new Error("Missing POLYGON_API_KEY");
 
   const url =
-    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/prev?adjusted=true&apiKey=${encodeURIComponent(apiKey)}`;
+    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.toUpperCase().trim())}/prev?adjusted=true&apiKey=${encodeURIComponent(
+      apiKey
+    )}`;
 
   const r = await fetch(url, { next: { revalidate: 0 } });
   if (!r.ok) throw new Error(`Polygon (${r.status}): ${await r.text().catch(() => r.statusText)}`);
@@ -215,7 +267,10 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const symbols = parseSymbols(body.symbols).map((x) => x.toUpperCase()).slice(0, Math.max(1, Math.min(300, Number(body.maxSymbols ?? 80))));
+    const symbols = parseSymbols(body.symbols)
+      .map((x) => x.toUpperCase())
+      .slice(0, Math.max(1, Math.min(300, Number(body.maxSymbols ?? 80))));
+
     const pivotISO = String(body.pivotISO ?? "").trim();
     const cycleDays = Number(body.cycleDays);
     const tolDeg = Number(body.tolDeg ?? 5);
@@ -225,7 +280,8 @@ export async function POST(req: Request) {
 
     if (!symbols.length) return NextResponse.json({ ok: false, error: "No symbols provided" }, { status: 400 });
     if (!pivotISO) return NextResponse.json({ ok: false, error: "Missing pivotISO" }, { status: 400 });
-    if (!Number.isFinite(cycleDays) || cycleDays <= 0) return NextResponse.json({ ok: false, error: "Invalid cycleDays" }, { status: 400 });
+    if (!Number.isFinite(cycleDays) || cycleDays <= 0)
+      return NextResponse.json({ ok: false, error: "Invalid cycleDays" }, { status: 400 });
 
     const timeDeg = computeTimeDeg(pivotISO, cycleDays);
     if (timeDeg == null) return NextResponse.json({ ok: false, error: "Could not compute timeDeg" }, { status: 400 });
@@ -234,21 +290,27 @@ export async function POST(req: Request) {
       try {
         const crypto = isCryptoSymbol(sym);
 
-        const pivotRes = crypto
-          ? await fetchCoinbasePivotCandle(sym, pivotISO)
-          : await fetchPolygonPivotCandle(sym, pivotISO);
-
+        // 1) Get pivot candle for THAT symbol on the pivot day
+        const pivotRes = crypto ? await fetchCoinbasePivotCandle(sym, pivotISO) : await fetchPolygonPivotCandle(sym, pivotISO);
         const p = pivotRes.candle;
 
+        // 2) Pick anchor from pivot candle using anchorSource
         const picked =
-          anchorSource === "low" ? Number(p.l)
-          : anchorSource === "high" ? Number(p.h)
-          : anchorSource === "open" ? Number(p.o)
-          : Number(p.c);
+          anchorSource === "low"
+            ? Number(p.l)
+            : anchorSource === "high"
+            ? Number(p.h)
+            : anchorSource === "open"
+            ? Number(p.o)
+            : Number(p.c);
 
-        const anchor = Math.round(picked / tickSize) * tickSize;
+        if (!Number.isFinite(picked)) throw new Error("Pivot candle missing OHLC values.");
 
+        const anchor = roundToTick(picked, tickSize);
+
+        // 3) Get current-ish price (Coinbase spot ticker or Polygon prev close)
         const px = crypto ? await fetchCoinbaseTicker(sym) : await fetchPolygonPrevClose(sym);
+
         const priceDeg = computePriceAngleDeg(anchor, px.price);
         if (priceDeg == null) throw new Error("Bad priceDeg calc");
 
@@ -292,6 +354,9 @@ export async function POST(req: Request) {
       errors: results.filter((x) => !(x as any).ok),
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ? String(e.message) : "Unknown error" },
+      { status: 500 }
+    );
   }
 }
