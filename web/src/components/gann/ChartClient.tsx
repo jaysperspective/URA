@@ -50,38 +50,30 @@ type MarketPriceResponse =
     }
   | { ok: false; error: string };
 
-type ScanRow = {
-  symbol: string;
-  kind: "stock" | "crypto";
-  provider: "polygon" | "coinbase";
-  pivotISO: string;
-  timeDeg: number;
-  priceDeg: number;
-  anchorSource: "close" | "open" | "high" | "low";
-  anchor: number;
-  price: number;
-  asOfISO: string;
-  oppositionDist: number;
-  gapSignedAbs: number;
-};
-
-type ScanResp =
-  | {
-      ok: true;
-      timeDeg: number;
-      tolDeg: number;
-      matches: ScanRow[];
-      closest: ScanRow[];
-      errors: Array<{ ok: false; symbol: string; error: string }>;
-    }
-  | { ok: false; error: string };
-
 const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
 const FIXED_ANGLES = DEFAULT_ANGLES;
 const ALWAYS_INCLUDE_DOWNSIDE = true;
 
 // “In sync” tolerance (degrees) for time-vs-price comparison
 const SYNC_TOL_DEG = 12;
+
+// ---- SAFETY: don’t parse HTML as JSON ----
+async function safeJson<T>(r: Response): Promise<T> {
+  const ct = r.headers.get("content-type") || "";
+  const text = await r.text().catch(() => "");
+
+  if (!ct.includes("application/json")) {
+    const preview = text.slice(0, 180).replace(/\s+/g, " ").trim();
+    throw new Error(`Non-JSON response (${r.status}). ${preview || r.statusText}`);
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const preview = text.slice(0, 180).replace(/\s+/g, " ").trim();
+    throw new Error(`Bad JSON (${r.status}). ${preview || r.statusText}`);
+  }
+}
 
 export default function ChartClient() {
   const [mode, setMode] = useState<Mode>("market");
@@ -95,9 +87,7 @@ export default function ChartClient() {
   const [pivotDateTime, setPivotDateTime] = useState<string>(() => {
     const d = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-      d.getMinutes()
-    )}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
   const [marketCycleDays, setMarketCycleDays] = useState("90");
 
@@ -117,23 +107,15 @@ export default function ChartClient() {
   const [res, setRes] = useState<GannResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Pivot precheck (optional, does not drive anything automatically)
+  // Pivot pre-check
   const [precheck, setPrecheck] = useState<PivotPrecheckResult | null>(null);
-
-  // Opposition scanner (bottom panel)
-  const [scanSymbolsText, setScanSymbolsText] = useState("LUNR, SPY, QQQ");
-  const [scanTolDeg, setScanTolDeg] = useState<number>(5);
-  const [scanMax, setScanMax] = useState<number>(15);
-  const [loadingScan, setLoadingScan] = useState(false);
-  const [scanErr, setScanErr] = useState<string | null>(null);
-  const [scanRows, setScanRows] = useState<ScanRow[]>([]);
 
   const angles = useMemo(() => FIXED_ANGLES.slice(), []);
 
   // Infer market kind from symbol.
   const marketKind = useMemo<"crypto" | "stock">(() => {
     const s = (symbol || "").toUpperCase();
-    if (s.includes("BTC") || s.includes("ETH") || s.includes("SOL") || s.includes("-USD")) return "crypto";
+    if (s.includes("-")) return "crypto";
     return "stock";
   }, [symbol]);
 
@@ -167,7 +149,7 @@ export default function ChartClient() {
         body: JSON.stringify(payload),
       });
 
-      const json = (await r.json()) as GannResponse;
+      const json = await safeJson<GannResponse>(r);
       setRes(json);
     } catch (e: any) {
       setRes({ ok: false, error: e?.message || "Unknown error" });
@@ -198,7 +180,7 @@ export default function ChartClient() {
         body: JSON.stringify({ symbol: symbol.trim(), pivotISO }),
       });
 
-      const json = (await r.json()) as CandleResponse;
+      const json = await safeJson<CandleResponse>(r);
       setCandleRes(json);
       if (!json.ok) return;
 
@@ -209,13 +191,7 @@ export default function ChartClient() {
       }
 
       const picked =
-        pivotAnchorMode === "low"
-          ? pivot.l
-          : pivotAnchorMode === "high"
-          ? pivot.h
-          : pivotAnchorMode === "open"
-          ? pivot.o
-          : pivot.c;
+        pivotAnchorMode === "low" ? pivot.l : pivotAnchorMode === "high" ? pivot.h : pivotAnchorMode === "open" ? pivot.o : pivot.c;
 
       const t = Number(tickSize) || 0.01;
       const rounded = Math.round(picked / t) * t;
@@ -244,7 +220,7 @@ export default function ChartClient() {
         body: JSON.stringify({ symbol: symbol.trim() }),
       });
 
-      const json = (await r.json()) as MarketPriceResponse;
+      const json = await safeJson<MarketPriceResponse>(r);
       setPriceRes(json);
     } catch (e: any) {
       setPriceRes({ ok: false, error: e?.message || "Price fetch failed" });
@@ -253,65 +229,9 @@ export default function ChartClient() {
     }
   }
 
-  async function scanOppositions() {
-    setLoadingScan(true);
-    setScanErr(null);
-    setScanRows([]);
-
-    try {
-      if (mode !== "market") throw new Error("Scanner only runs in Market mode.");
-      if (!pivotDateTime) throw new Error("Pivot date/time is required.");
-
-      const pivotISO = new Date(pivotDateTime).toISOString();
-      const symbols = parseSymbolsText(scanSymbolsText)
-        .map((s) => s.toUpperCase())
-        .slice(0, Math.max(1, Math.min(300, Number(scanMax) || 15)));
-
-      if (!symbols.length) throw new Error("Enter at least one symbol to scan.");
-
-      const r = await fetch("/api/gann-scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbols,
-          pivotISO,
-          cycleDays: Number(marketCycleDays),
-          tickSize: Number(tickSize) || 0.01,
-          anchorSource: pivotAnchorMode, // uses your chosen basis
-          tolDeg: Number(scanTolDeg) || 5,
-          maxSymbols: Number(scanMax) || 15,
-          closestN: 8,
-        }),
-      });
-
-      const j = (await r.json()) as ScanResp;
-      if (!j.ok) throw new Error((j as any).error || "Scan failed");
-
-      const rows = j.matches?.length ? j.matches : j.closest || [];
-      setScanRows(rows);
-
-      if (!j.matches?.length) {
-        const errCount = Array.isArray(j.errors) ? j.errors.length : 0;
-        setScanErr(
-          `No matches within ±${scanTolDeg}° of opposition. Showing closest candidates${
-            errCount ? ` (and ${errCount} errors)` : ""
-          }.`
-        );
-      } else {
-        const errCount = Array.isArray(j.errors) ? j.errors.length : 0;
-        if (errCount) setScanErr(`${errCount} symbols failed to scan (API/data errors).`);
-      }
-    } catch (e: any) {
-      setScanErr(e?.message || "Scan failed");
-    } finally {
-      setLoadingScan(false);
-    }
-  }
-
   const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
 
-  const pivotCandleForCard =
-    candleRes && candleRes.ok ? candleRes.candles.find((x) => x.label === "Pivot") ?? null : null;
+  const pivotCandleForCard = candleRes && candleRes.ok ? candleRes.candles.find((x) => x.label === "Pivot") ?? null : null;
 
   // Price marker: inverse of the Square-of-9 mapping used for targets (coherent)
   const priceMarkerDeg = useMemo(() => {
@@ -403,44 +323,22 @@ export default function ChartClient() {
                 </div>
 
                 <Field label="Anchor price (required)">
-                  <input
-                    value={anchorPrice}
-                    onChange={(e) => setAnchorPrice(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
+                  <input value={anchorPrice} onChange={(e) => setAnchorPrice(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
 
                 <Field label="Tick size (rounding)">
-                  <input
-                    value={tickSize}
-                    onChange={(e) => setTickSize(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
+                  <input value={tickSize} onChange={(e) => setTickSize(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
 
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
-                  <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
-                    Market Marker (time → angle)
-                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>Market Marker (time → angle)</div>
 
                   <Field label="Pivot date/time (local)">
-                    <input
-                      type="datetime-local"
-                      value={pivotDateTime}
-                      onChange={(e) => setPivotDateTime(e.target.value)}
-                      style={inputStyle}
-                    />
+                    <input type="datetime-local" value={pivotDateTime} onChange={(e) => setPivotDateTime(e.target.value)} style={inputStyle} />
                   </Field>
 
                   <Field label="Market cycle length (days)">
-                    <input
-                      value={marketCycleDays}
-                      onChange={(e) => setMarketCycleDays(e.target.value)}
-                      inputMode="decimal"
-                      style={inputStyle}
-                    />
+                    <input value={marketCycleDays} onChange={(e) => setMarketCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
                   </Field>
 
                   {/* Pivot → anchor autofill */}
@@ -448,12 +346,7 @@ export default function ChartClient() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                       <div style={{ fontSize: 12, opacity: 0.85 }}>Auto-fill anchor from pivot (1D candle)</div>
 
-                      <button
-                        type="button"
-                        onClick={autofillAnchorFromPivot}
-                        style={buttonStyle}
-                        disabled={loadingCandle}
-                      >
+                      <button type="button" onClick={autofillAnchorFromPivot} style={buttonStyle} disabled={loadingCandle}>
                         {loadingCandle ? "Fetching…" : "Auto-fill"}
                       </button>
                     </div>
@@ -509,19 +402,12 @@ export default function ChartClient() {
                   </div>
                 </div>
 
-                {/* Pivot Precheck (kept inside Inputs panel; does NOT change the layout grid) */}
+                {/* Pivot Pre-Check (kept in the Inputs column, like your screenshot) */}
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                     <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9 }}>Pivot Pre-Check</div>
                     <div style={{ fontSize: 12, opacity: 0.8 }}>
-                      {precheck ? (
-                        <>
-                          Total <strong>{precheck.total}/10</strong> •{" "}
-                          <strong>{precheck.recommendedAction}</strong>
-                        </>
-                      ) : (
-                        "Not scored"
-                      )}
+                      {precheck ? `Total ${precheck.total}/10 • ${precheck.recommendedAction}` : "Not scored"}
                     </div>
                   </div>
 
@@ -533,21 +419,11 @@ export default function ChartClient() {
             ) : (
               <>
                 <Field label="Anchor date/time (local)">
-                  <input
-                    type="datetime-local"
-                    value={anchorDateTime}
-                    onChange={(e) => setAnchorDateTime(e.target.value)}
-                    style={inputStyle}
-                  />
+                  <input type="datetime-local" value={anchorDateTime} onChange={(e) => setAnchorDateTime(e.target.value)} style={inputStyle} />
                 </Field>
 
                 <Field label="Cycle length (days)">
-                  <input
-                    value={cycleDays}
-                    onChange={(e) => setCycleDays(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
+                  <input value={cycleDays} onChange={(e) => setCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
                 </Field>
               </>
             )}
@@ -560,7 +436,7 @@ export default function ChartClient() {
             )}
           </div>
 
-          {/* Visuals (MATCH approved vibe: ring on top, Square of 9 directly under it) */}
+          {/* Visuals */}
           <div style={panelStyle}>
             <div style={panelHeaderStyle}>Angle Ring</div>
 
@@ -577,6 +453,7 @@ export default function ChartClient() {
                   }
                 />
 
+                {/* Square of 9 sits UNDER the ring */}
                 {mode === "market" ? (
                   <div style={{ padding: 12, paddingTop: 0 }}>
                     <div style={panelSubHeaderStyle}>Square of 9</div>
@@ -611,9 +488,7 @@ export default function ChartClient() {
           <div style={panelStyle}>
             <div style={panelHeaderStyle}>Outputs</div>
 
-            {res?.ok ? mode === "market" ? <TargetsPanel data={res.data} /> : <PersonalPanel data={res.data} /> : (
-              <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>
-            )}
+            {res?.ok ? mode === "market" ? <TargetsPanel data={res.data} /> : <PersonalPanel data={res.data} /> : <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>}
           </div>
         </div>
 
@@ -637,93 +512,6 @@ export default function ChartClient() {
             />
           </div>
         ) : null}
-
-        {/* Bottom: Opposition Scanner (kept as a bottom module, not changing the approved 3-column grid) */}
-        {mode === "market" ? (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ ...panelStyle, minHeight: "unset" }}>
-              <div style={panelHeaderStyle}>Opposition Scanner</div>
-              <div style={{ padding: 12 }}>
-                <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
-                  Finds symbols where time and price are ~180° apart (± tolerance).
-                </div>
-
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Symbols (comma or space separated)</div>
-                  <textarea
-                    value={scanSymbolsText}
-                    onChange={(e) => setScanSymbolsText(e.target.value)}
-                    style={textareaStyle}
-                    rows={3}
-                  />
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "end" }}>
-                  <FieldInline label="Opposition tolerance (degrees)">
-                    <input
-                      value={String(scanTolDeg)}
-                      onChange={(e) => setScanTolDeg(Number(e.target.value) || 5)}
-                      style={inputStyle}
-                      inputMode="decimal"
-                    />
-                  </FieldInline>
-
-                  <FieldInline label="Max symbols">
-                    <input
-                      value={String(scanMax)}
-                      onChange={(e) => setScanMax(Number(e.target.value) || 15)}
-                      style={inputStyle}
-                      inputMode="numeric"
-                    />
-                  </FieldInline>
-
-                  <button type="button" onClick={scanOppositions} style={buttonStyle} disabled={loadingScan}>
-                    {loadingScan ? "Scanning…" : "Scan"}
-                  </button>
-                </div>
-
-                {scanErr ? <div style={{ ...errorStyle, marginTop: 12 }}>{scanErr}</div> : null}
-
-                {scanRows.length ? (
-                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-                    {scanRows.map((row, idx) => (
-                      <div key={`${row.symbol}-${idx}`} style={miniCardStyle}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                          <div style={{ fontWeight: 700 }}>
-                            {row.symbol} <span style={{ opacity: 0.7 }}>({row.kind})</span>
-                          </div>
-                          <div style={{ opacity: 0.9 }}>
-                            opp dist: <strong>{formatNum(row.oppositionDist)}°</strong>
-                          </div>
-                        </div>
-
-                        <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, opacity: 0.9 }}>
-                          <div>
-                            time: <strong>{formatNum(row.timeDeg)}°</strong>
-                          </div>
-                          <div>
-                            price: <strong>{formatNum(row.priceDeg)}°</strong>
-                          </div>
-                          <div>
-                            anchor: <strong>{formatNum(row.anchor)}</strong> ({String(row.anchorSource).toUpperCase()})
-                          </div>
-                          <div>
-                            price: <strong>{formatNum(row.price)}</strong>
-                          </div>
-                          <div style={{ opacity: 0.8 }}>
-                            {row.provider} • {String(row.asOfISO).slice(0, 19).replace("T", " ")}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : scanErr ? null : (
-                  <div style={{ marginTop: 12, fontSize: 12, opacity: 0.75 }}>No results yet.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -734,15 +522,6 @@ export default function ChartClient() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>{label}</div>
-      {children}
-    </label>
-  );
-}
-
-function FieldInline({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ fontSize: 12, opacity: 0.85 }}>{label}</div>
       {children}
     </label>
@@ -794,9 +573,9 @@ function AngleRing({
   const r = 120;
 
   const quadrantWedges = [
-    { start: 0, end: 90, opacity: 0.10 },
+    { start: 0, end: 90, opacity: 0.1 },
     { start: 90, end: 180, opacity: 0.06 },
-    { start: 180, end: 270, opacity: 0.10 },
+    { start: 180, end: 270, opacity: 0.1 },
     { start: 270, end: 360, opacity: 0.06 },
   ];
 
@@ -868,9 +647,7 @@ function AngleRing({
       </div>
 
       {priceDeg != null ? (
-        <div style={{ fontSize: 12, opacity: 0.75, textAlign: "center", marginTop: 6 }}>
-          Price: {formatNum(priceDeg)}°
-        </div>
+        <div style={{ fontSize: 12, opacity: 0.75, textAlign: "center", marginTop: 6 }}>Price: {formatNum(priceDeg)}°</div>
       ) : null}
 
       {lead ? (
@@ -883,9 +660,7 @@ function AngleRing({
         </div>
       ) : null}
 
-      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 8 }}>
-        0° West • 90° North • 180° East • 270° South
-      </div>
+      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 8 }}>0° West • 90° North • 180° East • 270° South</div>
     </div>
   );
 }
@@ -909,10 +684,7 @@ function TargetsPanel({ data }: { data: any }) {
           {Array.isArray(data.nextBoundaries) && data.nextBoundaries.length ? (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
               {data.nextBoundaries.slice(0, 4).map((b: any) => (
-                <div
-                  key={b.angle}
-                  style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between", gap: 10 }}
-                >
+                <div key={b.angle} style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between", gap: 10 }}>
                   <span>{b.angle}° next</span>
                   <span>
                     {String(b.at).slice(0, 19).replace("T", " ")} ({b.inHours}h)
@@ -991,14 +763,6 @@ function PersonalPanel({ data }: { data: any }) {
 }
 
 /* -------------------- Helpers -------------------- */
-
-function parseSymbolsText(s: string) {
-  return String(s ?? "")
-    .replace(/\n/g, " ")
-    .split(/[, ]+/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
 
 // shortest signed diff a-b in (-180,180]
 function signedAngleDiffDeg(a: number, b: number) {
@@ -1198,16 +962,4 @@ const midNoteStyle: CSSProperties = {
   lineHeight: 1.45,
   color: "#EDE3CC",
   opacity: 0.9,
-};
-
-const textareaStyle: CSSProperties = {
-  width: "100%",
-  background: "#1B1F24",
-  border: "1px solid #3a4550",
-  borderRadius: 8,
-  padding: "8px 10px",
-  color: "#EDE3CC",
-  fontSize: 13,
-  outline: "none",
-  resize: "vertical",
 };
