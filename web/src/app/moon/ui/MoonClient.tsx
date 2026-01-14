@@ -325,7 +325,7 @@ export default function MoonClient() {
           >
             <div>
               The Moon is in{" "}
-              <span className="font-semibold">{data?.astro.moonSign ?? "—"}</span>
+              <span className="font-semibold">{data?.astro?.moonSign ?? "—"}</span>
             </div>
             <div className="mt-1 text-sm" style={{ color: M.inkMuted }}>
               As of{" "}
