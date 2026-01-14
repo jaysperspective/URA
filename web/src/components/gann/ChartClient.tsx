@@ -1,234 +1,185 @@
 // src/components/gann/ChartClient.tsx
 "use client";
 
-import React, { useMemo, useState, type CSSProperties } from "react";
-import PivotAutoAnchorPanel from "@/components/PivotAutoAnchorPanel";
-import SquareOfNinePanel from "@/components/SquareOfNinePanel";
+import React, { useEffect, useMemo, useState } from "react";
+import PivotPrecheckPanel, { type PivotPrecheckResult } from "@/components/PivotPrecheckPanel";
 
 type Mode = "market" | "personal";
-type PivotAnchorMode = "low" | "high" | "close" | "open";
+type MarketKind = "stock" | "crypto";
+type Timeframe = "1d" | "4h" | "1h";
+type AnchorSource = "close" | "open" | "high" | "low";
 
-type GannResponse =
-  | { ok: true; mode: Mode; input: any; data: any }
-  | { ok: false; error: string; retryAfterSeconds?: number };
-
-type Candle = {
-  dayKey: string;
-  label: "Prior" | "Pivot" | "Next";
-  o: number;
-  h: number;
-  l: number;
-  c: number;
-  v?: number;
-};
-
-type CandleResponse =
+type AutoPivotResp =
   | {
       ok: true;
-      kind: "stock" | "crypto";
+      kind: MarketKind;
       provider: "polygon" | "coinbase";
       symbol: string;
-      pivotISO: string;
-      bucketRule: string;
-      timezoneUsed: "America/New_York" | "UTC";
-      sessionDayYMD: string;
-      candles: Candle[];
-      rawCount: number;
-    }
-  | { ok: false; error: string };
-
-type MarketPriceResponse =
-  | {
-      ok: true;
-      kind: "stock" | "crypto";
-      provider: "polygon" | "coinbase";
-      symbol: string;
-      price: number;
-      asOfISO: string;
+      timeframe: Timeframe;
+      lookbackUsed: number;
+      timezoneUsed: string;
+      last: { t: number; ymd: string; o: number; h: number; l: number; c: number; v: number };
+      pivot: { t: number; ymd: string; o: number; h: number; l: number; c: number; idx: number } | null;
       note?: string;
     }
   | { ok: false; error: string };
 
-const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
-const FIXED_ANGLES = DEFAULT_ANGLES;
-const ALWAYS_INCLUDE_DOWNSIDE = true;
+type ScanRow = {
+  symbol: string;
+  kind: MarketKind;
+  provider: "polygon" | "coinbase";
+  pivotISO: string;
+  timeDeg: number;
+  priceDeg: number;
+  anchorSource: AnchorSource;
+  anchor: number;
+  price: number;
+  asOfISO: string;
+  oppositionDist: number;
+  gapSignedAbs: number;
+};
 
-// “In sync” tolerance (degrees) for time-vs-price comparison
-const SYNC_TOL_DEG = 12;
+type ScanResp =
+  | {
+      ok: true;
+      timeDeg: number;
+      tolDeg: number;
+      matches: ScanRow[];
+      closest: ScanRow[];
+      errors: Array<{ ok: false; symbol: string; error: string }>;
+    }
+  | { ok: false; error: string };
+
+function isCryptoSymbol(symbolRaw: string) {
+  return symbolRaw.toUpperCase().trim().includes("-"); // e.g. BTC-USD
+}
+
+function formatNum(x: any, max = 4) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return String(x ?? "");
+  return n.toLocaleString(undefined, { maximumFractionDigits: max });
+}
+
+function parseSymbolsText(s: string) {
+  return String(s ?? "")
+    .replace(/\n/g, " ")
+    .split(/[, ]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function toDatetimeLocal(ms: number) {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+    d.getMinutes()
+  )}`;
+}
 
 export default function ChartClient() {
+  // --- core mode ---
   const [mode, setMode] = useState<Mode>("market");
 
-  // MARKET inputs
-  const [symbol, setSymbol] = useState("SOL-USD");
-  const [anchorPrice, setAnchorPrice] = useState("200");
-  const [tickSize, setTickSize] = useState("0.01");
+  // --- market inputs ---
+  const [marketKind, setMarketKind] = useState<MarketKind>("stock");
+  const [symbol, setSymbol] = useState("LUNR");
+  const [tickSize, setTickSize] = useState(0.01);
 
-  // Market marker: pivot datetime + cycle length
-  const [pivotDateTime, setPivotDateTime] = useState<string>(() => {
-    const d = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-      d.getMinutes()
-    )}`;
-  });
-  const [marketCycleDays, setMarketCycleDays] = useState("90");
+  // pivot + anchor inputs
+  const [pivotDateTime, setPivotDateTime] = useState<string>(() => toDatetimeLocal(Date.now() - 10 * 86400 * 1000));
+  const [pivotAnchorMode, setPivotAnchorMode] = useState<AnchorSource>("close");
+  const [anchorPrice, setAnchorPrice] = useState<number>(10);
 
-  // Pivot → anchor autofill
-  const [pivotAnchorMode, setPivotAnchorMode] = useState<PivotAnchorMode>("close");
-  const [candleRes, setCandleRes] = useState<CandleResponse | null>(null);
-  const [loadingCandle, setLoadingCandle] = useState(false);
+  // cycle
+  const [marketCycleDays, setMarketCycleDays] = useState<number>(90);
 
-  // Current price (manual refresh only)
-  const [priceRes, setPriceRes] = useState<MarketPriceResponse | null>(null);
-  const [loadingPrice, setLoadingPrice] = useState(false);
+  // --- pivot auto finder ---
+  const [autoTf, setAutoTf] = useState<Timeframe>("1d");
+  const [autoLookback, setAutoLookback] = useState<string>("180");
+  const [autoAnchorBasis, setAutoAnchorBasis] = useState<AnchorSource>("close");
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [autoErr, setAutoErr] = useState<string | null>(null);
+  const [autoData, setAutoData] = useState<AutoPivotResp | null>(null);
 
-  // PERSONAL inputs
-  const [anchorDateTime, setAnchorDateTime] = useState("1990-01-24T01:39");
-  const [cycleDays, setCycleDays] = useState("365.2425");
+  // --- precheck verdict ---
+  const [precheck, setPrecheck] = useState<PivotPrecheckResult | null>(null);
 
-  const [res, setRes] = useState<GannResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  // Scanner (opposition finder)
+  // --- opposition scanner ---
   const [scanSymbolsText, setScanSymbolsText] = useState("LUNR, SPY, QQQ");
-  const [scanTolDeg, setScanTolDeg] = useState("5");
-  const [scanMax, setScanMax] = useState("15");
-  const [scanRows, setScanRows] = useState<any[]>([]);
-  const [scanErr, setScanErr] = useState<string | null>(null);
+  const [scanTolDeg, setScanTolDeg] = useState<number>(5);
+  const [scanMax, setScanMax] = useState<number>(15);
   const [loadingScan, setLoadingScan] = useState(false);
+  const [scanErr, setScanErr] = useState<string | null>(null);
+  const [scanRows, setScanRows] = useState<ScanRow[]>([]);
 
-  function parseSymbolsText(s: string) {
-    return (s || "")
-      .replace(/\n/g, " ")
-      .split(/[, ]+/)
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }
-
-  const angles = useMemo(() => FIXED_ANGLES.slice(), []);
-
-  // Infer market kind from symbol.
-  const marketKind = useMemo<"crypto" | "stock">(() => {
-    const s = (symbol || "").toUpperCase();
-    if (s.includes("BTC") || s.includes("ETH") || s.includes("SOL") || s.includes("-USD")) return "crypto";
-    return "stock";
+  // keep marketKind aligned with symbol format unless user explicitly changes it
+  useEffect(() => {
+    const inferred: MarketKind = isCryptoSymbol(symbol) ? "crypto" : "stock";
+    // only auto-switch if it’s obviously inconsistent
+    if (inferred !== marketKind && (symbol.includes("-") || marketKind === "crypto")) {
+      setMarketKind(inferred);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
-  async function run() {
-    setLoading(true);
-    setRes(null);
+  const instrumentText = useMemo(() => {
+    const s = (symbol || "").toUpperCase().trim() || "—";
+    return `${marketKind.toUpperCase()}  •  ${s}`;
+  }, [marketKind, symbol]);
+
+  function roundToTick(x: number) {
+    const t = Number(tickSize) || 0.01;
+    return Math.round(x / t) * t;
+  }
+
+  async function runAutoPivot() {
+    setAutoLoading(true);
+    setAutoErr(null);
+    setAutoData(null);
 
     try {
-      const payload =
-        mode === "market"
-          ? {
-              mode,
-              symbol: symbol.trim() || undefined,
-              anchor: Number(anchorPrice),
-              tickSize: Number(tickSize),
-              angles,
-              includeDownside: ALWAYS_INCLUDE_DOWNSIDE,
-              pivotDateTime,
-              cycleDays: Number(marketCycleDays),
-            }
-          : {
-              mode,
-              anchorDateTime,
-              cycleDays: Number(cycleDays),
-              angles,
-            };
-
-      const r = await fetch("/api/gann", {
+      const r = await fetch("/api/pivot-scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ symbol: symbol.trim(), timeframe: autoTf, lookback: Number(autoLookback) || 180 }),
       });
 
-      const json = (await r.json()) as GannResponse;
-      setRes(json);
+      const j = (await r.json()) as AutoPivotResp;
+      if (!j.ok) throw new Error((j as any).error || "Pivot scan failed");
+
+      setAutoData(j);
+
+      // pre-select anchor basis on UI (doesn’t apply automatically)
+      setPivotAnchorMode(autoAnchorBasis);
     } catch (e: any) {
-      setRes({ ok: false, error: e?.message || "Unknown error" });
+      setAutoErr(e?.message || "Pivot scan failed");
     } finally {
-      setLoading(false);
+      setAutoLoading(false);
     }
   }
 
-  async function autofillAnchorFromPivot() {
-    if (!symbol.trim()) {
-      setCandleRes({ ok: false, error: "Symbol is required for autofill." });
-      return;
-    }
-    if (!pivotDateTime) {
-      setCandleRes({ ok: false, error: "Pivot date/time is required for autofill." });
+  function applyAutoPivot() {
+    if (!autoData || !autoData.ok) return;
+    if (!autoData.pivot) {
+      setAutoErr("No pivot was found in the lookback window. Increase lookback or switch timeframe.");
       return;
     }
 
-    setLoadingCandle(true);
-    setCandleRes(null);
+    const p = autoData.pivot;
+    const picked =
+      autoAnchorBasis === "low"
+        ? Number(p.l)
+        : autoAnchorBasis === "high"
+        ? Number(p.h)
+        : autoAnchorBasis === "open"
+        ? Number(p.o)
+        : Number(p.c);
 
-    try {
-      const pivotISO = new Date(pivotDateTime).toISOString();
+    const anchor = roundToTick(picked);
 
-      const r = await fetch("/api/market-candle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: symbol.trim(), pivotISO }),
-      });
-
-      const json = (await r.json()) as CandleResponse;
-      setCandleRes(json);
-      if (!json.ok) return;
-
-      const pivot = json.candles.find((x) => x.label === "Pivot");
-      if (!pivot) {
-        setCandleRes({ ok: false, error: "No Pivot candle returned for that date." });
-        return;
-      }
-
-      const picked =
-        pivotAnchorMode === "low"
-          ? pivot.l
-          : pivotAnchorMode === "high"
-          ? pivot.h
-          : pivotAnchorMode === "open"
-          ? pivot.o
-          : pivot.c;
-
-      const t = Number(tickSize) || 0.01;
-      const rounded = Math.round(picked / t) * t;
-
-      setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
-    } catch (e: any) {
-      setCandleRes({ ok: false, error: e?.message || "Autofill failed" });
-    } finally {
-      setLoadingCandle(false);
-    }
-  }
-
-  async function refreshCurrentPrice() {
-    if (!symbol.trim()) {
-      setPriceRes({ ok: false, error: "Symbol is required for current price." });
-      return;
-    }
-
-    setLoadingPrice(true);
-    setPriceRes(null);
-
-    try {
-      const r = await fetch("/api/market-price", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: symbol.trim() }),
-      });
-
-      const json = (await r.json()) as MarketPriceResponse;
-      setPriceRes(json);
-    } catch (e: any) {
-      setPriceRes({ ok: false, error: e?.message || "Price fetch failed" });
-    } finally {
-      setLoadingPrice(false);
-    }
+    setPivotDateTime(toDatetimeLocal(Number(p.t)));
+    setAnchorPrice(anchor);
+    setPivotAnchorMode(autoAnchorBasis);
   }
 
   async function scanOppositions() {
@@ -241,8 +192,10 @@ export default function ChartClient() {
       if (!pivotDateTime) throw new Error("Pivot date/time is required.");
 
       const pivotISO = new Date(pivotDateTime).toISOString();
+      const symbols = parseSymbolsText(scanSymbolsText)
+        .map((s) => s.toUpperCase())
+        .slice(0, Math.max(1, Math.min(300, Number(scanMax) || 15)));
 
-      const symbols = parseSymbolsText(scanSymbolsText);
       if (!symbols.length) throw new Error("Enter at least one symbol to scan.");
 
       const r = await fetch("/api/gann-scan", {
@@ -255,17 +208,26 @@ export default function ChartClient() {
           tickSize: Number(tickSize) || 0.01,
           anchorSource: pivotAnchorMode,
           tolDeg: Number(scanTolDeg) || 5,
-          returnAll: false,
           maxSymbols: Number(scanMax) || 15,
+          closestN: 8,
         }),
       });
 
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "Scan failed");
+      const j = (await r.json()) as ScanResp;
+      if (!j.ok) throw new Error((j as any).error || "Scan failed");
 
-      setScanRows(j.rows || []);
-      if (!(j.rows || []).length) {
-        setScanErr(`No matches within ±${scanTolDeg}° of opposition.`);
+      const rows = j.matches?.length ? j.matches : j.closest || [];
+      setScanRows(rows);
+
+      if (!j.matches?.length) {
+        const errCount = Array.isArray(j.errors) ? j.errors.length : 0;
+        setScanErr(
+          `No matches within ±${scanTolDeg}° of opposition. Showing closest candidates${errCount ? ` (and ${errCount} errors)` : ""
+          }.`
+        );
+      } else {
+        const errCount = Array.isArray(j.errors) ? j.errors.length : 0;
+        if (errCount) setScanErr(`${errCount} symbols failed to scan (API/data errors).`);
       }
     } catch (e: any) {
       setScanErr(e?.message || "Scan failed");
@@ -274,834 +236,500 @@ export default function ChartClient() {
     }
   }
 
-  const cardTitle = mode === "market" ? "Gann — Market" : "Gann — Personal";
-
-  const pivotCandleForCard =
-    candleRes && candleRes.ok ? candleRes.candles.find((x) => x.label === "Pivot") ?? null : null;
-
-  // Price marker: inverse of the Square-of-9 mapping used for targets (coherent)
-  const priceMarkerDeg = useMemo(() => {
-    if (mode !== "market") return null;
-    if (!priceRes || !priceRes.ok) return null;
-
-    const a = Number(anchorPrice);
-    const p = Number(priceRes.price);
-    if (!Number.isFinite(a) || a <= 0) return null;
-    if (!Number.isFinite(p) || p <= 0) return null;
-
-    const raw = (Math.sqrt(p) - Math.sqrt(a)) * 180; // can be negative
-    const deg = ((raw % 360) + 360) % 360;
-    return deg;
-  }, [mode, priceRes, anchorPrice]);
-
-  // TS-safe escape hatch (prevents props mismatch if your existing SquareOfNinePanel has a different Props type)
-  const SquareOfNineAny = SquareOfNinePanel as any;
-
   return (
-    <div style={pageStyle}>
-      <div style={wrapStyle}>
-        {/* Top bar */}
-        <div style={topBarStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ opacity: 0.85 }}>Chart mode</span>
+    <div style={page}>
+      {/* top bar */}
+      <div style={topBar}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={h1}>Gann Chart</div>
 
-            <Segmented
-              value={mode}
-              options={[
-                { value: "market", label: "Market" },
-                { value: "personal", label: "Personal" },
-              ]}
-              onChange={(v) => setMode(v as Mode)}
-            />
+          <div style={pillGroup}>
+            <button type="button" style={{ ...pillBtn, ...(mode === "market" ? pillBtnOn : null) }} onClick={() => setMode("market")}>
+              Market
+            </button>
+            <button
+              type="button"
+              style={{ ...pillBtn, ...(mode === "personal" ? pillBtnOn : null) }}
+              onClick={() => setMode("personal")}
+            >
+              Personal
+            </button>
           </div>
 
-          <button type="button" onClick={run} style={{ ...buttonStyle, paddingInline: 14 }}>
-            {loading ? "Running…" : "Run"}
-          </button>
-        </div>
-
-        <div style={gridStyle}>
-          {/* Inputs */}
-          <div style={panelStyle}>
-            <div style={panelHeaderStyle}>{cardTitle} Inputs</div>
-
-            {mode === "market" ? (
-              <>
-                <Field label="Symbol (optional)">
-                  <input value={symbol} onChange={(e) => setSymbol(e.target.value)} style={inputStyle} />
-                </Field>
-
-                {/* Current price (manual) */}
-                <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9 }}>Current Price</div>
-                    <button type="button" onClick={refreshCurrentPrice} style={buttonStyle} disabled={loadingPrice}>
-                      {loadingPrice ? "Fetching…" : "Refresh"}
-                    </button>
-                  </div>
-
-                  {priceRes?.ok ? (
-                    <div style={{ ...miniCardStyle, marginTop: 10 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
-                        <div style={{ fontWeight: 700 }}>{priceRes.symbol}</div>
-                        <div style={{ opacity: 0.85 }}>{priceRes.provider}</div>
-                      </div>
-
-                      <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800 }}>{formatNum(priceRes.price)}</div>
-
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
-                        As of {String(priceRes.asOfISO).slice(0, 19).replace("T", " ")}
-                      </div>
-
-                      {priceMarkerDeg != null ? (
-                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-                          Price angle (relative to anchor): <strong>{formatNum(priceMarkerDeg)}°</strong>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : priceRes && !priceRes.ok ? (
-                    <div style={{ ...errorStyle, marginTop: 10 }}>Price fetch error: {priceRes.error}</div>
-                  ) : (
-                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-                      Change the symbol, then hit Refresh to fetch the price.
-                    </div>
-                  )}
-                </div>
-
-                <Field label="Anchor price (required)">
-                  <input
-                    value={anchorPrice}
-                    onChange={(e) => setAnchorPrice(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <Field label="Tick size (rounding)">
-                  <input
-                    value={tickSize}
-                    onChange={(e) => setTickSize(e.target.value)}
-                    inputMode="decimal"
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(58,69,80,0.6)" }}>
-                  <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
-                    Market Marker (time → angle)
-                  </div>
-
-                  <Field label="Pivot date/time (local)">
-                    <input
-                      type="datetime-local"
-                      value={pivotDateTime}
-                      onChange={(e) => setPivotDateTime(e.target.value)}
-                      style={inputStyle}
-                    />
-                  </Field>
-
-                  <Field label="Market cycle length (days)">
-                    <input
-                      value={marketCycleDays}
-                      onChange={(e) => setMarketCycleDays(e.target.value)}
-                      inputMode="decimal"
-                      style={inputStyle}
-                    />
-                  </Field>
-
-                  {/* Pivot → anchor autofill */}
-                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ fontSize: 12, opacity: 0.85 }}>Auto-fill anchor from pivot (1D candle)</div>
-
-                      <button type="button" onClick={autofillAnchorFromPivot} style={buttonStyle} disabled={loadingCandle}>
-                        {loadingCandle ? "Fetching…" : "Auto-fill"}
-                      </button>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 12, opacity: 0.8 }}>Use</div>
-                      <Segmented
-                        value={pivotAnchorMode}
-                        options={[
-                          { value: "low", label: "Low" },
-                          { value: "high", label: "High" },
-                          { value: "close", label: "Close" },
-                          { value: "open", label: "Open" },
-                        ]}
-                        onChange={(v) => setPivotAnchorMode(v as PivotAnchorMode)}
-                      />
-                      <div style={{ fontSize: 12, opacity: 0.75 }}>(Low = swing-low pivot, High = swing-high pivot)</div>
-                    </div>
-
-                    {candleRes?.ok && pivotCandleForCard ? (
-                      <div style={miniCardStyle}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
-                          <div style={{ fontWeight: 700 }}>{candleRes.symbol} • 1D</div>
-                          <div style={{ opacity: 0.85 }}>
-                            {candleRes.provider} • {candleRes.sessionDayYMD} ({candleRes.timezoneUsed})
-                          </div>
-                        </div>
-
-                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>{candleRes.bucketRule}</div>
-
-                        <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
-                          <div>
-                            O: <strong>{formatNum(pivotCandleForCard.o)}</strong>
-                          </div>
-                          <div>
-                            H: <strong>{formatNum(pivotCandleForCard.h)}</strong>
-                          </div>
-                          <div>
-                            L: <strong>{formatNum(pivotCandleForCard.l)}</strong>
-                          </div>
-                          <div>
-                            C: <strong>{formatNum(pivotCandleForCard.c)}</strong>
-                          </div>
-                        </div>
-
-                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-                          Selected anchor source: <strong>{pivotAnchorMode.toUpperCase()}</strong>
-                        </div>
-                      </div>
-                    ) : candleRes && !candleRes.ok ? (
-                      <div style={{ ...errorStyle }}>Candle fetch error: {candleRes.error}</div>
-                    ) : null}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <Field label="Anchor date/time (local)">
-                  <input
-                    type="datetime-local"
-                    value={anchorDateTime}
-                    onChange={(e) => setAnchorDateTime(e.target.value)}
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <Field label="Cycle length (days)">
-                  <input value={cycleDays} onChange={(e) => setCycleDays(e.target.value)} inputMode="decimal" style={inputStyle} />
-                </Field>
-              </>
-            )}
-
-            {res && !res.ok && (
-              <div style={{ ...errorStyle, marginTop: 12 }}>
-                Error: {res.error}
-                {res.retryAfterSeconds ? ` (retry after ${res.retryAfterSeconds}s)` : null}
-              </div>
-            )}
-          </div>
-
-          {/* Visuals */}
-          <div style={panelStyle}>
-            <div style={panelHeaderStyle}>Angle Ring</div>
-
-            {res?.ok ? (
-              <div style={{ padding: 0 }}>
-                <AngleRing
-                  angles={angles}
-                  markerDeg={res.data?.markerDeg ?? null}
-                  priceDeg={mode === "market" ? priceMarkerDeg : null}
-                  subtitle={
-                    mode === "market"
-                      ? `Primary (run): Anchor ${formatNum(res.data.anchor)}${res.input.symbol ? ` (${res.input.symbol})` : ""}`
-                      : `Primary: Now @ ${formatNum(res.data.markerDeg)}° of cycle`
-                  }
-                />
-
-                {/* Square of 9 sits UNDER the ring */}
-                {mode === "market" ? (
-                  <div style={{ padding: 12, paddingTop: 0 }}>
-                    <div style={panelSubHeaderStyle}>Square of 9</div>
-                    <SquareOfNineAny
-                      anchor={Number(anchorPrice)}
-                      tickSize={Number(tickSize) || 0.01}
-                      targets={Array.isArray(res.data?.targets) ? res.data.targets : []}
-                      currentPrice={priceRes?.ok ? priceRes.price : null}
-                    />
-                  </div>
-                ) : null}
-
-                <div style={midNoteStyle}>
-                  <div style={{ opacity: 0.9, fontWeight: 700, marginBottom: 6 }}>Time vs Price alignment</div>
-                  <div>
-                    Positive gap = <strong>time</strong> is ahead of <strong>price</strong> around the ring.
-                  </div>
-                  <div>
-                    Negative gap = <strong>price</strong> is ahead of <strong>time</strong> around the ring.
-                  </div>
-                  <div style={{ marginTop: 6, opacity: 0.8 }}>
-                    (If the gap is small, we label it <strong>IN SYNC</strong>.)
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div style={{ opacity: 0.8, padding: 12 }}>Run to generate the ring and outputs.</div>
-            )}
-          </div>
-
-          {/* Outputs */}
-          <div style={panelStyle}>
-            <div style={panelHeaderStyle}>Outputs</div>
-
-            {res?.ok ? mode === "market" ? <TargetsPanel data={res.data} /> : <PersonalPanel data={res.data} /> : (
-              <div style={{ opacity: 0.8, padding: 12 }}>Outputs appear here.</div>
-            )}
+          <div style={pillGroup}>
+            <button
+              type="button"
+              style={{ ...pillBtn, ...(marketKind === "stock" ? pillBtnOn : null) }}
+              onClick={() => setMarketKind("stock")}
+            >
+              Stock
+            </button>
+            <button
+              type="button"
+              style={{ ...pillBtn, ...(marketKind === "crypto" ? pillBtnOn : null) }}
+              onClick={() => setMarketKind("crypto")}
+            >
+              Crypto
+            </button>
           </div>
         </div>
 
-        {/* Bottom: Auto Pivot Finder (manual run only) */}
-        {mode === "market" ? (
-          <div style={{ marginTop: 14 }}>
-            <PivotAutoAnchorPanel
-              kind={marketKind}
-              symbol={symbol}
-              tickSize={Number(tickSize) || 0.01}
-              onApply={(p) => {
-                if (p?.pivotLocalInput) setPivotDateTime(p.pivotLocalInput);
-                if (p?.anchorSource) setPivotAnchorMode(p.anchorSource);
-
-                const t = Number(tickSize) || 0.01;
-                const rounded = Math.round(Number(p.anchorPrice) / t) * t;
-                setAnchorPrice(String(rounded.toFixed(decimalsFromTick(t))));
-
-                setCandleRes(null);
-              }}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={field}>
+            <div style={label}>Symbol</div>
+            <input
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+              style={input}
+              placeholder={marketKind === "crypto" ? "BTC-USD" : "SPY"}
             />
+          </div>
+
+          <div style={field}>
+            <div style={label}>Tick size</div>
+            <input value={String(tickSize)} onChange={(e) => setTickSize(Number(e.target.value) || 0.01)} style={input} />
+          </div>
+
+          <div style={field}>
+            <div style={label}>Cycle days</div>
+            <input
+              value={String(marketCycleDays)}
+              onChange={(e) => setMarketCycleDays(Number(e.target.value) || 90)}
+              style={input}
+            />
+          </div>
+
+          <div style={field}>
+            <div style={label}>Pivot (local)</div>
+            <input type="datetime-local" value={pivotDateTime} onChange={(e) => setPivotDateTime(e.target.value)} style={input} />
+          </div>
+
+          <div style={field}>
+            <div style={label}>Anchor</div>
+            <input value={String(anchorPrice)} onChange={(e) => setAnchorPrice(Number(e.target.value) || 0)} style={input} />
+          </div>
+
+          <div style={field}>
+            <div style={label}>Basis</div>
+            <div style={seg}>
+              {(["close", "open", "high", "low"] as AnchorSource[]).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => setPivotAnchorMode(a)}
+                  style={{ ...segBtn, ...(pivotAnchorMode === a ? segBtnOn : null) }}
+                >
+                  {a[0].toUpperCase() + a.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Auto Pivot Finder */}
+      <div style={card}>
+        <div style={cardHead}>
+          <div>
+            <div style={cardTitle}>Auto Pivot Finder</div>
+            <div style={cardSub}>
+              Uses swing structure for pivot timing, then lets you choose the anchor price basis (Close/Open/High/Low).
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={miniPill}>{autoData && (autoData as any).ok ? "Ready" : "No data"}</div>
+            <button type="button" onClick={runAutoPivot} style={btn} disabled={autoLoading}>
+              {autoLoading ? "Running…" : "Run scan"}
+            </button>
+          </div>
+        </div>
+
+        <div style={cardBodyGrid}>
+          <div style={fieldBlock}>
+            <div style={label}>Timeframe</div>
+            <div style={seg}>
+              {(["1d", "4h", "1h"] as Timeframe[]).map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  onClick={() => setAutoTf(tf)}
+                  style={{ ...segBtn, ...(autoTf === tf ? segBtnOn : null) }}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={fieldBlock}>
+            <div style={label}>Lookback (bars)</div>
+            <input value={autoLookback} onChange={(e) => setAutoLookback(e.target.value)} style={inputWide} />
+            <div style={hint}>
+              {marketKind === "crypto" ? "Capped ~300 (Coinbase typical window)." : "Polygon supports larger windows."}
+            </div>
+          </div>
+
+          <div style={fieldBlock}>
+            <div style={label}>Anchor basis (price)</div>
+            <div style={seg}>
+              {(["close", "open", "high", "low"] as AnchorSource[]).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => setAutoAnchorBasis(a)}
+                  style={{ ...segBtn, ...(autoAnchorBasis === a ? segBtnOn : null) }}
+                >
+                  {a[0].toUpperCase() + a.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div style={hint}>Close is usually the cleanest “consensus” anchor.</div>
+          </div>
+
+          <div style={fieldBlock}>
+            <div style={label}>Instrument</div>
+            <div style={instrument}>{instrumentText}</div>
+            <div style={hint}>Click Run scan when you’re ready.</div>
+          </div>
+        </div>
+
+        {autoErr ? (
+          <div style={errorBox}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Pivot scan failed</div>
+            {autoErr}
           </div>
         ) : null}
 
-        {/* Bottom: Opposition Scanner */}
-        {mode === "market" ? (
-          <div style={{ marginTop: 14, ...panelStyle, minHeight: 0 }}>
-            <div style={panelHeaderStyle}>Opposition Scanner</div>
-
-            <div style={{ padding: 12 }}>
-              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
-                Finds symbols where <strong>time</strong> and <strong>price</strong> are ~180° apart (± tolerance).
+        {autoData && (autoData as any).ok && (autoData as any).pivot ? (
+          <div style={resultBox}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <div style={{ fontWeight: 800 }}>
+                Pivot • {(autoData as any).pivot.ymd} ({(autoData as any).timezoneUsed})
               </div>
 
-              <Field label="Symbols (comma or space separated)">
-                <textarea
-                  value={scanSymbolsText}
-                  onChange={(e) => setScanSymbolsText(e.target.value)}
-                  rows={3}
-                  style={{ ...inputStyle, width: "100%", resize: "vertical" } as any}
-                />
-              </Field>
+              <button type="button" onClick={applyAutoPivot} style={btn}>
+                Apply
+              </button>
+            </div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-                <div style={{ flex: "1 1 160px" }}>
-                  <Field label="Opposition tolerance (degrees)">
-                    <input value={scanTolDeg} onChange={(e) => setScanTolDeg(e.target.value)} style={inputStyle} />
-                  </Field>
-                </div>
-
-                <div style={{ flex: "1 1 160px" }}>
-                  <Field label="Max symbols">
-                    <input value={scanMax} onChange={(e) => setScanMax(e.target.value)} style={inputStyle} />
-                  </Field>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button type="button" onClick={scanOppositions} style={buttonStyle} disabled={loadingScan}>
-                    {loadingScan ? "Scanning…" : "Scan"}
-                  </button>
-                </div>
+            <div style={ohlcRow}>
+              <div>
+                O: <strong>{formatNum((autoData as any).pivot.o)}</strong>
               </div>
-
-              {scanErr ? <div style={{ ...errorStyle, marginTop: 10 }}>{scanErr}</div> : null}
-
-              {scanRows.length ? (
-                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-                  {scanRows.map((row, idx) => (
-                    <div key={`${row.symbol}-${idx}`} style={miniCardStyle}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                        <div style={{ fontWeight: 800 }}>{row.symbol}</div>
-                        <div style={{ opacity: 0.8 }}>
-                          opp dist: <strong>{formatNum(row.oppositionDist)}°</strong>
-                        </div>
-                      </div>
-
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                        <div>
-                          time: <strong>{formatNum(row.timeDeg)}°</strong>
-                        </div>
-                        <div>
-                          price: <strong>{formatNum(row.priceDeg)}°</strong>
-                        </div>
-                        <div>
-                          anchor: <strong>{formatNum(row.anchor)}</strong> ({String(row.anchorSource).toUpperCase()})
-                        </div>
-                        <div>
-                          price: <strong>{formatNum(row.price)}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              <div>
+                H: <strong>{formatNum((autoData as any).pivot.h)}</strong>
+              </div>
+              <div>
+                L: <strong>{formatNum((autoData as any).pivot.l)}</strong>
+              </div>
+              <div>
+                C: <strong>{formatNum((autoData as any).pivot.c)}</strong>
+              </div>
             </div>
           </div>
         ) : null}
       </div>
-    </div>
-  );
-}
 
-/* -------------------- UI Components -------------------- */
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>{label}</div>
-      {children}
-    </label>
-  );
-}
-
-function Segmented({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div style={segWrapStyle}>
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            style={{ ...segBtnStyle, ...(active ? segBtnActiveStyle : null) }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function AngleRing({
-  angles,
-  markerDeg,
-  priceDeg,
-  subtitle,
-}: {
-  angles: number[];
-  markerDeg: number | null;
-  priceDeg?: number | null;
-  subtitle?: string;
-}) {
-  const size = 320;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = 120;
-
-  const quadrantWedges = [
-    { start: 0, end: 90, opacity: 0.10 },
-    { start: 90, end: 180, opacity: 0.06 },
-    { start: 180, end: 270, opacity: 0.10 },
-    { start: 270, end: 360, opacity: 0.06 },
-  ];
-
-  const spokes = angles.map((deg) => {
-    const p = polarToXY_West0_CW(cx, cy, r, deg);
-    return { deg, x2: p.x, y2: p.y };
-  });
-
-  const marker = markerDeg == null ? null : polarToXY_West0_CW(cx, cy, r, markerDeg);
-  const priceMarker = priceDeg == null ? null : polarToXY_West0_CW(cx, cy, r, priceDeg);
-
-  const lead = getLeadReadout(markerDeg, priceDeg, SYNC_TOL_DEG);
-
-  return (
-    <div style={{ padding: 12 }}>
-      {subtitle ? <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>{subtitle}</div> : null}
-
-      <svg width={size} height={size} style={{ display: "block", margin: "0 auto" }}>
-        {quadrantWedges.map((q) => (
-          <path
-            key={`${q.start}-${q.end}`}
-            d={wedgePath(cx, cy, r, q.start, q.end)}
-            fill={`rgba(237,227,204,${q.opacity})`}
-            stroke="none"
-          />
-        ))}
-
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(237,227,204,0.25)" strokeWidth={2} />
-
-        {spokes.map((s) => (
-          <g key={s.deg}>
-            <line x1={cx} y1={cy} x2={s.x2} y2={s.y2} stroke="rgba(237,227,204,0.15)" strokeWidth={2} />
-            <text
-              x={cx + (s.x2 - cx) * 1.12}
-              y={cy + (s.y2 - cy) * 1.12}
-              fill="rgba(237,227,204,0.8)"
-              fontSize={11}
-              textAnchor="middle"
-              dominantBaseline="middle"
-            >
-              {s.deg}°
-            </text>
-          </g>
-        ))}
-
-        {/* time marker (circle) */}
-        {marker ? (
-          <>
-            <circle cx={marker.x} cy={marker.y} r={6} fill="rgba(237,227,204,0.95)" />
-            <circle cx={marker.x} cy={marker.y} r={10} fill="none" stroke="rgba(237,227,204,0.35)" />
-          </>
-        ) : null}
-
-        {/* price marker (diamond) */}
-        {priceMarker ? (
-          <path
-            d={diamondPath(priceMarker.x, priceMarker.y, 7)}
-            fill="rgba(237,227,204,0.35)"
-            stroke="rgba(237,227,204,0.85)"
-            strokeWidth={1.5}
-          />
-        ) : null}
-
-        <circle cx={cx} cy={cy} r={3} fill="rgba(237,227,204,0.55)" />
-      </svg>
-
-      <div style={{ fontSize: 12, opacity: 0.85, textAlign: "center", marginTop: 10 }}>
-        {markerDeg == null ? "Time appears after run." : `Time: ${formatNum(markerDeg)}°`}
-      </div>
-
-      {priceDeg != null ? (
-        <div style={{ fontSize: 12, opacity: 0.75, textAlign: "center", marginTop: 6 }}>
-          Price: {formatNum(priceDeg)}°
-        </div>
-      ) : null}
-
-      {lead ? (
-        <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
-          <div style={leadPillStyle}>
-            <span style={{ fontWeight: 800 }}>{lead.label}</span>
-            <span style={{ opacity: 0.85 }}> • gap </span>
-            <span style={{ fontWeight: 800 }}>{formatNum(lead.gapDeg)}°</span>
-          </div>
-        </div>
-      ) : null}
-
-      <div style={{ fontSize: 11, opacity: 0.65, textAlign: "center", marginTop: 8 }}>
-        0° West • 90° North • 180° East • 270° South
-      </div>
-    </div>
-  );
-}
-
-function TargetsPanel({ data }: { data: any }) {
-  const markerOk = typeof data.markerDeg === "number" && Number.isFinite(data.markerDeg);
-
-  return (
-    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Anchor: <strong>{formatNum(data.anchor)}</strong>
-      </div>
-
-      {markerOk ? (
-        <div style={miniCardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ fontWeight: 600 }}>Market marker</div>
-            <div style={{ opacity: 0.85 }}>{formatNum(data.markerDeg)}°</div>
+      {/* Pivot Precheck */}
+      <div style={card}>
+        <div style={cardHead}>
+          <div>
+            <div style={cardTitle}>Pivot Precheck</div>
+            <div style={cardSub}>Optional: score the pivot before anchoring the cycle.</div>
           </div>
 
-          {Array.isArray(data.nextBoundaries) && data.nextBoundaries.length ? (
-            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-              {data.nextBoundaries.slice(0, 4).map((b: any) => (
-                <div
-                  key={b.angle}
-                  style={{ fontSize: 12, opacity: 0.9, display: "flex", justifyContent: "space-between", gap: 10 }}
-                >
-                  <span>{b.angle}° next</span>
-                  <span>
-                    {String(b.at).slice(0, 19).replace("T", " ")} ({b.inHours}h)
-                  </span>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={miniPill}>{precheck ? `Total ${precheck.total}/10` : "Not scored"}</div>
+          </div>
+        </div>
+
+        <div style={{ padding: 14 }}>
+          <PivotPrecheckPanel onChange={(r) => setPrecheck(r)} />
+        </div>
+      </div>
+
+      {/* Opposition Scanner */}
+      <div style={card}>
+        <div style={cardHead}>
+          <div>
+            <div style={cardTitle}>Opposition Scanner</div>
+            <div style={cardSub}>Finds symbols where time and price are ~180° apart (± tolerance).</div>
+          </div>
+        </div>
+
+        <div style={{ padding: 14 }}>
+          <div style={{ marginBottom: 10 }}>
+            <div style={label}>Symbols (comma or space separated)</div>
+            <textarea
+              value={scanSymbolsText}
+              onChange={(e) => setScanSymbolsText(e.target.value)}
+              style={textarea}
+              rows={3}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "end" }}>
+            <div style={fieldBlock}>
+              <div style={label}>Opposition tolerance (degrees)</div>
+              <input value={String(scanTolDeg)} onChange={(e) => setScanTolDeg(Number(e.target.value) || 5)} style={inputWide} />
+            </div>
+
+            <div style={fieldBlock}>
+              <div style={label}>Max symbols</div>
+              <input value={String(scanMax)} onChange={(e) => setScanMax(Number(e.target.value) || 15)} style={inputWide} />
+            </div>
+
+            <button type="button" onClick={scanOppositions} style={btn} disabled={loadingScan}>
+              {loadingScan ? "Scanning…" : "Scan"}
+            </button>
+          </div>
+
+          {scanErr ? <div style={warnBox}>{scanErr}</div> : null}
+
+          {scanRows.length ? (
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              {scanRows.map((row, idx) => (
+                <div key={`${row.symbol}-${idx}`} style={miniCardStyle}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ fontWeight: 800 }}>
+                      {row.symbol}{" "}
+                      <span style={{ opacity: 0.75, fontWeight: 600 }}>
+                        ({row.kind})
+                      </span>
+                    </div>
+                    <div style={{ opacity: 0.85 }}>
+                      opp dist: <strong>{formatNum(row.oppositionDist, 3)}°</strong>
+                    </div>
+                  </div>
+
+                  <div style={miniRow}>
+                    <div>
+                      time: <strong>{formatNum(row.timeDeg, 3)}°</strong>
+                    </div>
+                    <div>
+                      price: <strong>{formatNum(row.priceDeg, 3)}°</strong>
+                    </div>
+                    <div>
+                      anchor: <strong>{formatNum(row.anchor, 6)}</strong> ({String(row.anchorSource).toUpperCase()})
+                    </div>
+                    <div>
+                      price: <strong>{formatNum(row.price, 6)}</strong>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-          ) : null}
+          ) : scanErr ? null : (
+            <div style={{ marginTop: 12, opacity: 0.75, fontSize: 12 }}>No results yet.</div>
+          )}
         </div>
-      ) : null}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {(data.targets ?? []).map((t: any) => (
-          <div key={t.angle} style={miniCardStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ fontWeight: 600 }}>{t.angle}°</div>
-              <div style={{ opacity: 0.85 }}>Δ√ = {formatNum(t.deltaSqrt)}</div>
-            </div>
-
-            <div style={{ marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
-              <div>
-                Up: <strong>{formatNum(t.up)}</strong>
-              </div>
-              <div>
-                Down: <strong>{formatNum(t.down)}</strong>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={helpStyle}>
-        Basic read: angles are “structure.” The marker is “timing.” Targets are “levels.” You’re watching where timing + levels converge.
       </div>
     </div>
   );
 }
 
-function PersonalPanel({ data }: { data: any }) {
-  return (
-    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Anchor: <strong>{String(data.anchorDateTime)}</strong>
-      </div>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Cycle: <strong>{formatNum(data.cycleDays)}</strong> days
-      </div>
-
-      <div style={miniCardStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ fontWeight: 600 }}>Now position</div>
-          <div style={{ opacity: 0.85 }}>{formatNum(data.markerDeg)}°</div>
-        </div>
-        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-          Cycle progress: <strong>{Math.round((data.progress01 ?? 0) * 100)}%</strong>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {(data.nextBoundaries ?? []).map((b: any) => (
-          <div key={b.angle} style={miniCardStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ fontWeight: 600 }}>{b.angle}° next</div>
-              <div style={{ opacity: 0.85 }}>{String(b.at)}</div>
-            </div>
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-              In: <strong>{b.inHours}</strong> hours
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={helpStyle}>Personal use: you’re tracking context shifts as you cross key angles.</div>
-    </div>
-  );
-}
-
-/* -------------------- Helpers -------------------- */
-
-// shortest signed diff a-b in (-180,180]
-function signedAngleDiffDeg(a: number, b: number) {
-  const d = ((a - b + 540) % 360) - 180;
-  return d === -180 ? 180 : d;
-}
-
-function getLeadReadout(timeDeg: number | null, priceDeg: number | null | undefined, tolDeg: number) {
-  if (timeDeg == null || priceDeg == null) return null;
-  if (!Number.isFinite(timeDeg) || !Number.isFinite(priceDeg)) return null;
-
-  const d = signedAngleDiffDeg(timeDeg, priceDeg); // + means time ahead of price (clockwise)
-  const abs = Math.abs(d);
-
-  if (abs <= tolDeg) return { label: "IN SYNC", gapDeg: abs };
-  if (d > 0) return { label: "TIME LEADS", gapDeg: abs };
-  return { label: "PRICE LEADS", gapDeg: abs };
-}
-
-function polarToXY_West0_CW(cx: number, cy: number, r: number, deg: number) {
-  const a = ((deg + 180) * Math.PI) / 180;
-  return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
-}
-
-function wedgePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  const p1 = polarToXY_West0_CW(cx, cy, r, startDeg);
-  const p2 = polarToXY_West0_CW(cx, cy, r, endDeg);
-  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-
-  return [`M ${cx} ${cy}`, `L ${p1.x} ${p1.y}`, `A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y}`, "Z"].join(" ");
-}
-
-function diamondPath(x: number, y: number, r: number) {
-  return `M ${x} ${y - r} L ${x + r} ${y} L ${x} ${y + r} L ${x - r} ${y} Z`;
-}
-
-function formatNum(n: any) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return String(n);
-  return x.toLocaleString(undefined, { maximumFractionDigits: 6 });
-}
-
-function decimalsFromTick(tick: number) {
-  const s = String(tick);
-  const i = s.indexOf(".");
-  return i === -1 ? 0 : Math.min(12, s.length - i - 1);
-}
-
-/* -------------------- Styles -------------------- */
-
-const pageStyle: CSSProperties = {
-  minHeight: "100vh",
-  background: "#1B1F24",
-  padding: "24px 12px",
-  display: "flex",
-  justifyContent: "center",
-  color: "#EDE3CC",
-  fontFamily: "system-ui",
+/** styles */
+const page: React.CSSProperties = {
+  padding: 18,
+  color: "rgba(255,255,255,0.92)",
 };
 
-const wrapStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: 1100,
-  display: "flex",
-  flexDirection: "column",
-  gap: 16,
-};
-
-const topBarStyle: CSSProperties = {
+const topBar: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-  background: "#222933",
-  borderRadius: 16,
-  padding: "12px 14px",
-  border: "1px solid rgba(58,69,80,0.9)",
-};
-
-const gridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1.2fr 1fr",
   gap: 14,
+  flexWrap: "wrap",
+  alignItems: "flex-start",
+  padding: 14,
+  borderRadius: 18,
+  border: "1px solid rgba(255,255,255,0.10)",
+  background: "rgba(255,255,255,0.04)",
+  marginBottom: 14,
 };
 
-const panelStyle: CSSProperties = {
-  background: "#243039",
-  borderRadius: 20,
-  border: "1px solid rgba(58,69,80,0.9)",
-  boxShadow: "0 12px 30px rgba(0,0,0,0.4)",
-  overflow: "hidden",
-  minHeight: 420,
+const h1: React.CSSProperties = {
+  fontWeight: 900,
+  letterSpacing: 0.3,
+  fontSize: 18,
 };
 
-const panelHeaderStyle: CSSProperties = {
-  padding: "12px 14px",
-  borderBottom: "1px solid rgba(58,69,80,0.6)",
-  fontWeight: 700,
-  letterSpacing: 0.2,
-};
-
-const panelSubHeaderStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 12,
-  border: "1px solid rgba(58,69,80,0.6)",
-  background: "rgba(0,0,0,0.14)",
-  fontWeight: 700,
-  fontSize: 12,
-  opacity: 0.95,
-  marginBottom: 10,
-};
-
-const inputStyle: CSSProperties = {
-  background: "#1B1F24",
-  border: "1px solid #3a4550",
-  borderRadius: 8,
-  padding: "8px 10px",
-  color: "#EDE3CC",
-  fontSize: 13,
-  outline: "none",
-};
-
-const buttonStyle: CSSProperties = {
-  background: "transparent",
-  border: "1px solid #3a4550",
-  borderRadius: 999,
-  padding: "7px 12px",
-  color: "#EDE3CC",
-  fontSize: 12,
-  cursor: "pointer",
-};
-
-const segWrapStyle: CSSProperties = {
+const pillGroup: React.CSSProperties = {
   display: "inline-flex",
-  border: "1px solid rgba(58,69,80,0.9)",
   borderRadius: 999,
   overflow: "hidden",
+  border: "1px solid rgba(255,255,255,0.12)",
 };
 
-const segBtnStyle: CSSProperties = {
+const pillBtn: React.CSSProperties = {
   background: "transparent",
   border: "none",
-  color: "#EDE3CC",
+  color: "rgba(255,255,255,0.78)",
   padding: "8px 12px",
+  cursor: "pointer",
+  fontSize: 12,
+};
+
+const pillBtnOn: React.CSSProperties = {
+  background: "rgba(255,255,255,0.10)",
+  color: "rgba(255,255,255,0.92)",
+};
+
+const field: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  minWidth: 150,
+};
+
+const label: React.CSSProperties = {
+  fontSize: 12,
+  color: "rgba(255,255,255,0.70)",
+};
+
+const input: React.CSSProperties = {
+  background: "rgba(0,0,0,0.20)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 12,
+  padding: "10px 12px",
+  color: "rgba(255,255,255,0.92)",
+  outline: "none",
+  fontSize: 13,
+};
+
+const inputWide: React.CSSProperties = { ...input, width: "100%" };
+
+const card: React.CSSProperties = {
+  borderRadius: 22,
+  border: "1px solid rgba(255,255,255,0.10)",
+  background: "rgba(255,255,255,0.04)",
+  overflow: "hidden",
+  marginBottom: 14,
+};
+
+const cardHead: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  padding: "14px 16px",
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
+  alignItems: "center",
+};
+
+const cardTitle: React.CSSProperties = { fontWeight: 900, fontSize: 18 };
+const cardSub: React.CSSProperties = { marginTop: 4, fontSize: 13, opacity: 0.75, maxWidth: 820 };
+
+const cardBodyGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 16,
+  padding: 16,
+};
+
+const fieldBlock: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 8 };
+
+const seg: React.CSSProperties = {
+  display: "inline-flex",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 999,
+  overflow: "hidden",
+};
+
+const segBtn: React.CSSProperties = {
+  background: "transparent",
+  border: "none",
+  padding: "8px 12px",
+  color: "rgba(255,255,255,0.78)",
+  cursor: "pointer",
+  fontSize: 12,
+};
+
+const segBtnOn: React.CSSProperties = {
+  background: "rgba(255,255,255,0.10)",
+  color: "rgba(255,255,255,0.92)",
+};
+
+const btn: React.CSSProperties = {
+  background: "transparent",
+  border: "1px solid rgba(255,255,255,0.14)",
+  color: "rgba(255,255,255,0.90)",
+  borderRadius: 999,
+  padding: "10px 14px",
   fontSize: 12,
   cursor: "pointer",
-  opacity: 0.8,
 };
 
-const segBtnActiveStyle: CSSProperties = {
-  background: "rgba(237,227,204,0.12)",
-  opacity: 1,
-};
-
-const helpStyle: CSSProperties = {
-  marginTop: 12,
-  fontSize: 12,
-  lineHeight: 1.4,
-  opacity: 0.85,
-};
-
-const miniCardStyle: CSSProperties = {
-  background: "rgba(0,0,0,0.18)",
-  border: "1px solid rgba(58,69,80,0.6)",
-  borderRadius: 14,
-  padding: 12,
-};
-
-const errorStyle: CSSProperties = {
-  background: "rgba(255, 80, 80, 0.12)",
-  border: "1px solid rgba(255, 80, 80, 0.35)",
-  borderRadius: 12,
-  padding: 10,
-  color: "#FFB0B0",
-};
-
-const leadPillStyle: CSSProperties = {
-  display: "inline-flex",
-  gap: 6,
-  alignItems: "center",
-  padding: "6px 10px",
+const miniPill: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.12)",
   borderRadius: 999,
-  border: "1px solid rgba(237,227,204,0.22)",
-  background: "rgba(0,0,0,0.16)",
+  padding: "8px 12px",
   fontSize: 12,
-  color: "#EDE3CC",
+  opacity: 0.9,
 };
 
-const midNoteStyle: CSSProperties = {
-  margin: 12,
-  padding: 12,
+const hint: React.CSSProperties = { fontSize: 12, opacity: 0.65 };
+
+const instrument: React.CSSProperties = { fontWeight: 900, letterSpacing: 0.5 };
+
+const errorBox: React.CSSProperties = {
+  margin: 16,
+  padding: 14,
   borderRadius: 14,
-  border: "1px solid rgba(58,69,80,0.6)",
-  background: "rgba(0,0,0,0.14)",
+  border: "1px solid rgba(255,80,80,0.35)",
+  background: "rgba(255,80,80,0.12)",
+  color: "rgba(255,180,180,0.95)",
+};
+
+const resultBox: React.CSSProperties = {
+  margin: 16,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.10)",
+  background: "rgba(0,0,0,0.12)",
+};
+
+const ohlcRow: React.CSSProperties = {
+  marginTop: 10,
   fontSize: 12,
-  lineHeight: 1.45,
-  color: "#EDE3CC",
-  opacity: 0.9,
+  opacity: 0.88,
+  display: "flex",
+  gap: 14,
+  flexWrap: "wrap",
+};
+
+const textarea: React.CSSProperties = {
+  width: "100%",
+  background: "rgba(0,0,0,0.20)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 12,
+  padding: "10px 12px",
+  color: "rgba(255,255,255,0.92)",
+  outline: "none",
+  fontSize: 13,
+  resize: "vertical",
+};
+
+const warnBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid rgba(255,120,120,0.30)",
+  background: "rgba(255,120,120,0.10)",
+  color: "rgba(255,210,210,0.95)",
+};
+
+const miniCardStyle: React.CSSProperties = {
+  borderRadius: 16,
+  border: "1px solid rgba(255,255,255,0.10)",
+  background: "rgba(0,0,0,0.14)",
+  padding: 12,
+};
+
+const miniRow: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 12,
+  opacity: 0.88,
+  display: "flex",
+  gap: 12,
+  flexWrap: "wrap",
 };
