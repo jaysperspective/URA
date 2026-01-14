@@ -110,14 +110,6 @@ function inferPhaseAngleDeg(phaseName?: string) {
 
 /**
  * Map lunar phase -> URA phase 1–8
- * 1 New Moon
- * 2 Waxing Crescent
- * 3 First Quarter
- * 4 Waxing Gibbous
- * 5 Full Moon
- * 6 Waning Gibbous
- * 7 Last Quarter
- * 8 Waning Crescent
  */
 function lunarURAPhaseId(params: { phaseAngleDeg?: number; phaseName?: string }): PhaseId {
   const aRaw =
@@ -126,7 +118,6 @@ function lunarURAPhaseId(params: { phaseAngleDeg?: number; phaseName?: string })
       : inferPhaseAngleDeg(params.phaseName);
 
   const a = normalizeAngle0to360(aRaw);
-
   const idx = Math.floor((a + 22.5) / 45) % 8; // 0..7
   return (idx + 1) as PhaseId;
 }
@@ -134,13 +125,7 @@ function lunarURAPhaseId(params: { phaseAngleDeg?: number; phaseName?: string })
 /**
  * MoonDisc rendering
  */
-function MoonDisc({
-  phaseName,
-  phaseAngleDeg,
-}: {
-  phaseName: string;
-  phaseAngleDeg?: number;
-}) {
+function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleDeg?: number }) {
   const aRaw =
     typeof phaseAngleDeg === "number"
       ? normalizeAngle0to360(phaseAngleDeg)
@@ -245,19 +230,60 @@ function Row({ left, right, icon }: { left: string; right: string; icon: string 
   );
 }
 
+// --- robust JSON fetch (prevents HTML 404 / ok:false crashes) ---
+async function fetchOkJson<T>(url: string): Promise<
+  | { ok: true; json: T }
+  | { ok: false; error: string; status?: number; raw?: string; json?: any }
+> {
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: "no-store" });
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+
+  const status = res.status;
+  const text = await res.text();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "Non-JSON response", status, raw: text };
+  }
+
+  if (!res.ok) {
+    return { ok: false, error: parsed?.error ?? `HTTP ${status}`, status, json: parsed };
+  }
+
+  if (parsed?.ok !== true) {
+    return { ok: false, error: parsed?.error ?? "ok:false", status, json: parsed };
+  }
+
+  return { ok: true, json: parsed as T };
+}
+
 export default function CalendarClient() {
   const [ymd, setYmd] = useState<string | null>(null);
   const [data, setData] = useState<CalendarAPI | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function load(targetYmd?: string) {
     setLoading(true);
+    setError(null);
     try {
       const url = targetYmd ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}` : "/api/calendar";
-      const res = await fetch(url, { cache: "no-store" });
-      const json = (await res.json()) as CalendarAPI;
-      setData(json);
-      setYmd(json.gregorian.ymd);
+      const r = await fetchOkJson<CalendarAPI>(url);
+
+      if (!r.ok) {
+        setData(null);
+        setError(r.error);
+        return;
+      }
+
+      setData(r.json);
+      setYmd(r.json?.gregorian?.ymd ?? null);
     } finally {
       setLoading(false);
     }
@@ -270,7 +296,10 @@ export default function CalendarClient() {
   function nav(deltaDays: number) {
     if (!ymd) return;
 
-    const [yy, mm, dd] = ymd.split("-").map(Number);
+    const parts = ymd.split("-").map(Number);
+    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return;
+
+    const [yy, mm, dd] = parts;
     const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
     d.setUTCDate(d.getUTCDate() + deltaDays);
 
@@ -282,11 +311,10 @@ export default function CalendarClient() {
   }
 
   const header = useMemo(() => {
-    if (!data?.ok) return { top: "CURRENT", mid: "—" };
-    return { top: "CURRENT", mid: data.lunar.phaseName };
-  }, [data]);
+    const mid = data?.lunar?.phaseName ?? "—";
+    return { top: "CURRENT", mid };
+  }, [data?.lunar?.phaseName]);
 
-  // Solar phase microcopy (still used for tooltips + chips only)
   const solarPhaseCopy = useMemo(() => {
     const p = data?.solar?.phase;
     if (typeof p === "number" && p >= 1 && p <= 8) return microcopyForPhase(p as PhaseId);
@@ -317,7 +345,10 @@ export default function CalendarClient() {
   const trackBg = "rgba(31,36,26,0.18)";
   const fillBg = "rgba(31,36,26,0.55)";
 
-  const sunSignShort = useMemo(() => sunSignShortFromSunPos(data?.astro?.sunPos), [data?.astro?.sunPos]);
+  const sunSignShort = useMemo(
+    () => sunSignShortFromSunPos(data?.astro?.sunPos),
+    [data?.astro?.sunPos]
+  );
 
   const solarPhaseId = typeof data?.solar?.phase === "number" ? data.solar.phase : null;
 
@@ -335,11 +366,30 @@ export default function CalendarClient() {
   const sunText = data?.astro?.sunPos ?? "—";
   const ontology = null;
 
+  const markers = data?.lunation?.markers ?? [];
+
   return (
     <div className="space-y-5">
       <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
         <div className="text-sm tracking-widest" style={{ color: C.inkSoft }}>
           {header.top}
+        </div>
+
+        {/* error strip */}
+        <div className="mt-3">
+          {error ? (
+            <div
+              className="mx-auto max-w-[520px] rounded-2xl border px-4 py-3 text-left text-sm"
+              style={{
+                borderColor: C.border,
+                background: "rgba(244,235,221,0.70)",
+                color: C.ink,
+              }}
+            >
+              <div className="font-semibold">Calendar data unavailable</div>
+              <div style={{ color: C.inkMuted }}>{error}</div>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-5 flex justify-center">
@@ -386,7 +436,7 @@ export default function CalendarClient() {
             <div className="mt-1 text-sm" style={{ color: C.inkMuted }}>
               As of{" "}
               <span style={{ color: C.ink }} className="opacity-85">
-                {data?.gregorian.asOfLocal ?? "—"}
+                {data?.gregorian?.asOfLocal ?? "—"}
               </span>
             </div>
             <div className="text-sm" style={{ color: C.inkMuted }}>
@@ -411,7 +461,7 @@ export default function CalendarClient() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-              {(data?.lunation.markers ?? []).map((m) => (
+              {markers.map((m) => (
                 <div key={m.kind} className="space-y-2">
                   <div style={{ color: C.ink }} className="text-2xl opacity-80">
                     {iconFor(m.kind)}
@@ -427,6 +477,11 @@ export default function CalendarClient() {
                   </div>
                 </div>
               ))}
+              {!markers.length ? (
+                <div className="col-span-2 md:col-span-4 text-center text-sm" style={{ color: C.inkMuted }}>
+                  Moon phase markers unavailable.
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -492,12 +547,15 @@ export default function CalendarClient() {
 
             <div className="mt-2 text-sm" style={{ color: C.ink }}>
               Full Lunar Cycle <span className="font-semibold">0</span> • Lunar Day{" "}
-              <span className="font-semibold">{data?.lunar?.lunarDay ?? "—"}</span> ({data?.lunar?.phaseName ?? "—"})
+              <span className="font-semibold">{data?.lunar?.lunarDay ?? "—"}</span>{" "}
+              ({data?.lunar?.phaseName ?? "—"})
             </div>
 
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
               Age:{" "}
-              {typeof data?.lunar?.lunarAgeDays === "number" ? `${data.lunar.lunarAgeDays.toFixed(2)} days` : "—"}{" "}
+              {typeof data?.lunar?.lunarAgeDays === "number"
+                ? `${data.lunar.lunarAgeDays.toFixed(2)} days`
+                : "—"}{" "}
               <span style={{ color: C.inkSoft }}>•</span> Lunar Day {data?.lunar?.lunarDay ?? "—"}
             </div>
 
@@ -508,7 +566,8 @@ export default function CalendarClient() {
                   background: fillBg,
                   width:
                     typeof data?.lunar?.lunarAgeDays === "number" &&
-                    typeof data?.lunar?.synodicMonthDays === "number"
+                    typeof data?.lunar?.synodicMonthDays === "number" &&
+                    data.lunar.synodicMonthDays > 0
                       ? `${Math.round((data.lunar.lunarAgeDays / data.lunar.synodicMonthDays) * 100)}%`
                       : "0%",
                 }}
@@ -525,7 +584,6 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        {/* ✅ Single source of truth: URA Foundation (PhaseMicrocopyCard removed) */}
         <div className="mt-4 text-left">
           <URAFoundationPanel
             solarPhaseId={solarPhaseId}
@@ -563,9 +621,9 @@ export default function CalendarClient() {
         </div>
 
         <div className="mt-5 text-xs" style={{ color: C.inkMuted }}>
-          {loading ? "…" : data?.solar.label ?? ""}
+          {loading ? "…" : data?.solar?.label ?? ""}
           <span style={{ color: C.inkSoft }}> • </span>
-          {data?.lunar.label ?? ""}
+          {data?.lunar?.label ?? ""}
         </div>
       </div>
 
@@ -577,7 +635,7 @@ export default function CalendarClient() {
         }}
       >
         <div style={{ borderBottom: `1px solid ${C.divider}` }}>
-          <Row left="Current Calendar" right={data?.solar.label ?? "—"} icon="⟐" />
+          <Row left="Current Calendar" right={data?.solar?.label ?? "—"} icon="⟐" />
         </div>
 
         <div style={{ borderBottom: `1px solid ${C.divider}` }}>
