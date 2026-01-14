@@ -39,7 +39,9 @@ function addDaysYMD(ymd: string, deltaDays: number) {
 
 async function fetchPolygonBarsAroundNYDay(symbol: string, pivotNYDay: string) {
   const apiKey = process.env.POLYGON_API_KEY;
-  if (!apiKey) return { ok: false as const, error: "Missing POLYGON_API_KEY in .env.local" };
+  if (!apiKey) {
+    return { ok: false as const, error: "Missing POLYGON_API_KEY in .env.local" };
+  }
 
   // Wider buffer so we reliably get Prior/Pivot/Next mapped to NY day labels
   const from = addDaysYMD(pivotNYDay, -2);
@@ -52,7 +54,10 @@ async function fetchPolygonBarsAroundNYDay(symbol: string, pivotNYDay: string) {
   const r = await fetch(url, { next: { revalidate: 0 } });
   if (!r.ok) {
     const text = await r.text().catch(() => "");
-    return { ok: false as const, error: `Polygon error (${r.status}): ${text || r.statusText}` };
+    return {
+      ok: false as const,
+      error: `Polygon error (${r.status}): ${text || r.statusText}`,
+    };
   }
 
   const j: any = await r.json();
@@ -104,11 +109,16 @@ async function fetchCoinbase3Day(productId: string, pivotUTCYMD: string) {
 
   if (!r.ok) {
     const text = await r.text().catch(() => "");
-    return { ok: false as const, error: `Coinbase error (${r.status}): ${text || r.statusText}` };
+    return {
+      ok: false as const,
+      error: `Coinbase error (${r.status}): ${text || r.statusText}`,
+    };
   }
 
   const rows: any[] = await r.json();
-  if (!Array.isArray(rows)) return { ok: false as const, error: "Coinbase returned non-array candles" };
+  if (!Array.isArray(rows)) {
+    return { ok: false as const, error: "Coinbase returned non-array candles" };
+  }
 
   const norm = rows
     .map((a) => ({
@@ -171,8 +181,8 @@ export async function POST(req: Request) {
       const res = await fetchCoinbase3Day(symbolRaw, pivotUTCYMD);
       if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: 502 });
 
+      // ✅ no "ok: true" here because res already has ok:true
       return NextResponse.json({
-        ok: true,
         kind: "crypto",
         symbol: symbolRaw.toUpperCase(),
         pivotISO,
@@ -184,8 +194,8 @@ export async function POST(req: Request) {
       const res = await fetchPolygonBarsAroundNYDay(symbolRaw, pivotNYDay);
       if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: 502 });
 
+      // ✅ no "ok: true" here because res already has ok:true
       return NextResponse.json({
-        ok: true,
         kind: "stock",
         symbol: symbolRaw.toUpperCase(),
         pivotISO,
@@ -194,6 +204,9 @@ export async function POST(req: Request) {
       });
     }
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ? String(e.message) : "Unknown error" },
+      { status: 500 }
+    );
   }
 }
