@@ -12,8 +12,7 @@ type Candle = {
 };
 
 function isCryptoSymbol(symbolRaw: string) {
-  const s = symbolRaw.toUpperCase().trim();
-  return s.includes("-");
+  return symbolRaw.toUpperCase().trim().includes("-");
 }
 
 function ymdInTimeZone(date: Date, timeZone: string) {
@@ -30,111 +29,86 @@ function ymdInTimeZone(date: Date, timeZone: string) {
   return `${y}-${m}-${d}`;
 }
 
-function addDaysUTC(ymd: string, deltaDays: number) {
+// Calendar-day math on YYYY-MM-DD (timezone-agnostic, DST-proof)
+function addDaysYMD(ymd: string, deltaDays: number) {
   const [y, m, d] = ymd.split("-").map((n) => parseInt(n, 10));
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + deltaDays);
   return ymdInTimeZone(dt, "UTC");
 }
 
-async function fetchPolygon3Day(symbol: string, sessionYMD: string) {
+async function fetchPolygonBarsAroundNYDay(symbol: string, pivotNYDay: string) {
   const apiKey = process.env.POLYGON_API_KEY;
-  if (!apiKey) {
-    return { ok: false as const, error: "Missing POLYGON_API_KEY in .env.local" };
-  }
+  if (!apiKey) return { ok: false as const, error: "Missing POLYGON_API_KEY in .env.local" };
 
-  const from = addDaysUTC(sessionYMD, -1);
-  const to = addDaysUTC(sessionYMD, +1);
+  // Wider buffer so we reliably get Prior/Pivot/Next mapped to NY day labels
+  const from = addDaysYMD(pivotNYDay, -2);
+  const to = addDaysYMD(pivotNYDay, +2);
 
-  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(
-    symbol.toUpperCase().trim()
-  )}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
+  const url =
+    `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.toUpperCase().trim())}` +
+    `/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50000&apiKey=${encodeURIComponent(apiKey)}`;
 
   const r = await fetch(url, { next: { revalidate: 0 } });
   if (!r.ok) {
     const text = await r.text().catch(() => "");
-    return {
-      ok: false as const,
-      error: `Polygon error (${r.status}): ${text || r.statusText}`,
-    };
+    return { ok: false as const, error: `Polygon error (${r.status}): ${text || r.statusText}` };
   }
-  const j = await r.json();
 
-  const rows: Array<any> = Array.isArray(j?.results) ? j.results : [];
-  const byYMD = new Map<string, any>();
+  const j: any = await r.json();
+  const rows: any[] = Array.isArray(j?.results) ? j.results : [];
 
-  // Map each bar to NY session day
+  // Map each bar timestamp -> NY calendar day label
+  const byNYDay = new Map<string, any>();
   for (const row of rows) {
     const t = typeof row?.t === "number" ? row.t : null;
     if (!t) continue;
-    const ymdNY = ymdInTimeZone(new Date(t), "America/New_York");
-    byYMD.set(ymdNY, row);
+    const nyDay = ymdInTimeZone(new Date(t), "America/New_York");
+    byNYDay.set(nyDay, row);
   }
 
-  const priorNY = ymdInTimeZone(
-    new Date(Date.parse(`${sessionYMD}T00:00:00Z`) - 24 * 3600 * 1000),
-    "America/New_York"
-  );
-  const pivotNY = sessionYMD;
-  const nextNY = ymdInTimeZone(
-    new Date(Date.parse(`${sessionYMD}T00:00:00Z`) + 24 * 3600 * 1000),
-    "America/New_York"
-  );
+  const priorNY = addDaysYMD(pivotNYDay, -1);
+  const nextNY = addDaysYMD(pivotNYDay, +1);
 
-  const prior = byYMD.get(priorNY);
-  const pivot = byYMD.get(pivotNY);
-  const next = byYMD.get(nextNY);
+  const prior = byNYDay.get(priorNY);
+  const pivot = byNYDay.get(pivotNYDay);
+  const next = byNYDay.get(nextNY);
 
   const out: Candle[] = [];
-
-  if (prior) {
-    out.push({ dayKey: priorNY, label: "Prior", o: prior.o, h: prior.h, l: prior.l, c: prior.c, v: prior.v });
-  }
-  if (pivot) {
-    out.push({ dayKey: pivotNY, label: "Pivot", o: pivot.o, h: pivot.h, l: pivot.l, c: pivot.c, v: pivot.v });
-  }
-  if (next) {
-    out.push({ dayKey: nextNY, label: "Next", o: next.o, h: next.h, l: next.l, c: next.c, v: next.v });
-  }
+  if (prior) out.push({ dayKey: priorNY, label: "Prior", o: prior.o, h: prior.h, l: prior.l, c: prior.c, v: prior.v });
+  if (pivot) out.push({ dayKey: pivotNYDay, label: "Pivot", o: pivot.o, h: pivot.h, l: pivot.l, c: pivot.c, v: pivot.v });
+  if (next) out.push({ dayKey: nextNY, label: "Next", o: next.o, h: next.h, l: next.l, c: next.c, v: next.v });
 
   return {
     ok: true as const,
     provider: "polygon" as const,
     timezoneUsed: "America/New_York" as const,
-    sessionDayYMD: sessionYMD,
+    sessionDayYMD: pivotNYDay,
     candles: out,
     rawCount: rows.length,
   };
 }
 
 async function fetchCoinbase3Day(productId: string, pivotUTCYMD: string) {
-  const startUTC = `${addDaysUTC(pivotUTCYMD, -1)}T00:00:00Z`;
-  const endUTC = `${addDaysUTC(pivotUTCYMD, +2)}T00:00:00Z`;
+  const startUTC = `${addDaysYMD(pivotUTCYMD, -1)}T00:00:00Z`;
+  const endUTC = `${addDaysYMD(pivotUTCYMD, +2)}T00:00:00Z`;
 
-  const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(
-    productId.toUpperCase().trim()
-  )}/candles?granularity=86400&start=${encodeURIComponent(startUTC)}&end=${encodeURIComponent(endUTC)}`;
+  const url =
+    `https://api.exchange.coinbase.com/products/${encodeURIComponent(productId.toUpperCase().trim())}` +
+    `/candles?granularity=86400&start=${encodeURIComponent(startUTC)}&end=${encodeURIComponent(endUTC)}`;
 
   const r = await fetch(url, {
-    headers: {
-      "User-Agent": "URA-Gann-Chart/1.0",
-      Accept: "application/json",
-    },
+    headers: { "User-Agent": "URA-Gann-Chart/1.0", Accept: "application/json" },
     next: { revalidate: 0 },
   });
 
   if (!r.ok) {
     const text = await r.text().catch(() => "");
-    return {
-      ok: false as const,
-      error: `Coinbase error (${r.status}): ${text || r.statusText}`,
-    };
+    return { ok: false as const, error: `Coinbase error (${r.status}): ${text || r.statusText}` };
   }
 
   const rows: any[] = await r.json();
-  if (!Array.isArray(rows)) {
-    return { ok: false as const, error: "Coinbase returned non-array candles" };
-  }
+  if (!Array.isArray(rows)) return { ok: false as const, error: "Coinbase returned non-array candles" };
 
   const norm = rows
     .map((a) => ({
@@ -154,8 +128,8 @@ async function fetchCoinbase3Day(productId: string, pivotUTCYMD: string) {
     byYMD.set(ymd, row);
   }
 
-  const priorYMD = addDaysUTC(pivotUTCYMD, -1);
-  const nextYMD = addDaysUTC(pivotUTCYMD, +1);
+  const priorYMD = addDaysYMD(pivotUTCYMD, -1);
+  const nextYMD = addDaysYMD(pivotUTCYMD, +1);
 
   const prior = byYMD.get(priorYMD);
   const pivot = byYMD.get(pivotUTCYMD);
@@ -182,12 +156,8 @@ export async function POST(req: Request) {
     const symbolRaw = String(body?.symbol ?? "").trim();
     const pivotISO = String(body?.pivotISO ?? "").trim();
 
-    if (!symbolRaw) {
-      return NextResponse.json({ ok: false, error: "Missing symbol" }, { status: 400 });
-    }
-    if (!pivotISO) {
-      return NextResponse.json({ ok: false, error: "Missing pivotISO" }, { status: 400 });
-    }
+    if (!symbolRaw) return NextResponse.json({ ok: false, error: "Missing symbol" }, { status: 400 });
+    if (!pivotISO) return NextResponse.json({ ok: false, error: "Missing pivotISO" }, { status: 400 });
 
     const pivotDate = new Date(pivotISO);
     if (Number.isNaN(pivotDate.getTime())) {
@@ -201,8 +171,8 @@ export async function POST(req: Request) {
       const res = await fetchCoinbase3Day(symbolRaw, pivotUTCYMD);
       if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: 502 });
 
-      // NOTE: no duplicate ok key — res already includes ok:true
       return NextResponse.json({
+        ok: true,
         kind: "crypto",
         symbol: symbolRaw.toUpperCase(),
         pivotISO,
@@ -210,12 +180,12 @@ export async function POST(req: Request) {
         ...res,
       });
     } else {
-      const sessionYMD = ymdInTimeZone(pivotDate, "America/New_York");
-      const res = await fetchPolygon3Day(symbolRaw, sessionYMD);
+      const pivotNYDay = ymdInTimeZone(pivotDate, "America/New_York");
+      const res = await fetchPolygonBarsAroundNYDay(symbolRaw, pivotNYDay);
       if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: 502 });
 
-      // NOTE: no duplicate ok key — res already includes ok:true
       return NextResponse.json({
+        ok: true,
         kind: "stock",
         symbol: symbolRaw.toUpperCase(),
         pivotISO,
@@ -224,9 +194,6 @@ export async function POST(req: Request) {
       });
     }
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ? String(e.message) : "Unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });
   }
 }
