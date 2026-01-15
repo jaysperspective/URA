@@ -98,6 +98,13 @@ const MOON_PHASES_8: Array<{ id: PhaseId; name: string; glyph: string; boundaryD
   { id: 8, name: "Waning Crescent", glyph: "◗", boundaryDeg: 315 },
 ];
 
+function iconFor(kind: Marker["kind"]) {
+  if (kind === "New Moon") return "◯";
+  if (kind === "First Quarter") return "◐";
+  if (kind === "Full Moon") return "●";
+  return "◑";
+}
+
 function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleDeg?: number }) {
   const aRaw =
     typeof phaseAngleDeg === "number"
@@ -165,14 +172,7 @@ function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleD
           <circle cx={110 + dx * 0.92} cy="110" r={r} fill="rgba(10,14,24,0.06)" />
         </g>
 
-        <circle
-          cx="110"
-          cy="110"
-          r="100"
-          fill="none"
-          stroke="rgba(255,255,255,0.18)"
-          strokeWidth="1.5"
-        />
+        <circle cx="110" cy="110" r="100" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" />
       </svg>
 
       <div className="sr-only">{phaseName}</div>
@@ -183,11 +183,9 @@ function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleD
 function normalizeCalendarPayload(raw: any): CalendarAPI | null {
   if (!raw || typeof raw !== "object") return null;
 
-  // allow: {ok:true, ...fields} OR {ok:true, data:{...}} OR {ok:true, calendar:{...}}
   const candidate = raw?.gregorian ? raw : raw?.data?.gregorian ? raw.data : raw?.calendar?.gregorian ? raw.calendar : null;
   if (!candidate) return null;
 
-  // require minimum fields we render a lot
   if (!candidate?.gregorian?.ymd || !candidate?.gregorian?.asOfLocal) return null;
   if (!candidate?.lunar?.phaseName) return null;
 
@@ -295,6 +293,8 @@ export default function MoonClient() {
   const currentMoonPhaseName =
     MOON_PHASES_8.find((p) => p.id === lunarPhaseId)?.name ?? (data?.lunar?.phaseName ?? "—");
 
+  const markers = data?.lunation?.markers ?? [];
+
   return (
     <div className="space-y-5">
       <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
@@ -381,8 +381,44 @@ export default function MoonClient() {
               </span>
             </div>
             <div className="mt-2 text-xs" style={{ color: M.inkSoft }}>
-              Lunar Day:{" "}
-              <span style={{ color: M.inkMuted }}>{data?.lunar?.lunarDay ?? "—"}</span>
+              Lunar Day: <span style={{ color: M.inkMuted }}>{data?.lunar?.lunarDay ?? "—"}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ✅ Moved from Calendar: upcoming 4 key markers */}
+        <div className="mt-5 text-left">
+          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
+            <div
+              className="text-xs tracking-widest text-center"
+              style={{ color: M.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
+              MOON PHASE MARKERS
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+              {markers.map((m) => (
+                <div key={m.kind} className="space-y-2">
+                  <div style={{ color: M.ink }} className="text-2xl opacity-80">
+                    {iconFor(m.kind)}
+                  </div>
+                  <div style={{ color: M.inkMuted }} className="text-xs">
+                    {m.kind}
+                  </div>
+                  <div style={{ color: M.ink }} className="text-sm font-semibold">
+                    {m.degreeText}
+                  </div>
+                  <div style={{ color: M.inkMuted }} className="text-xs">
+                    {m.whenLocal}
+                  </div>
+                </div>
+              ))}
+
+              {!markers.length ? (
+                <div className="col-span-2 md:col-span-4 text-center text-sm" style={{ color: M.inkMuted }}>
+                  Moon phase markers unavailable.
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -434,20 +470,13 @@ export default function MoonClient() {
 
             <div className="mt-4 text-sm text-center" style={{ color: M.inkMuted }}>
               Lunar URA lens:{" "}
-              <span style={{ color: M.ink, fontWeight: 700 }}>{lunarCopy.orisha}</span> —{" "}
-              {lunarCopy.oneLine}
+              <span style={{ color: M.ink, fontWeight: 700 }}>{lunarCopy.orisha}</span> — {lunarCopy.oneLine}
             </div>
           </div>
         </div>
 
         <div className="mt-4 text-left">
-          <PhaseMicrocopyCard
-            copy={lunarCopy}
-            tone="linen"
-            defaultExpanded={false}
-            showJournal={true}
-            showActionHint={true}
-          />
+          <PhaseMicrocopyCard copy={lunarCopy} tone="linen" defaultExpanded={false} showJournal={true} showActionHint={true} />
         </div>
 
         <div className="mt-6 flex items-center justify-between">
