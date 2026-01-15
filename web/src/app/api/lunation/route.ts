@@ -81,25 +81,99 @@ function buildLunationText(core: any) {
   return lines.join("\n");
 }
 
+async function postToCore(base: string, body: string, contentType: string) {
+  const r = await fetch(`${base}/api/core`, {
+    method: "POST",
+    headers: {
+      "content-type": contentType || "text/plain",
+      "cache-control": "no-store",
+    },
+    body,
+    cache: "no-store",
+  });
+
+  const core = await r.json().catch(async () => {
+    const raw = await r.text().catch(() => "");
+    return { ok: false, error: "Non-JSON response from /api/core", raw };
+  });
+
+  return { r, core };
+}
+
+/**
+ * ✅ GET support
+ * - If query params exist, we proxy them into /api/core by sending a JSON body.
+ * - If no params, we return a safe minimal payload so callers don't break.
+ */
+export async function GET(req: Request) {
+  try {
+    const base = getAppBaseUrl();
+    const url = new URL(req.url);
+
+    // Optional inputs (only used if provided)
+    const birth_datetime = url.searchParams.get("birth_datetime");
+    const tz_offset = url.searchParams.get("tz_offset");
+    const as_of_date = url.searchParams.get("as_of_date");
+
+    // If nothing provided, return a stable shape instead of 405.
+    if (!birth_datetime && !tz_offset && !as_of_date) {
+      return NextResponse.json(
+        {
+          ok: true,
+          mode: "empty",
+          text: "URA • Progressed Lunation Model\n\n(no input provided)",
+          summary: null,
+          lunation: null,
+          input: null,
+        },
+        { status: 200, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    // Build a JSON body for /api/core (adjust fields to your core schema if needed)
+    const payload: any = {};
+    if (birth_datetime) payload.birth_datetime = birth_datetime;
+    if (tz_offset) payload.tz_offset = tz_offset;
+    if (as_of_date) payload.as_of_date = as_of_date;
+
+    const body = JSON.stringify(payload);
+
+    const { r, core } = await postToCore(base, body, "application/json");
+
+    if (!r.ok || core?.ok === false) {
+      return NextResponse.json(
+        { ok: false, error: core?.error || `core failed (${r.status})`, core },
+        { status: 500, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        text: buildLunationText(core),
+        summary: core?.derived?.summary ?? null,
+        lunation: core?.derived?.lunation ?? null,
+        input: core?.input ?? payload ?? null,
+      },
+      { status: 200, headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+}
+
+/**
+ * ✅ Existing POST behavior preserved
+ */
 export async function POST(req: Request) {
   try {
     const body = await req.text();
     const base = getAppBaseUrl();
 
-    const r = await fetch(`${base}/api/core`, {
-      method: "POST",
-      headers: {
-        "content-type": req.headers.get("content-type") || "text/plain",
-        "cache-control": "no-store",
-      },
-      body,
-      cache: "no-store",
-    });
-
-    const core = await r.json().catch(async () => {
-      const raw = await r.text().catch(() => "");
-      return { ok: false, error: "Non-JSON response from /api/core", raw };
-    });
+    const { r, core } = await postToCore(base, body, req.headers.get("content-type") || "text/plain");
 
     if (!r.ok || core?.ok === false) {
       return NextResponse.json(
