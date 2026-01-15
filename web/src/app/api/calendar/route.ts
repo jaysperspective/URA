@@ -11,6 +11,42 @@ type Marker = {
   isoUTC: string;
 };
 
+/**
+ * ---------------------------
+ * Simple in-memory TTL cache
+ * ---------------------------
+ * NOTE: On your VPS + Node runtime, module scope is typically long-lived.
+ * If the process restarts, cache clears (fine).
+ */
+type CacheEntry<T> = { exp: number; value: T };
+function makeTTLCache<T>() {
+  const map = new Map<string, CacheEntry<T>>();
+  return {
+    get(key: string): T | null {
+      const hit = map.get(key);
+      if (!hit) return null;
+      if (Date.now() > hit.exp) {
+        map.delete(key);
+        return null;
+      }
+      return hit.value;
+    },
+    set(key: string, value: T, ttlMs: number) {
+      map.set(key, { value, exp: Date.now() + ttlMs });
+    },
+    size() {
+      return map.size;
+    },
+  };
+}
+
+const TTL_10_MIN = 10 * 60 * 1000;
+const TTL_30_DAYS = 30 * 24 * 60 * 60 * 1000;
+
+const chartCache = makeTTLCache<{ sunLon: number; moonLon: number; phaseAngleDeg: number }>();
+const ariesIngressCache = makeTTLCache<string>(); // store ISO string
+const markerCache = makeTTLCache<Marker[]>();
+
 function normalize360(deg: number) {
   const v = deg % 360;
   return v < 0 ? v + 360 : v;
@@ -76,7 +112,28 @@ function getAstroServiceChartUrl() {
   return `${base}/chart`;
 }
 
+/**
+ * Stable cache key for chart calls
+ * - minute resolution (your payload is minute-res)
+ * - round lat/lon to 4 decimals to avoid useless cache misses
+ */
+function chartKey(d: Date, lat: number, lon: number) {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+  const hh = d.getUTCHours();
+  const mm = d.getUTCMinutes();
+  const la = Math.round(lat * 10000) / 10000;
+  const lo = Math.round(lon * 10000) / 10000;
+  return `chart:${y}-${m}-${day}T${hh}:${mm}|${la}|${lo}`;
+}
+
 async function chartAtUTC(d: Date, latitude: number, longitude: number) {
+  // ✅ 10-min cache for chart calls
+  const key = chartKey(d, latitude, longitude);
+  const cached = chartCache.get(key);
+  if (cached) return cached;
+
   const chartUrl = getAstroServiceChartUrl();
   const payload = {
     year: d.getUTCFullYear(),
@@ -109,7 +166,10 @@ async function chartAtUTC(d: Date, latitude: number, longitude: number) {
   }
 
   const phaseAngleDeg = normalize360(moonLon - sunLon);
-  return { sunLon, moonLon, phaseAngleDeg };
+  const out = { sunLon, moonLon, phaseAngleDeg };
+
+  chartCache.set(key, out, TTL_10_MIN);
+  return out;
 }
 
 function fmtLocalFromUTC(isoUTC: string, tzOffsetMinEast: number) {
@@ -132,7 +192,7 @@ function fmtLocalFromUTC(isoUTC: string, tzOffsetMinEast: number) {
  * - coarse stepping (default 6 hours)
  * - then binary search in the bracket
  *
- * This is MUCH faster than the previous “hourly for 40 days for each target”.
+ * With chartAtUTC cached, this becomes very fast after warm-up.
  */
 async function findNextMarkerFast(params: {
   startUTC: Date;
@@ -156,18 +216,20 @@ async function findNextMarkerFast(params: {
     const cur = await chartAtUTC(t, latitude, longitude);
     const curDiff = signedDiffDeg(cur.phaseAngleDeg, targetDeg);
 
-    // bracketed a sign change -> crossing in [prevT, t]
-    if (prevDiff === 0 || curDiff === 0 || (prevDiff < 0 && curDiff > 0) || (prevDiff > 0 && curDiff < 0)) {
+    if (
+      prevDiff === 0 ||
+      curDiff === 0 ||
+      (prevDiff < 0 && curDiff > 0) ||
+      (prevDiff > 0 && curDiff < 0)
+    ) {
       let lo = prevT.getTime();
       let hi = t.getTime();
 
-      // binary search to ~1 minute-ish
       for (let k = 0; k < 18; k++) {
         const mid = Math.floor((lo + hi) / 2);
         const midChart = await chartAtUTC(new Date(mid), latitude, longitude);
         const midDiff = signedDiffDeg(midChart.phaseAngleDeg, targetDeg);
 
-        // keep same-side with prevDiff on lo
         if ((prevDiff <= 0 && midDiff <= 0) || (prevDiff >= 0 && midDiff >= 0)) {
           lo = mid;
           prevDiff = midDiff;
@@ -180,12 +242,7 @@ async function findNextMarkerFast(params: {
       const isoUTC = when.toISOString();
       const whenLocal = fmtLocalFromUTC(isoUTC, tzOffsetMin);
 
-      return {
-        kind,
-        isoUTC,
-        whenLocal,
-        degreeText: `${targetDeg}°`,
-      };
+      return { kind, isoUTC, whenLocal, degreeText: `${targetDeg}°` };
     }
 
     prevT = t;
@@ -197,7 +254,7 @@ async function findNextMarkerFast(params: {
 
 /**
  * Solar year start = moment Sun crosses 0° Aries (Vernal Equinox).
- * We find it by bracketing around Mar 18–23, then binary searching.
+ * Cached per year for 30 days.
  */
 async function findAriesIngressUTC(params: {
   year: number;
@@ -206,64 +263,88 @@ async function findAriesIngressUTC(params: {
 }): Promise<Date> {
   const { year, latitude, longitude } = params;
 
-  // bracket window around equinox
+  // ✅ Aries ingress cache (keyed by year + rough location)
+  // Location has tiny effect; if you want “pure geocentric”, you can key only by year.
+  const la = Math.round(latitude * 10) / 10;
+  const lo = Math.round(longitude * 10) / 10;
+  const cacheKey = `ariesIngress:${year}|${la}|${lo}`;
+
+  const cachedISO = ariesIngressCache.get(cacheKey);
+  if (cachedISO) return new Date(cachedISO);
+
   const start = new Date(Date.UTC(year, 2, 18, 0, 0, 0)); // Mar 18
   const end = new Date(Date.UTC(year, 2, 23, 0, 0, 0)); // Mar 23
 
   const startChart = await chartAtUTC(start, latitude, longitude);
-  const endChart = await chartAtUTC(end, latitude, longitude);
 
-  // We want Sun longitude crossing 0 Aries, i.e. lon wrapping past 360->0.
-  // Use signed diff to target 0 and look for sign change.
   let prevT = start;
   let prevDiff = signedDiffDeg(startChart.sunLon, 0);
 
-  // step hourly
   const totalHours = Math.floor((end.getTime() - start.getTime()) / 3600_000);
   for (let i = 1; i <= totalHours; i++) {
     const t = new Date(start.getTime() + i * 3600_000);
     const cur = await chartAtUTC(t, latitude, longitude);
     const curDiff = signedDiffDeg(cur.sunLon, 0);
 
-    if (prevDiff === 0 || curDiff === 0 || (prevDiff < 0 && curDiff > 0) || (prevDiff > 0 && curDiff < 0)) {
-      // binary search
-      let lo = prevT.getTime();
-      let hi = t.getTime();
+    if (
+      prevDiff === 0 ||
+      curDiff === 0 ||
+      (prevDiff < 0 && curDiff > 0) ||
+      (prevDiff > 0 && curDiff < 0)
+    ) {
+      let loMs = prevT.getTime();
+      let hiMs = t.getTime();
+
       for (let k = 0; k < 20; k++) {
-        const mid = Math.floor((lo + hi) / 2);
+        const mid = Math.floor((loMs + hiMs) / 2);
         const midChart = await chartAtUTC(new Date(mid), latitude, longitude);
         const midDiff = signedDiffDeg(midChart.sunLon, 0);
+
         if ((prevDiff <= 0 && midDiff <= 0) || (prevDiff >= 0 && midDiff >= 0)) {
-          lo = mid;
+          loMs = mid;
           prevDiff = midDiff;
         } else {
-          hi = mid;
+          hiMs = mid;
         }
       }
-      return new Date(hi);
+
+      const out = new Date(hiMs);
+      ariesIngressCache.set(cacheKey, out.toISOString(), TTL_30_DAYS);
+      return out;
     }
 
     prevT = t;
     prevDiff = curDiff;
   }
 
-  // Fallback (shouldn't happen): return Mar 20 noon UTC
-  return new Date(Date.UTC(year, 2, 20, 12, 0, 0));
+  // fallback
+  const fallback = new Date(Date.UTC(year, 2, 20, 12, 0, 0));
+  ariesIngressCache.set(cacheKey, fallback.toISOString(), TTL_30_DAYS);
+  return fallback;
 }
 
 function ymdFromDateUTC(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(
-    2,
-    "0"
-  )}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    d.getUTCDate()
+  ).padStart(2, "0")}`;
+}
+
+function markerCacheKey(params: {
+  ymd: string;
+  tzOffsetMin: number;
+  latitude: number;
+  longitude: number;
+}) {
+  const la = Math.round(params.latitude * 1000) / 1000;
+  const lo = Math.round(params.longitude * 1000) / 1000;
+  return `markers:${params.ymd}|tz=${params.tzOffsetMin}|${la}|${lo}`;
 }
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    // Today-only mode: we ignore ymd navigation by default.
-    const ymd = searchParams.get("ymd"); // optional YYYY-MM-DD (still supported)
+    const ymd = searchParams.get("ymd"); // optional YYYY-MM-DD
     const tzOffsetMin = Number(searchParams.get("tzOffsetMin") ?? "0"); // minutes east of UTC
     const latitude = Number(searchParams.get("lat") ?? "0");
     const longitude = Number(searchParams.get("lon") ?? "0");
@@ -273,6 +354,8 @@ export async function GET(req: Request) {
       const [yy, mm, dd] = ymd.split("-").map(Number);
       asOfUTC = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
     }
+
+    const effectiveYMD = ymd ? ymd : ymdFromDateUTC(asOfUTC);
 
     const { sunLon, moonLon, phaseAngleDeg } = await chartAtUTC(asOfUTC, latitude, longitude);
 
@@ -285,7 +368,6 @@ export async function GET(req: Request) {
     const lunarDay = Math.max(1, Math.min(30, Math.floor(lunarAgeDays) + 1));
 
     // === SOLAR YEAR (0° Aries start) ===
-    // If date is Jan/Feb/early Mar, solar year start is last year's Aries ingress.
     const guessYear = asOfUTC.getUTCFullYear();
     const thisYearIngress = await findAriesIngressUTC({ year: guessYear, latitude, longitude });
 
@@ -303,29 +385,52 @@ export async function GET(req: Request) {
       0,
       Math.floor((asOfUTC.getTime() - solarYearStart.getTime()) / 86400000)
     );
-    const yearLength = Math.max(1, Math.round((nextSolarYearStart.getTime() - solarYearStart.getTime()) / 86400000));
+    const yearLength = Math.max(
+      1,
+      Math.round((nextSolarYearStart.getTime() - solarYearStart.getTime()) / 86400000)
+    );
 
     const phase = (Math.floor(dayIndexInSolarYear / 45) % 8) + 1; // 1..8
     const dayInPhase = (dayIndexInSolarYear % 45) + 1; // 1..45
 
-    // === FAST MARKERS ===
-    const [mNew, mFq, mFull, mLq] = await Promise.all([
-      findNextMarkerFast({ startUTC: asOfUTC, targetDeg: 0, kind: "New Moon", latitude, longitude, tzOffsetMin }),
-      findNextMarkerFast({ startUTC: asOfUTC, targetDeg: 90, kind: "First Quarter", latitude, longitude, tzOffsetMin }),
-      findNextMarkerFast({ startUTC: asOfUTC, targetDeg: 180, kind: "Full Moon", latitude, longitude, tzOffsetMin }),
-      findNextMarkerFast({ startUTC: asOfUTC, targetDeg: 270, kind: "Last Quarter", latitude, longitude, tzOffsetMin }),
-    ]);
+    // === MARKERS (cached 10 min) ===
+    const mkKey = markerCacheKey({ ymd: effectiveYMD, tzOffsetMin, latitude, longitude });
+    let markers = markerCache.get(mkKey);
 
-    const markers = [mNew, mFq, mFull, mLq].filter(Boolean) as Marker[];
+    if (!markers) {
+      const [mNew, mFq, mFull, mLq] = await Promise.all([
+        findNextMarkerFast({ startUTC: asOfUTC, targetDeg: 0, kind: "New Moon", latitude, longitude, tzOffsetMin }),
+        findNextMarkerFast({
+          startUTC: asOfUTC,
+          targetDeg: 90,
+          kind: "First Quarter",
+          latitude,
+          longitude,
+          tzOffsetMin,
+        }),
+        findNextMarkerFast({ startUTC: asOfUTC, targetDeg: 180, kind: "Full Moon", latitude, longitude, tzOffsetMin }),
+        findNextMarkerFast({
+          startUTC: asOfUTC,
+          targetDeg: 270,
+          kind: "Last Quarter",
+          latitude,
+          longitude,
+          tzOffsetMin,
+        }),
+      ]);
+
+      markers = [mNew, mFq, mFull, mLq].filter(Boolean) as Marker[];
+      markerCache.set(mkKey, markers, TTL_10_MIN);
+    }
 
     const isoAsOf = asOfUTC.toISOString();
-    const asOfLocal = fmtLocalFromUTC(isoAsOf, tzOffsetMin) + "Z"; // keep your current “Z vibe” but local clock
+    const asOfLocal = fmtLocalFromUTC(isoAsOf, tzOffsetMin) + "Z";
 
     return NextResponse.json({
       ok: true,
       tz: "UTC",
       gregorian: {
-        ymd: ymd ? ymd : ymdFromDateUTC(asOfUTC),
+        ymd: effectiveYMD,
         asOfLocal,
       },
       solar: {
@@ -358,6 +463,8 @@ export async function GET(req: Request) {
         moonEntersLocal: "—",
       },
       lunation: { markers },
+      // Optional debug (comment out once satisfied)
+      // _debug: { chartCacheSize: chartCache.size(), ingressCacheSize: ariesIngressCache.size(), markerCacheSize: markerCache.size() },
     });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message ?? "Unknown error" }, { status: 500 });
