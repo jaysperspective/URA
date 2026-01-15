@@ -24,11 +24,19 @@ type CalendarAPI = {
     kind?: "PHASE" | "INTERPHASE";
     phase?: number;
     dayInPhase?: number;
+
+    // ✅ added by today-only /api/calendar
+    phaseProgress01?: number;
+
     interphaseDay?: number;
     interphaseTotal?: number;
     dayIndexInYear?: number;
     yearLength?: number;
     anchors?: { equinoxLocalDay: string; nextEquinoxLocalDay: string };
+
+    // optional debug fields (harmless if missing)
+    sunLon?: number;
+    sunSign?: string;
   };
 
   lunar: {
@@ -43,6 +51,8 @@ type CalendarAPI = {
   astro: {
     sunPos: string;
     sunLon: number;
+    sunSign?: string;
+
     nextSolar?: {
       nextBoundaryDeg: number;
       nextPhaseAtLocal: string;
@@ -56,6 +66,9 @@ type CalendarAPI = {
   };
 
   lunation: { markers: Marker[] };
+
+  // optional
+  meta?: any;
 };
 
 const C = {
@@ -223,17 +236,46 @@ async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { 
   return { ok: true, json: parsed };
 }
 
+function getTzOffsetMin() {
+  // minutes EAST of UTC (what your APIs use)
+  return -new Date().getTimezoneOffset();
+}
+
+async function getLatLon(): Promise<{ lat: number; lon: number }> {
+  // DC fallback
+  const fallback = { lat: 38.9, lon: -77.0 };
+
+  if (typeof window === "undefined") return fallback;
+  if (!navigator.geolocation) return fallback;
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(fallback),
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60_000 }
+    );
+  });
+}
+
 export default function CalendarClient() {
-  const [ymd, setYmd] = useState<string | null>(null);
   const [data, setData] = useState<CalendarAPI | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(targetYmd?: string) {
+  async function loadToday() {
     setLoading(true);
     setError(null);
     try {
-      const url = targetYmd ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}` : "/api/calendar";
+      const tzOffsetMin = getTzOffsetMin();
+      const { lat, lon } = await getLatLon();
+
+      const qs = new URLSearchParams({
+        lat: String(lat),
+        lon: String(lon),
+        tzOffsetMin: String(tzOffsetMin),
+      });
+
+      const url = `/api/calendar?${qs.toString()}`;
       const r = await fetchJsonLoose(url);
 
       if (!r.ok) {
@@ -250,31 +292,14 @@ export default function CalendarClient() {
       }
 
       setData(normalized);
-      setYmd(normalized.gregorian.ymd);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load().catch(() => {});
+    loadToday().catch(() => {});
   }, []);
-
-  function nav(deltaDays: number) {
-    if (!ymd) return;
-    const parts = ymd.split("-").map(Number);
-    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return;
-
-    const [yy, mm, dd] = parts;
-    const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
-    d.setUTCDate(d.getUTCDate() + deltaDays);
-
-    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
-      d.getUTCDate()
-    ).padStart(2, "0")}`;
-
-    load(next).catch(() => {});
-  }
 
   const headerMid = data?.lunar?.phaseName ?? "—";
 
@@ -310,7 +335,9 @@ export default function CalendarClient() {
   const solarPhaseId = typeof data?.solar?.phase === "number" ? data.solar.phase : null;
 
   const solarProgress01 =
-    data?.solar?.kind === "INTERPHASE"
+    typeof data?.solar?.phaseProgress01 === "number"
+      ? data.solar.phaseProgress01
+      : data?.solar?.kind === "INTERPHASE"
       ? typeof data?.solar?.interphaseDay === "number" &&
         typeof data?.solar?.interphaseTotal === "number" &&
         data.solar.interphaseTotal > 0
@@ -407,7 +434,10 @@ export default function CalendarClient() {
 
         <div className="mt-5 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div className="text-xs tracking-widest text-center" style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}>
+            <div
+              className="text-xs tracking-widest text-center"
+              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
               MOON PHASE CYCLE
             </div>
 
@@ -439,7 +469,10 @@ export default function CalendarClient() {
 
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div className="text-xs tracking-widest flex items-center gap-2" style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}>
+            <div
+              className="text-xs tracking-widest flex items-center gap-2"
+              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
               SOLAR CONTEXT <span aria-hidden>☉</span>
             </div>
 
@@ -456,33 +489,38 @@ export default function CalendarClient() {
             )}
 
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
-              Day: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
-              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength - 1 : "—"}
+              Day: {data?.solar?.dayIndexInYear ?? "—"} / {data?.solar?.yearLength ?? "—"}
             </div>
 
+            {/* ✅ URA Solar phase progress bar (within 45° phase) */}
             <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: trackBg }}>
               <div
                 className="h-full"
                 style={{
                   background: fillBg,
                   width:
-                    typeof data?.solar?.dayIndexInYear === "number" &&
-                    typeof data?.solar?.yearLength === "number"
-                      ? `${Math.round(((data.solar.dayIndexInYear + 1) / data.solar.yearLength) * 100)}%`
+                    typeof solarProgress01 === "number"
+                      ? `${Math.round(Math.max(0, Math.min(1, solarProgress01)) * 100)}%`
                       : "0%",
                 }}
               />
             </div>
 
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
-              Sun sign: <span style={{ color: C.ink }} className="font-semibold">{sunSignShort}</span>
+              Sun sign:{" "}
+              <span style={{ color: C.ink }} className="font-semibold">
+                {sunSignShort}
+              </span>
               <span style={{ color: C.inkSoft }}> • </span>
               <span style={{ color: C.inkSoft }}>(URA)</span>
             </div>
           </div>
 
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div className="text-xs tracking-widest flex items-center gap-2" style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}>
+            <div
+              className="text-xs tracking-widest flex items-center gap-2"
+              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
               LUNAR CONTEXT <span aria-hidden>☾</span>
             </div>
 
@@ -532,15 +570,14 @@ export default function CalendarClient() {
           />
         </div>
 
-        <div className="mt-6 flex items-center justify-between">
-          <button onClick={() => nav(-1)} className="text-sm px-3 py-2 rounded-full border" style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}>
-            ◀
-          </button>
-          <button onClick={() => load()} className="text-sm px-4 py-2 rounded-full border" style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}>
+        {/* ✅ TODAY-ONLY CONTROLS */}
+        <div className="mt-6 flex items-center justify-center">
+          <button
+            onClick={() => loadToday()}
+            className="text-sm px-4 py-2 rounded-full border"
+            style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
+          >
             ● Today
-          </button>
-          <button onClick={() => nav(1)} className="text-sm px-3 py-2 rounded-full border" style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}>
-            ▶
           </button>
         </div>
 
@@ -551,7 +588,10 @@ export default function CalendarClient() {
         </div>
       </div>
 
-      <div className="rounded-2xl border overflow-hidden" style={{ ...panelStyle, boxShadow: "0 10px 40px rgba(31,36,26,0.10)" }}>
+      <div
+        className="rounded-2xl border overflow-hidden"
+        style={{ ...panelStyle, boxShadow: "0 10px 40px rgba(31,36,26,0.10)" }}
+      >
         <div style={{ borderBottom: `1px solid ${C.divider}` }}>
           <Row left="Current Calendar" right={data?.solar?.label ?? "—"} icon="⟐" />
         </div>
