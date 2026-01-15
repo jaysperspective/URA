@@ -1,6 +1,9 @@
 // src/app/api/calendar/route.ts
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type Marker = {
   kind: "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
   whenLocal: string;
@@ -11,11 +14,6 @@ type Marker = {
 function normalize360(deg: number) {
   const v = deg % 360;
   return v < 0 ? v + 360 : v;
-}
-
-function signedDiffDeg(a: number, target: number) {
-  // returns [-180,180)
-  return ((a - target + 540) % 360) - 180;
 }
 
 const SIGNS = [
@@ -54,7 +52,6 @@ function fmtPos(lon: number) {
 
 function phaseNameFromAngle(a: number) {
   const x = normalize360(a);
-  // 8 main names
   if (x < 22.5 || x >= 337.5) return "New Moon";
   if (x < 67.5) return "Waxing Crescent";
   if (x < 112.5) return "First Quarter";
@@ -63,6 +60,27 @@ function phaseNameFromAngle(a: number) {
   if (x < 247.5) return "Waning Gibbous";
   if (x < 292.5) return "Last Quarter";
   return "Waning Crescent";
+}
+
+/**
+ * Solar URA (0° Aries start):
+ * 360° / 8 = 45° per phase
+ * Phase 1: 0°..45° (Aries+)
+ * ...
+ * Phase 7: 270°..315° (Capricorn zone)
+ */
+function solarPhaseFromSunLon(sunLon: number) {
+  const lon = normalize360(sunLon);
+  const phaseIndex0 = Math.floor(lon / 45); // 0..7
+  const phase = phaseIndex0 + 1; // 1..8
+  const startDeg = phaseIndex0 * 45;
+  const withinDeg = lon - startDeg; // 0..45
+  const progress01 = withinDeg / 45;
+
+  // Map the 45° span to 45 "days" (your UI expects Day X of 45)
+  const dayInPhase = Math.min(45, Math.max(1, Math.floor(progress01 * 45) + 1));
+
+  return { phase, dayInPhase, progress01, startDeg, withinDeg };
 }
 
 /**
@@ -95,7 +113,7 @@ async function chartAtUTC(d: Date, latitude: number, longitude: number) {
   });
 
   if (!r.ok) {
-    const t = await r.text();
+    const t = await r.text().catch(() => "");
     throw new Error(`astro-service error (${r.status}) ${t.slice(0, 160)}`);
   }
 
@@ -111,80 +129,27 @@ async function chartAtUTC(d: Date, latitude: number, longitude: number) {
   return { sunLon, moonLon, phaseAngleDeg };
 }
 
-async function findNextMarker(params: {
-  startUTC: Date;
-  targetDeg: number;
-  kind: Marker["kind"];
-  latitude: number;
-  longitude: number;
-}): Promise<Marker | null> {
-  const { startUTC, targetDeg, kind, latitude, longitude } = params;
-
-  // Step forward hourly up to 40 days looking for a sign change around the target
-  const maxHours = 40 * 24;
-  let prevT = new Date(startUTC.getTime());
-  let prev = await chartAtUTC(prevT, latitude, longitude);
-  let prevDiff = signedDiffDeg(prev.phaseAngleDeg, targetDeg);
-
-  for (let i = 1; i <= maxHours; i++) {
-    const t = new Date(startUTC.getTime() + i * 3600_000);
-    const cur = await chartAtUTC(t, latitude, longitude);
-    const curDiff = signedDiffDeg(cur.phaseAngleDeg, targetDeg);
-
-    // Found crossing interval
-    if (prevDiff === 0 || curDiff === 0 || (prevDiff < 0 && curDiff > 0) || (prevDiff > 0 && curDiff < 0)) {
-      // Binary search to ~minute precision
-      let lo = prevT.getTime();
-      let hi = t.getTime();
-      for (let k = 0; k < 18; k++) {
-        const mid = Math.floor((lo + hi) / 2);
-        const midChart = await chartAtUTC(new Date(mid), latitude, longitude);
-        const midDiff = signedDiffDeg(midChart.phaseAngleDeg, targetDeg);
-
-        // move toward the sign change
-        if ((prevDiff <= 0 && midDiff <= 0) || (prevDiff >= 0 && midDiff >= 0)) {
-          lo = mid;
-          prevDiff = midDiff;
-        } else {
-          hi = mid;
-        }
-      }
-
-      const when = new Date(hi);
-      const isoUTC = when.toISOString();
-      // You can later swap this to a real local-time formatter if you pass a tz.
-      const whenLocal = isoUTC.replace("T", " ").replace(".000Z", " UTC");
-
-      return {
-        kind,
-        isoUTC,
-        whenLocal,
-        degreeText: `${targetDeg}°`,
-      };
-    }
-
-    prevT = t;
-    prevDiff = curDiff;
-  }
-
-  return null;
+function ymdFromDateUTC(d: Date) {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    d.getUTCDate()
+  ).padStart(2, "0")}`;
 }
 
-function ymdFromDateUTC(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+function isLeapYear(y: number) {
+  return y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
 }
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const ymd = searchParams.get("ymd"); // optional YYYY-MM-DD
+    // TODAY-ONLY:
+    // - ignore navigation / ymd, always use "now"
+    // (keep ymd support anyway, for debugging)
+    const ymd = searchParams.get("ymd"); // optional YYYY-MM-DD debug
     const latitude = Number(searchParams.get("lat") ?? "0");
     const longitude = Number(searchParams.get("lon") ?? "0");
 
-    // Choose asOfUTC:
-    // - if ymd provided: use that date at 12:00 UTC (stable)
-    // - else: now
     let asOfUTC = new Date();
     if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
       const [yy, mm, dd] = ymd.split("-").map(Number);
@@ -194,61 +159,75 @@ export async function GET(req: Request) {
     const { sunLon, moonLon, phaseAngleDeg } = await chartAtUTC(asOfUTC, latitude, longitude);
 
     const moonSign = signFromLon(moonLon).name;
+    const sunSign = signFromLon(sunLon).name;
+
     const phaseName = phaseNameFromAngle(phaseAngleDeg);
 
     const synodicMonthDays = 29.530588;
     const lunarAgeDays = (normalize360(phaseAngleDeg) / 360) * synodicMonthDays;
     const lunarDay = Math.max(1, Math.min(30, Math.floor(lunarAgeDays) + 1));
 
-    // Build markers (next occurrences from asOf)
-    const [mNew, mFq, mFull, mLq] = await Promise.all([
-      findNextMarker({ startUTC: asOfUTC, targetDeg: 0, kind: "New Moon", latitude, longitude }),
-      findNextMarker({ startUTC: asOfUTC, targetDeg: 90, kind: "First Quarter", latitude, longitude }),
-      findNextMarker({ startUTC: asOfUTC, targetDeg: 180, kind: "Full Moon", latitude, longitude }),
-      findNextMarker({ startUTC: asOfUTC, targetDeg: 270, kind: "Last Quarter", latitude, longitude }),
-    ]);
+    // Correct Solar URA phase (0° Aries start)
+    const solar = solarPhaseFromSunLon(sunLon);
 
-    const markers = [mNew, mFq, mFull, mLq].filter(Boolean) as Marker[];
+    // Keep your day-of-year display (calendar day count), but solar phase is now independent
+    const y = asOfUTC.getUTCFullYear();
+    const yearLength = isLeapYear(y) ? 366 : 365;
+    const dayIndexInYear =
+      Math.floor(
+        (Date.UTC(y, asOfUTC.getUTCMonth(), asOfUTC.getUTCDate()) - Date.UTC(y, 0, 1)) / 86400000
+      ) + 1; // 1-based for UI
 
-    // Minimal-but-stable solar fields (placeholder clock)
-    // (You can later wire in the true URA solar clock logic.)
-    const dayIndexInYear = Math.floor((Date.UTC(asOfUTC.getUTCFullYear(), asOfUTC.getUTCMonth(), asOfUTC.getUTCDate()) - Date.UTC(asOfUTC.getUTCFullYear(), 0, 1)) / 86400000);
-    const yearLength = 365 + (asOfUTC.getUTCFullYear() % 4 === 0 && (asOfUTC.getUTCFullYear() % 100 !== 0 || asOfUTC.getUTCFullYear() % 400 === 0) ? 1 : 0);
+    // TODAY-ONLY: no marker scanning (that’s what was killing load time)
+    const markers: Marker[] = [];
 
-    return NextResponse.json({
-      ok: true,
-      tz: "UTC",
-      gregorian: {
-        ymd: ymd ? ymd : ymdFromDateUTC(asOfUTC),
-        asOfLocal: asOfUTC.toISOString().replace("T", " ").replace(".000Z", " UTC"),
+    return NextResponse.json(
+      {
+        ok: true,
+        tz: "UTC",
+        gregorian: {
+          ymd: ymd ? ymd : ymdFromDateUTC(asOfUTC),
+          asOfLocal: asOfUTC.toISOString(), // keep raw ISO, UI can format
+        },
+        solar: {
+          label: `Solar • Phase ${solar.phase}`,
+          kind: "PHASE",
+          phase: solar.phase,
+          dayInPhase: solar.dayInPhase,
+          phaseProgress01: Number(solar.progress01.toFixed(4)),
+          dayIndexInYear,
+          yearLength,
+          // debug/support:
+          sunLon: Number(normalize360(sunLon).toFixed(3)),
+          sunSign,
+        },
+        lunar: {
+          phaseName,
+          label: `Lunar • ${phaseName}`,
+          lunarDay,
+          lunarAgeDays: Math.round(lunarAgeDays * 100) / 100,
+          synodicMonthDays,
+          phaseAngleDeg: Math.round(phaseAngleDeg * 10) / 10,
+        },
+        astro: {
+          sunPos: fmtPos(sunLon),
+          sunLon: Number(normalize360(sunLon).toFixed(3)),
+          sunSign,
+          moonPos: fmtPos(moonLon),
+          moonLon: Number(normalize360(moonLon).toFixed(3)),
+          moonSign,
+          moonEntersSign: moonSign,
+          moonEntersSignLocal: "—",
+          moonEntersLocal: "—",
+        },
+        lunation: { markers },
+        meta: {
+          todayOnly: true,
+          note: "Markers disabled for speed. Enable later with cached monthly calcs if needed.",
+        },
       },
-      solar: {
-        label: `URA Solar (placeholder) • ${ymd ? ymd : ymdFromDateUTC(asOfUTC)}`,
-        kind: "PHASE",
-        phase: 1,
-        dayInPhase: 1,
-        dayIndexInYear,
-        yearLength,
-      },
-      lunar: {
-        phaseName,
-        label: `Lunar • ${phaseName}`,
-        lunarDay,
-        lunarAgeDays: Math.round(lunarAgeDays * 100) / 100,
-        synodicMonthDays,
-        phaseAngleDeg: Math.round(phaseAngleDeg * 10) / 10,
-      },
-      astro: {
-        sunPos: fmtPos(sunLon),
-        sunLon: Math.round(normalize360(sunLon) * 1000) / 1000,
-        moonPos: fmtPos(moonLon),
-        moonSign,
-        moonEntersSign: moonSign,
-        moonEntersSignLocal: "—",
-        moonEntersLocal: "—",
-      },
-      lunation: { markers },
-    });
+      { status: 200, headers: { "Cache-Control": "no-store" } }
+    );
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message ?? "Unknown error" }, { status: 500 });
   }
