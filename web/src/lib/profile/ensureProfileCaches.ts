@@ -305,13 +305,13 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
     try {
       return await updateProfileCachesAtomic(userId, {
         natalChartJson: (natalChartJson ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
-        natalUpdatedAt: needsNatal ? new Date() : profile.natalUpdatedAt,
+        natalUpdatedAt: needsNatal ? new Date() : (profile.natalUpdatedAt ?? undefined),
 
         ascYearJson: (ascYearJson ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
         lunationJson: (lunationJson ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
 
-        asOfDate: didDailyUpdate ? new Date() : profile.asOfDate,
-        dailyUpdatedAt: didDailyUpdate ? new Date() : profile.dailyUpdatedAt,
+        asOfDate: didDailyUpdate ? new Date() : (profile.asOfDate ?? undefined),
+        dailyUpdatedAt: didDailyUpdate ? new Date() : (profile.dailyUpdatedAt ?? undefined),
       });
     } catch (err) {
       // On conflict, re-fetch the profile (another request may have updated it)
