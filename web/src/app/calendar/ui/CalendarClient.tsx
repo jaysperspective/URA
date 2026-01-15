@@ -24,19 +24,11 @@ type CalendarAPI = {
     kind?: "PHASE" | "INTERPHASE";
     phase?: number;
     dayInPhase?: number;
-
-    // ✅ added by today-only /api/calendar
-    phaseProgress01?: number;
-
     interphaseDay?: number;
     interphaseTotal?: number;
     dayIndexInYear?: number;
     yearLength?: number;
     anchors?: { equinoxLocalDay: string; nextEquinoxLocalDay: string };
-
-    // optional debug fields (harmless if missing)
-    sunLon?: number;
-    sunSign?: string;
   };
 
   lunar: {
@@ -51,8 +43,6 @@ type CalendarAPI = {
   astro: {
     sunPos: string;
     sunLon: number;
-    sunSign?: string;
-
     nextSolar?: {
       nextBoundaryDeg: number;
       nextPhaseAtLocal: string;
@@ -66,9 +56,6 @@ type CalendarAPI = {
   };
 
   lunation: { markers: Marker[] };
-
-  // optional
-  meta?: any;
 };
 
 const C = {
@@ -127,9 +114,7 @@ function lunarURAPhaseId(params: { phaseAngleDeg?: number; phaseName?: string })
 
 function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleDeg?: number }) {
   const aRaw =
-    typeof phaseAngleDeg === "number"
-      ? normalizeAngle0to360(phaseAngleDeg)
-      : inferPhaseAngleDeg(phaseName);
+    typeof phaseAngleDeg === "number" ? normalizeAngle0to360(phaseAngleDeg) : inferPhaseAngleDeg(phaseName);
 
   const a = normalizeAngle0to360(aRaw);
   const rad = (a * Math.PI) / 180;
@@ -236,27 +221,6 @@ async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { 
   return { ok: true, json: parsed };
 }
 
-function getTzOffsetMin() {
-  // minutes EAST of UTC (what your APIs use)
-  return -new Date().getTimezoneOffset();
-}
-
-async function getLatLon(): Promise<{ lat: number; lon: number }> {
-  // DC fallback
-  const fallback = { lat: 38.9, lon: -77.0 };
-
-  if (typeof window === "undefined") return fallback;
-  if (!navigator.geolocation) return fallback;
-
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => resolve(fallback),
-      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60_000 }
-    );
-  });
-}
-
 export default function CalendarClient() {
   const [data, setData] = useState<CalendarAPI | null>(null);
   const [loading, setLoading] = useState(false);
@@ -266,18 +230,11 @@ export default function CalendarClient() {
     setLoading(true);
     setError(null);
     try {
-      const tzOffsetMin = getTzOffsetMin();
-      const { lat, lon } = await getLatLon();
+      // Browser returns minutes WEST of UTC; API expects minutes EAST of UTC.
+      const tzOffsetMin = -new Date().getTimezoneOffset();
+      const url = `/api/calendar?tzOffsetMin=${encodeURIComponent(String(tzOffsetMin))}`;
 
-      const qs = new URLSearchParams({
-        lat: String(lat),
-        lon: String(lon),
-        tzOffsetMin: String(tzOffsetMin),
-      });
-
-      const url = `/api/calendar?${qs.toString()}`;
       const r = await fetchJsonLoose(url);
-
       if (!r.ok) {
         setData(null);
         setError(r.error);
@@ -335,9 +292,7 @@ export default function CalendarClient() {
   const solarPhaseId = typeof data?.solar?.phase === "number" ? data.solar.phase : null;
 
   const solarProgress01 =
-    typeof data?.solar?.phaseProgress01 === "number"
-      ? data.solar.phaseProgress01
-      : data?.solar?.kind === "INTERPHASE"
+    data?.solar?.kind === "INTERPHASE"
       ? typeof data?.solar?.interphaseDay === "number" &&
         typeof data?.solar?.interphaseTotal === "number" &&
         data.solar.interphaseTotal > 0
@@ -432,41 +387,6 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        <div className="mt-5 text-left">
-          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div
-              className="text-xs tracking-widest text-center"
-              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
-            >
-              MOON PHASE CYCLE
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-              {markers.map((m) => (
-                <div key={m.kind} className="space-y-2">
-                  <div style={{ color: C.ink }} className="text-2xl opacity-80">
-                    {iconFor(m.kind)}
-                  </div>
-                  <div style={{ color: C.inkMuted }} className="text-xs">
-                    {m.kind}
-                  </div>
-                  <div style={{ color: C.ink }} className="text-sm font-semibold">
-                    {m.degreeText}
-                  </div>
-                  <div style={{ color: C.inkMuted }} className="text-xs">
-                    {m.whenLocal}
-                  </div>
-                </div>
-              ))}
-              {!markers.length ? (
-                <div className="col-span-2 md:col-span-4 text-center text-sm" style={{ color: C.inkMuted }}>
-                  Moon phase markers unavailable.
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
@@ -489,18 +409,19 @@ export default function CalendarClient() {
             )}
 
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
-              Day: {data?.solar?.dayIndexInYear ?? "—"} / {data?.solar?.yearLength ?? "—"}
+              Day: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
+              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength : "—"}
+              <span style={{ color: C.inkSoft }}> (0° Aries year)</span>
             </div>
 
-            {/* ✅ URA Solar phase progress bar (within 45° phase) */}
             <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: trackBg }}>
               <div
                 className="h-full"
                 style={{
                   background: fillBg,
                   width:
-                    typeof solarProgress01 === "number"
-                      ? `${Math.round(Math.max(0, Math.min(1, solarProgress01)) * 100)}%`
+                    typeof data?.solar?.dayIndexInYear === "number" && typeof data?.solar?.yearLength === "number"
+                      ? `${Math.round(((data.solar.dayIndexInYear + 1) / data.solar.yearLength) * 100)}%`
                       : "0%",
                 }}
               />
@@ -514,6 +435,12 @@ export default function CalendarClient() {
               <span style={{ color: C.inkSoft }}> • </span>
               <span style={{ color: C.inkSoft }}>(URA)</span>
             </div>
+
+            {data?.solar?.anchors?.equinoxLocalDay ? (
+              <div className="mt-2 text-xs" style={{ color: C.inkSoft }}>
+                Aries 0° anchor: <span style={{ color: C.inkMuted }}>{data.solar.anchors.equinoxLocalDay}</span>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
@@ -560,6 +487,7 @@ export default function CalendarClient() {
           </div>
         </div>
 
+        {/* URA Foundation first */}
         <div className="mt-4 text-left">
           <URAFoundationPanel
             solarPhaseId={solarPhaseId}
@@ -570,14 +498,50 @@ export default function CalendarClient() {
           />
         </div>
 
-        {/* ✅ TODAY-ONLY CONTROLS */}
+        {/* Moon phase cycle moved BELOW foundation */}
+        <div className="mt-5 text-left">
+          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
+            <div
+              className="text-xs tracking-widest text-center"
+              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
+              MOON PHASE CYCLE
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+              {markers.map((m) => (
+                <div key={m.kind} className="space-y-2">
+                  <div style={{ color: C.ink }} className="text-2xl opacity-80">
+                    {iconFor(m.kind)}
+                  </div>
+                  <div style={{ color: C.inkMuted }} className="text-xs">
+                    {m.kind}
+                  </div>
+                  <div style={{ color: C.ink }} className="text-sm font-semibold">
+                    {m.degreeText}
+                  </div>
+                  <div style={{ color: C.inkMuted }} className="text-xs">
+                    {m.whenLocal}
+                  </div>
+                </div>
+              ))}
+              {!markers.length ? (
+                <div className="col-span-2 md:col-span-4 text-center text-sm" style={{ color: C.inkMuted }}>
+                  Moon phase markers unavailable.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {/* Today-only control */}
         <div className="mt-6 flex items-center justify-center">
           <button
             onClick={() => loadToday()}
             className="text-sm px-4 py-2 rounded-full border"
             style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
           >
-            ● Today
+            ● Refresh
           </button>
         </div>
 
