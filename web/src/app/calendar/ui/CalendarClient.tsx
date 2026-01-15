@@ -7,13 +7,6 @@ import type { CSSProperties } from "react";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 
-type Marker = {
-  kind: "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
-  whenLocal: string;
-  degreeText: string;
-  isoUTC: string;
-};
-
 type CalendarAPI = {
   ok: boolean;
   tz: string;
@@ -55,7 +48,8 @@ type CalendarAPI = {
     moonEntersLocal: string;
   };
 
-  lunation: { markers: Marker[] };
+  // left in the type because API still returns it, but Calendar no longer renders it
+  lunation?: any;
 };
 
 const C = {
@@ -396,9 +390,14 @@ export default function CalendarClient() {
           </div>
         </div>
 
+        {/* ✅ Moon phases/markers removed from Calendar page */}
+
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div className="text-xs tracking-widest flex items-center gap-2" style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}>
+            <div
+              className="text-xs tracking-widest flex items-center gap-2"
+              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
               SOLAR CONTEXT <span aria-hidden>☉</span>
             </div>
 
@@ -414,9 +413,10 @@ export default function CalendarClient() {
               </div>
             )}
 
+            {/* ✅ Removed “(0° Aries year)” suffix */}
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
               Day: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
-              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength - 1 : "—"}
+              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength : "—"}
             </div>
 
             <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: trackBg }}>
@@ -444,7 +444,10 @@ export default function CalendarClient() {
           </div>
 
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div className="text-xs tracking-widest flex items-center gap-2" style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}>
+            <div
+              className="text-xs tracking-widest flex items-center gap-2"
+              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
               LUNAR CONTEXT <span aria-hidden>☾</span>
             </div>
 
