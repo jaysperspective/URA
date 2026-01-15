@@ -68,13 +68,6 @@ const C = {
   divider: "rgba(31,36,26,0.14)",
 };
 
-function iconFor(kind: Marker["kind"]) {
-  if (kind === "New Moon") return "◯";
-  if (kind === "First Quarter") return "◐";
-  if (kind === "Full Moon") return "●";
-  return "◑";
-}
-
 function sunSignShortFromSunPos(sunPos?: string) {
   const m = sunPos?.match(/\b(Ari|Tau|Gem|Can|Leo|Vir|Lib|Sco|Sag|Cap|Aqu|Pis)\b/);
   return m?.[1] ?? "—";
@@ -114,7 +107,9 @@ function lunarURAPhaseId(params: { phaseAngleDeg?: number; phaseName?: string })
 
 function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleDeg?: number }) {
   const aRaw =
-    typeof phaseAngleDeg === "number" ? normalizeAngle0to360(phaseAngleDeg) : inferPhaseAngleDeg(phaseName);
+    typeof phaseAngleDeg === "number"
+      ? normalizeAngle0to360(phaseAngleDeg)
+      : inferPhaseAngleDeg(phaseName);
 
   const a = normalizeAngle0to360(aRaw);
   const rad = (a * Math.PI) / 180;
@@ -222,19 +217,18 @@ async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { 
 }
 
 export default function CalendarClient() {
+  const [ymd, setYmd] = useState<string | null>(null);
   const [data, setData] = useState<CalendarAPI | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadToday() {
+  async function load(targetYmd?: string) {
     setLoading(true);
     setError(null);
     try {
-      // Browser returns minutes WEST of UTC; API expects minutes EAST of UTC.
-      const tzOffsetMin = -new Date().getTimezoneOffset();
-      const url = `/api/calendar?tzOffsetMin=${encodeURIComponent(String(tzOffsetMin))}`;
-
+      const url = targetYmd ? `/api/calendar?ymd=${encodeURIComponent(targetYmd)}` : "/api/calendar";
       const r = await fetchJsonLoose(url);
+
       if (!r.ok) {
         setData(null);
         setError(r.error);
@@ -249,14 +243,31 @@ export default function CalendarClient() {
       }
 
       setData(normalized);
+      setYmd(normalized.gregorian.ymd);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadToday().catch(() => {});
+    load().catch(() => {});
   }, []);
+
+  function nav(deltaDays: number) {
+    if (!ymd) return;
+    const parts = ymd.split("-").map(Number);
+    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return;
+
+    const [yy, mm, dd] = parts;
+    const d = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
+    d.setUTCDate(d.getUTCDate() + deltaDays);
+
+    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+      d.getUTCDate()
+    ).padStart(2, "0")}`;
+
+    load(next).catch(() => {});
+  }
 
   const headerMid = data?.lunar?.phaseName ?? "—";
 
@@ -304,8 +315,6 @@ export default function CalendarClient() {
 
   const sunText = data?.astro?.sunPos ?? "—";
   const ontology = null;
-
-  const markers = data?.lunation?.markers ?? [];
 
   return (
     <div className="space-y-5">
@@ -389,10 +398,7 @@ export default function CalendarClient() {
 
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div
-              className="text-xs tracking-widest flex items-center gap-2"
-              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
-            >
+            <div className="text-xs tracking-widest flex items-center gap-2" style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}>
               SOLAR CONTEXT <span aria-hidden>☉</span>
             </div>
 
@@ -410,8 +416,7 @@ export default function CalendarClient() {
 
             <div className="mt-2 text-sm" style={{ color: C.inkMuted }}>
               Day: {data?.solar?.dayIndexInYear ?? "—"} /{" "}
-              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength : "—"}
-              <span style={{ color: C.inkSoft }}> (0° Aries year)</span>
+              {typeof data?.solar?.yearLength === "number" ? data.solar.yearLength - 1 : "—"}
             </div>
 
             <div className="mt-3 w-full h-2 rounded-full overflow-hidden" style={{ background: trackBg }}>
@@ -420,7 +425,8 @@ export default function CalendarClient() {
                 style={{
                   background: fillBg,
                   width:
-                    typeof data?.solar?.dayIndexInYear === "number" && typeof data?.solar?.yearLength === "number"
+                    typeof data?.solar?.dayIndexInYear === "number" &&
+                    typeof data?.solar?.yearLength === "number"
                       ? `${Math.round(((data.solar.dayIndexInYear + 1) / data.solar.yearLength) * 100)}%`
                       : "0%",
                 }}
@@ -435,19 +441,10 @@ export default function CalendarClient() {
               <span style={{ color: C.inkSoft }}> • </span>
               <span style={{ color: C.inkSoft }}>(URA)</span>
             </div>
-
-            {data?.solar?.anchors?.equinoxLocalDay ? (
-              <div className="mt-2 text-xs" style={{ color: C.inkSoft }}>
-                Aries 0° anchor: <span style={{ color: C.inkMuted }}>{data.solar.anchors.equinoxLocalDay}</span>
-              </div>
-            ) : null}
           </div>
 
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div
-              className="text-xs tracking-widest flex items-center gap-2"
-              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
-            >
+            <div className="text-xs tracking-widest flex items-center gap-2" style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}>
               LUNAR CONTEXT <span aria-hidden>☾</span>
             </div>
 
@@ -487,7 +484,6 @@ export default function CalendarClient() {
           </div>
         </div>
 
-        {/* URA Foundation first */}
         <div className="mt-4 text-left">
           <URAFoundationPanel
             solarPhaseId={solarPhaseId}
@@ -498,50 +494,27 @@ export default function CalendarClient() {
           />
         </div>
 
-        {/* Moon phase cycle moved BELOW foundation */}
-        <div className="mt-5 text-left">
-          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
-            <div
-              className="text-xs tracking-widest text-center"
-              style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
-            >
-              MOON PHASE CYCLE
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-              {markers.map((m) => (
-                <div key={m.kind} className="space-y-2">
-                  <div style={{ color: C.ink }} className="text-2xl opacity-80">
-                    {iconFor(m.kind)}
-                  </div>
-                  <div style={{ color: C.inkMuted }} className="text-xs">
-                    {m.kind}
-                  </div>
-                  <div style={{ color: C.ink }} className="text-sm font-semibold">
-                    {m.degreeText}
-                  </div>
-                  <div style={{ color: C.inkMuted }} className="text-xs">
-                    {m.whenLocal}
-                  </div>
-                </div>
-              ))}
-              {!markers.length ? (
-                <div className="col-span-2 md:col-span-4 text-center text-sm" style={{ color: C.inkMuted }}>
-                  Moon phase markers unavailable.
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        {/* Today-only control */}
-        <div className="mt-6 flex items-center justify-center">
+        <div className="mt-6 flex items-center justify-between">
           <button
-            onClick={() => loadToday()}
+            onClick={() => nav(-1)}
+            className="text-sm px-3 py-2 rounded-full border"
+            style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
+          >
+            ◀
+          </button>
+          <button
+            onClick={() => load()}
             className="text-sm px-4 py-2 rounded-full border"
             style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
           >
-            ● Refresh
+            ● Today
+          </button>
+          <button
+            onClick={() => nav(1)}
+            className="text-sm px-3 py-2 rounded-full border"
+            style={{ color: C.ink, borderColor: C.border, background: "rgba(244,235,221,0.70)" }}
+          >
+            ▶
           </button>
         </div>
 
