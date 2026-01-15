@@ -1,5 +1,6 @@
 // web/src/app/api/geocode/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { withStandardRateLimit } from "@/lib/withRateLimit";
 
 /**
  * Simple Nominatim geocoder proxy with in-memory caching.
@@ -35,7 +36,7 @@ function setCache(key: string, payload: any) {
   GEOCODE_CACHE.set(key, { expiresAt: Date.now() + GEOCODE_TTL_MS, payload });
 }
 
-export async function POST(req: Request) {
+async function handlePost(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => null)) as any;
     const q = typeof body?.q === "string" ? body.q.trim() : "";
@@ -117,3 +118,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export const POST = withStandardRateLimit(handlePost);

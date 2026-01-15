@@ -1,6 +1,8 @@
 // src/lib/profile/ensureProfileCaches.ts
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma, Profile } from "@prisma/client";
+import { fetchChart } from "@/lib/astro/client";
+import { withProfileLock } from "./profileLock";
 
 type BirthPayloadUTC = {
   year: number;
@@ -35,6 +37,9 @@ function getLocalDayKey(timezone: string, d = new Date()) {
 /**
  * Convert a "wall clock" local time in a timezone into a UTC Date.
  * This avoids treating local birth time as UTC.
+ *
+ * Approach: Use Intl.DateTimeFormat to get the timezone offset for that date/time,
+ * then apply it to convert local -> UTC.
  */
 function zonedLocalToUtcDate(opts: {
   year: number;
@@ -46,18 +51,38 @@ function zonedLocalToUtcDate(opts: {
 }) {
   const { year, month, day, hour, minute, timezone } = opts;
 
-  // 1) A UTC guess for the same wall-clock time
-  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  // Create a date in UTC with the local time values (as a reference point)
+  const referenceUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
 
-  // 2) Render that guess "as if" in the target timezone
-  const asZonedString = utcGuess.toLocaleString("en-US", { timeZone: timezone });
+  // Get what time it would be in the target timezone at this UTC moment
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 
-  // 3) Parse back as Date (server local tz)
-  const asZonedDate = new Date(asZonedString);
+  const parts = formatter.formatToParts(referenceUtc);
+  const getPart = (type: string) => parts.find((p) => p.type === type)?.value || "0";
 
-  // 4) Offset correction
-  const diffMs = utcGuess.getTime() - asZonedDate.getTime();
-  return new Date(utcGuess.getTime() + diffMs);
+  const zonedYear = parseInt(getPart("year"), 10);
+  const zonedMonth = parseInt(getPart("month"), 10);
+  const zonedDay = parseInt(getPart("day"), 10);
+  const zonedHour = parseInt(getPart("hour"), 10);
+  const zonedMinute = parseInt(getPart("minute"), 10);
+
+  // Calculate the offset: how much the timezone differs from UTC at this moment
+  const zonedAsUtc = new Date(Date.UTC(zonedYear, zonedMonth - 1, zonedDay, zonedHour, zonedMinute, 0));
+  const offsetMs = zonedAsUtc.getTime() - referenceUtc.getTime();
+
+  // The user's local time needs to be shifted by the OPPOSITE of this offset to get UTC
+  // If timezone is UTC-5, offset is -5 hours, so we ADD 5 hours to local time to get UTC
+  const localAsUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  return new Date(localAsUtc.getTime() - offsetMs);
 }
 
 function getAppBaseUrl() {
@@ -73,22 +98,13 @@ function getAppBaseUrl() {
 }
 
 async function fetchAstroNatalUTC(birthUTC: BirthPayloadUTC) {
-  const base = process.env.ASTRO_SERVICE_URL;
-  if (!base) throw new Error("ASTRO_SERVICE_URL is missing.");
+  const response = await fetchChart(birthUTC);
 
-  const r = await fetch(`${base}/chart`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(birthUTC),
-    cache: "no-store",
-  });
-
-  if (!r.ok) {
-    const txt = await r.text().catch(() => "");
-    throw new Error(`astro-service /chart failed: ${r.status} ${txt.slice(0, 200)}`);
+  if (!response.ok) {
+    throw new Error(response.error || "astro-service /chart failed");
   }
 
-  return r.json();
+  return response;
 }
 
 /**
@@ -124,11 +140,39 @@ async function postJsonSafe(path: string, payload: unknown): Promise<SafeResult>
 }
 
 /**
- * Ensures the user's cached natal + daily outputs exist and are current.
- * - Natal: computed once (until birth data changes; edit should rebuild)
- * - Daily: recomputed once per local day (timezone-aware)
+ * Atomic profile cache update with transaction safety.
+ * Prevents race conditions during concurrent updates.
  */
-export async function ensureProfileCaches(userId: number) {
+async function updateProfileCachesAtomic(
+  userId: number,
+  updates: {
+    natalChartJson?: Prisma.InputJsonValue;
+    natalUpdatedAt?: Date;
+    ascYearJson?: Prisma.InputJsonValue;
+    lunationJson?: Prisma.InputJsonValue;
+    asOfDate?: Date;
+    dailyUpdatedAt?: Date;
+  }
+): Promise<Profile> {
+  return await prisma.$transaction(
+    async (tx) => {
+      // Perform the update atomically
+      return await tx.profile.update({
+        where: { userId },
+        data: updates,
+      });
+    },
+    {
+      maxWait: 5000,
+      timeout: 10000,
+    }
+  );
+}
+
+/**
+ * Internal implementation of cache updates.
+ */
+async function ensureProfileCachesInternal(userId: number): Promise<Profile | null> {
   const profile = await prisma.profile.findUnique({ where: { userId } });
   if (!profile) return null;
 
@@ -258,9 +302,8 @@ export async function ensureProfileCaches(userId: number) {
   }
 
   if (needsNatal || didDailyUpdate) {
-    return await prisma.profile.update({
-      where: { userId },
-      data: {
+    try {
+      return await updateProfileCachesAtomic(userId, {
         natalChartJson: (natalChartJson ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
         natalUpdatedAt: needsNatal ? new Date() : profile.natalUpdatedAt,
 
@@ -269,9 +312,23 @@ export async function ensureProfileCaches(userId: number) {
 
         asOfDate: didDailyUpdate ? new Date() : profile.asOfDate,
         dailyUpdatedAt: didDailyUpdate ? new Date() : profile.dailyUpdatedAt,
-      },
-    });
+      });
+    } catch (err) {
+      // On conflict, re-fetch the profile (another request may have updated it)
+      console.warn("[ensureProfileCaches] Transaction conflict, re-fetching:", err);
+      return await prisma.profile.findUnique({ where: { userId } });
+    }
   }
 
   return profile;
+}
+
+/**
+ * Ensures the user's cached natal + daily outputs exist and are current.
+ * - Natal: computed once (until birth data changes; edit should rebuild)
+ * - Daily: recomputed once per local day (timezone-aware)
+ * - Uses a lock to prevent concurrent updates for the same user
+ */
+export async function ensureProfileCaches(userId: number): Promise<Profile | null> {
+  return withProfileLock(userId, () => ensureProfileCachesInternal(userId));
 }

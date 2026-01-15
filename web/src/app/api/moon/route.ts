@@ -1,5 +1,6 @@
 // src/app/api/moon/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { withStandardRateLimit } from "@/lib/withRateLimit";
 
 function buildOrigin(req: Request) {
   const url = new URL(req.url);
@@ -8,7 +9,7 @@ function buildOrigin(req: Request) {
   return `${proto}://${host}`;
 }
 
-export async function GET(req: Request) {
+async function handleGet(req: NextRequest) {
   const origin = buildOrigin(req);
 
   const res = await fetch(`${origin}/api/moon-calendar`, {
@@ -28,3 +29,5 @@ export async function GET(req: Request) {
     );
   }
 }
+
+export const GET = withStandardRateLimit(handleGet);

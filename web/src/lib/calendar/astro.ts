@@ -1,5 +1,5 @@
 // web/src/lib/calendar/astro.ts
-const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
+import { fetchChart } from "@/lib/astro/client";
 
 export type SunMoon = { sunLon: number; moonLon: number; julianDay?: number };
 
@@ -11,7 +11,7 @@ export async function fetchSunMoonLongitudesUTC(dt: Date): Promise<SunMoon> {
   const hour = dt.getUTCHours();
   const minute = dt.getUTCMinutes();
 
-  const body = {
+  const response = await fetchChart({
     year,
     month,
     day,
@@ -19,35 +19,25 @@ export async function fetchSunMoonLongitudesUTC(dt: Date): Promise<SunMoon> {
     minute,
     latitude: 0,
     longitude: 0,
-  };
-
-  const res = await fetch(`${ASTRO_URL}/chart`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
   });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`astro-service /chart failed: ${res.status} ${text}`.trim());
+  if (!response.ok || !response.data) {
+    throw new Error(response.error || "astro-service /chart failed");
   }
 
-  const json: any = await res.json();
-
-  // ✅ Matches your live response shape:
+  // Matches your live response shape:
   // json.data.planets.sun.lon
   // json.data.planets.moon.lon
-  const sunLon = json?.data?.planets?.sun?.lon;
-  const moonLon = json?.data?.planets?.moon?.lon;
+  const sunLon = response.data.planets?.sun?.lon;
+  const moonLon = response.data.planets?.moon?.lon;
 
   if (typeof sunLon !== "number" || typeof moonLon !== "number") {
     throw new Error(
-      "astro-service response missing json.data.planets.sun.lon / json.data.planets.moon.lon"
+      "astro-service response missing data.planets.sun.lon / data.planets.moon.lon"
     );
   }
 
-  return { sunLon, moonLon, julianDay: json?.data?.julianDay };
+  return { sunLon, moonLon, julianDay: response.data.julianDay };
 }
 
 export function norm360(x: number) {

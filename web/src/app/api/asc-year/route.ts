@@ -1,5 +1,6 @@
 // src/app/api/asc-year/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { withComputeRateLimit } from "@/lib/withRateLimit";
 
 function normDeg(v: number) {
   const x = v % 360;
@@ -125,7 +126,7 @@ function parseAsOfDateKey(s: any) {
   return t;
 }
 
-export async function POST(req: Request) {
+async function handlePost(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => null)) as any;
 
@@ -253,3 +254,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export const POST = withComputeRateLimit(handlePost);

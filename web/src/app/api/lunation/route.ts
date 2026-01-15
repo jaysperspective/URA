@@ -1,5 +1,6 @@
 // web/src/app/api/lunation/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { withComputeRateLimit } from "@/lib/withRateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,7 +106,7 @@ async function postToCore(base: string, body: string, contentType: string) {
  * - If query params exist, we proxy them into /api/core by sending a JSON body.
  * - If no params, we return a safe minimal payload so callers don't break.
  */
-export async function GET(req: Request) {
+async function handleGet(req: NextRequest) {
   try {
     const base = getAppBaseUrl();
     const url = new URL(req.url);
@@ -168,7 +169,7 @@ export async function GET(req: Request) {
 /**
  * ✅ Existing POST behavior preserved
  */
-export async function POST(req: Request) {
+async function handlePost(req: NextRequest) {
   try {
     const body = await req.text();
     const base = getAppBaseUrl();
@@ -199,3 +200,6 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export const GET = withComputeRateLimit(handleGet);
+export const POST = withComputeRateLimit(handlePost);

@@ -145,20 +145,20 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
   const activationRate01 = totalUsers > 0 ? setupDoneCount / totalUsers : 0;
 
   const topPages = (topPageRows || [])
-    .filter((r) => r.path)
-    .map((r) => ({
+    .filter((r: any) => r.path)
+    .map((r: any) => ({
       path: r.path as string,
       count: (r._count as any).path as number,
     }));
 
   const topFeatures = (topFeatureRows || [])
-    .filter((r) => r.name)
-    .map((r) => ({
+    .filter((r: any) => r.name)
+    .map((r: any) => ({
       name: r.name as string,
       count: (r._count as any).name as number,
     }));
 
-  const topErrors = (topErrorRows || []).map((r) => {
+  const topErrors = (topErrorRows || []).map((r: any) => {
     const key = ((r.name || r.path || "unknown") as string).slice(0, 240);
     return { key, count: (r._count as any).id as number };
   });
@@ -196,7 +196,7 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     if (healthLatest.length >= 8) break;
   }
 
-  const flags = flagRows.map((f) => ({ key: f.key, enabled: f.enabled, updatedAt: f.updatedAt.toISOString() }));
+  const flags = flagRows.map((f: any) => ({ key: f.key, enabled: f.enabled, updatedAt: f.updatedAt.toISOString() }));
 
   return {
     totalUsers,
@@ -220,7 +220,7 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     healthLatest,
     flags,
 
-    recentAudit: auditRows.map((r) => ({
+    recentAudit: auditRows.map((r: any) => ({
       id: r.id,
       action: r.action,
       actor: r.actor,

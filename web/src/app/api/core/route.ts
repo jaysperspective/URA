@@ -1,6 +1,7 @@
 // web/src/app/api/core/route.ts
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { withComputeRateLimit } from "@/lib/withRateLimit";
 
 /**
  * URA /api/core
@@ -677,7 +678,7 @@ function formatYMD(d: Date) {
 // Route handler
 // ------------------------------
 
-export async function POST(req: Request) {
+async function handlePost(req: NextRequest) {
   try {
     const input = await readInput(req);
 
@@ -874,3 +875,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export const POST = withComputeRateLimit(handlePost);

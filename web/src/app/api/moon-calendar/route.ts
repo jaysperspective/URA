@@ -1,5 +1,6 @@
 // src/app/api/moon-calendar/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { withStandardRateLimit } from "@/lib/withRateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,7 +120,7 @@ async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], concurrency: n
   return results;
 }
 
-export async function GET(req: Request) {
+async function handleGet(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
@@ -196,3 +197,5 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: err?.message ?? "Unknown error" }, { status: 500 });
   }
 }
+
+export const GET = withStandardRateLimit(handleGet);

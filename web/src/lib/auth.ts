@@ -3,9 +3,15 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import {
+  SESSION_COOKIE_NAME,
+  LEGACY_COOKIE_CANDIDATES,
+  SESSION_COOKIE_OPTIONS,
+} from "@/lib/cookies";
 
-// --- cookie config ---
-export const SESSION_COOKIE_NAME = "session"; // must match your existing app expectation
+// Re-export for backward compatibility
+export { SESSION_COOKIE_NAME };
+
 const SESSION_TTL_DAYS = 30;
 
 // --- password helpers ---
@@ -158,14 +164,8 @@ function getTokenFromRequest(req: Request): string | null {
 
   const jar = parseCookieHeader(cookieHeader);
 
-  // Prefer your canonical cookie name first
-  const candidates = [
-    SESSION_COOKIE_NAME,
-    "sessionToken",
-    "token",
-    "auth",
-    "ura_session",
-  ];
+  // Prefer canonical cookie name first, then legacy fallbacks
+  const candidates = [SESSION_COOKIE_NAME, ...LEGACY_COOKIE_CANDIDATES];
 
   for (const name of candidates) {
     const v = jar[name];

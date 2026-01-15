@@ -1,6 +1,7 @@
 // src/app/api/logout/route.ts
 import { NextResponse } from "next/server";
 import { clearSession } from "@/lib/auth";
+import { LOGOUT_COOKIE_NAMES, LOGOUT_COOKIE_PATHS } from "@/lib/cookies";
 
 export const dynamic = "force-dynamic";
 
@@ -23,22 +24,9 @@ export async function GET(req: Request) {
   const baseDomain = parts.length >= 2 ? parts.slice(-2).join(".") : hostNoPort;
 
   const DOMAINS = [undefined, baseDomain, `.${baseDomain}`].filter(Boolean) as (string | undefined)[];
-  const PATHS = ["/", "/profile", "/logout", "/api"];
 
-  const NAMES = [
-    "ura_session",
-    "session",
-    "sessionId",
-    "sid",
-    "token",
-    "auth",
-    "auth_token",
-    "next-auth.session-token",
-    "__Secure-next-auth.session-token",
-  ];
-
-  for (const name of NAMES) {
-    for (const path of PATHS) {
+  for (const name of LOGOUT_COOKIE_NAMES) {
+    for (const path of LOGOUT_COOKIE_PATHS) {
       // no-domain
       res.cookies.set(name, "", { path, expires: new Date(0), maxAge: 0 });
 
