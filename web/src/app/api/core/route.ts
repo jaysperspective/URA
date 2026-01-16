@@ -48,6 +48,7 @@ const ASTRO_TIMEOUT_MS = Number(process.env.ASTRO_TIMEOUT_MS || 9000);
 const FULL_SCAN_MAX_YEARS = Number(process.env.URA_LUNATION_FULL_MAX_YEARS || 40); // bounded
 const FULL_SCAN_STEP_DAYS = Number(process.env.URA_LUNATION_FULL_STEP_DAYS || 7); // coarse scan step
 const FULL_BOUNDARY_STEP_DAYS = Number(process.env.URA_LUNATION_BOUNDARY_STEP_DAYS || 2); // bracket step for boundaries
+const LUNATION_TIME_BUDGET_MS = Number(process.env.URA_LUNATION_TIME_BUDGET_MS || 25_000); // max time for full lunation calc
 
 // ------------------------------
 // Parsing
@@ -568,16 +569,24 @@ async function findNewMoonWrapUTC(params: {
   const maxSteps = Math.ceil(maxDays / Math.max(1, FULL_SCAN_STEP_DAYS));
 
   // We'll track two points tA, tB such that sep wraps between them
+  // Use wrap180 for sign-crossing detection (works with any step size)
   let tPrev = startUTC.getTime();
-  let sPrev = (await getAt(tPrev)).sep;
+  let wPrev = wrap180((await getAt(tPrev)).sep);
 
   for (let i = 0; i < maxSteps; i++) {
     const tCur = tPrev + step;
-    const sCur = (await getAt(tCur)).sep;
+    const wCur = wrap180((await getAt(tCur)).sep);
 
-    // Wrap condition: one side is "late" (near 360) and the other is "early" (near 0)
-    // We allow either direction.
-    if (sPrev > 300 && sCur < 60) {
+    // Wrap condition: wrap180(sep) crosses from negative to non-negative
+    // (i.e., separation crossed 360°→0° boundary, indicating a new moon)
+    // For direction=-1 (backward), wPrev is later time, wCur is earlier
+    // For direction=+1 (forward), wPrev is earlier time, wCur is later
+    const crossesZero =
+      direction === 1
+        ? wPrev < 0 && wCur >= 0 // forward: earlier negative, later non-negative
+        : wCur < 0 && wPrev >= 0; // backward: earlier (wCur) negative, later (wPrev) non-negative
+
+    if (crossesZero) {
       // bracket [tCur, tPrev] or [tPrev, tCur] depending on direction
       const lo = Math.min(tPrev, tCur);
       const hi = Math.max(tPrev, tCur);
@@ -612,7 +621,7 @@ async function findNewMoonWrapUTC(params: {
     }
 
     tPrev = tCur;
-    sPrev = sCur;
+    wPrev = wCur;
   }
 
   throw new Error("could not locate progressed new moon wrap within bounded scan window");
@@ -795,6 +804,7 @@ async function handlePost(req: NextRequest) {
 
     if (detail === "full") {
       const getAt = makeSepCache(birthUTC, fetchProgressedSunMoon);
+      const lunationStart = Date.now();
 
       // FAST bounded coarse scans
       const prevNewMoonUTC = await findNewMoonWrapUTC({ startUTC: asOfUTC, direction: -1, getAt });
@@ -812,17 +822,39 @@ async function handlePost(req: NextRequest) {
         "Balsamic (315°)",
       ] as const;
 
-      const boundaries = [];
+      const boundaries: { deg: number; label: string; dateUTC: string | null }[] = [];
+      let boundaryTimedOut = false;
+
       for (let i = 0; i < boundaryTargets.length; i++) {
+        // Check time budget before each boundary calculation
+        if (Date.now() - lunationStart > LUNATION_TIME_BUDGET_MS) {
+          boundaryTimedOut = true;
+          // Fill remaining boundaries with null
+          for (let j = i; j < boundaryTargets.length; j++) {
+            boundaries.push({
+              deg: boundaryTargets[j],
+              label: boundaryLabels[j],
+              dateUTC: null,
+            });
+          }
+          break;
+        }
+
         const deg = boundaryTargets[i];
         const label = boundaryLabels[i];
-        const d = await findBoundaryUTC_fast(prevNewMoonUTC, deg, getAt);
-        boundaries.push({ deg, label, dateUTC: formatYMD(d) });
+        try {
+          const d = await findBoundaryUTC_fast(prevNewMoonUTC, deg, getAt);
+          boundaries.push({ deg, label, dateUTC: formatYMD(d) });
+        } catch {
+          // If boundary calculation fails, mark as null and continue
+          boundaries.push({ deg, label, dateUTC: null });
+        }
       }
 
       lunation.prevNewMoonUTC = formatYMD(prevNewMoonUTC);
       lunation.nextNewMoonUTC = formatYMD(nextNewMoonUTC);
       lunation.boundaries = boundaries;
+      lunation.boundaryTimedOut = boundaryTimedOut;
     }
 
     const summary = buildDerivedSummary({ natal, asOf, ascYear, lunation });
