@@ -227,17 +227,20 @@ function Modal({
    MAIN CONTROL
 ============================================================ */
 export default function MoonCalendarControl() {
-  const now = new Date();
   const [open, setOpen] = useState(false);
 
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  // Initialize to current date, will be reset when modal opens
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth() + 1);
 
   const [rows, setRows] = useState<DayRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const tzOffsetMin = useMemo(() => -now.getTimezoneOffset(), [now]);
+  const tzOffsetMin = useMemo(() => -new Date().getTimezoneOffset(), []);
+
+  // Track if we need to reset to current month on open
+  const [needsReset, setNeedsReset] = useState(true);
 
   async function loadMonth(y: number, m: number) {
     setLoading(true);
@@ -264,10 +267,23 @@ export default function MoonCalendarControl() {
     }
   }
 
+  // When modal opens, reset to current month first
   useEffect(() => {
-    if (open) loadMonth(year, month);
+    if (open && needsReset) {
+      const now = new Date();
+      setYear(now.getFullYear());
+      setMonth(now.getMonth() + 1);
+      setNeedsReset(false);
+    }
+  }, [open, needsReset]);
+
+  // Load data when year/month changes while open
+  useEffect(() => {
+    if (open && !needsReset) {
+      loadMonth(year, month);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, year, month]);
+  }, [open, year, month, needsReset]);
 
   function prevMonth() {
     let y = year;
@@ -306,6 +322,11 @@ export default function MoonCalendarControl() {
     return cells;
   }, [rows, year, month]);
 
+  function handleClose() {
+    setOpen(false);
+    setNeedsReset(true); // Reset flag so next open starts at current month
+  }
+
   return (
     <>
       <button
@@ -322,7 +343,7 @@ export default function MoonCalendarControl() {
         <CalendarIcon />
       </button>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={monthLabel(year, month)}>
+      <Modal open={open} onClose={handleClose} title={monthLabel(year, month)}>
         <div className="flex items-center justify-between mb-3">
           <button
             onClick={prevMonth}

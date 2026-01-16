@@ -7,6 +7,15 @@ import type { CSSProperties } from "react";
 import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 
+type Synthesis = {
+  headline: string;
+  guidance: string;
+  actionHint: string;
+  journalPrompt: string;
+  generatedAt: string;
+  expiresAt: string;
+};
+
 type Marker = {
   kind: "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
   whenLocal: string;
@@ -126,132 +135,99 @@ function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleD
   const rad = (a * Math.PI) / 180;
   const k = Math.cos(rad);
 
-  const r = 92;
-  const dxMag = r * (1 - k) * 1.08;
+  const size = 180; // Slightly smaller, tighter
+  const r = size / 2 - 8;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const dxMag = r * (1 - k) * 1.05;
   const waxing = a >= 0 && a <= 180;
   const dx = waxing ? -dxMag : dxMag;
 
+  // Illumination for subtle glow effect
+  const illum = (1 - Math.cos(rad)) / 2;
+
   return (
-    <div className="relative mx-auto w-[220px] h-[220px]">
-      <svg viewBox="0 0 220 220" className="w-full h-full">
+    <div className="relative mx-auto" style={{ width: size, height: size }}>
+      {/* Subtle ambient glow */}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background: `radial-gradient(circle at 50% 50%, rgba(248,244,238,${0.08 + illum * 0.12}) 0%, transparent 70%)`,
+          transform: "scale(1.15)",
+        }}
+      />
+
+      <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full relative">
         <defs>
-          {/* Realistic lunar surface gradient */}
-          <radialGradient id="moonSurfaceMoonPage" cx="38%" cy="32%" r="65%">
-            <stop offset="0%" stopColor="#E8E4DC" />
-            <stop offset="30%" stopColor="#D8D2C8" />
-            <stop offset="60%" stopColor="#C8C0B4" />
-            <stop offset="100%" stopColor="#B8AFA0" />
+          {/* Clean lunar surface gradient */}
+          <radialGradient id="moonSurfaceClean" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stopColor="#F0EDE6" />
+            <stop offset="40%" stopColor="#E4DFD6" />
+            <stop offset="75%" stopColor="#D4CFC4" />
+            <stop offset="100%" stopColor="#C8C2B6" />
           </radialGradient>
 
-          {/* Maria (dark patches) gradient */}
-          <radialGradient id="mariaDark" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(80,75,68,0.5)" />
-            <stop offset="100%" stopColor="rgba(80,75,68,0.2)" />
+          {/* Shadow gradient - smoother */}
+          <radialGradient id="moonShadowClean" cx="50%" cy="50%" r="55%">
+            <stop offset="0%" stopColor="rgba(20,24,32,0.45)" />
+            <stop offset="50%" stopColor="rgba(15,18,24,0.78)" />
+            <stop offset="100%" stopColor="rgba(10,12,16,0.92)" />
           </radialGradient>
 
-          {/* Shadow gradient */}
-          <radialGradient id="moonShadowMoonPage" cx="50%" cy="50%" r="60%">
-            <stop offset="0%" stopColor="rgba(15,18,25,0.5)" />
-            <stop offset="60%" stopColor="rgba(10,12,18,0.85)" />
-            <stop offset="100%" stopColor="rgba(5,8,12,0.95)" />
-          </radialGradient>
-
-          {/* Texture noise filter */}
-          <filter id="moonTexture" x="0%" y="0%" width="100%" height="100%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" result="noise" />
-            <feColorMatrix type="saturate" values="0" result="mono" />
-            <feComponentTransfer result="adjusted">
-              <feFuncA type="linear" slope="0.08" />
-            </feComponentTransfer>
-            <feBlend in="SourceGraphic" in2="adjusted" mode="overlay" />
-          </filter>
-
-          <clipPath id="moonClipMoonPage">
-            <circle cx="110" cy="110" r={r} />
+          <clipPath id="moonClipClean">
+            <circle cx={cx} cy={cy} r={r} />
           </clipPath>
-
-          {/* Subtle outer glow */}
-          <filter id="moonGlowMoonPage" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
 
-        {/* Outer glow ring */}
-        <circle
-          cx="110"
-          cy="110"
-          r="100"
-          fill="rgba(200,195,185,0.08)"
-          stroke="rgba(180,175,165,0.15)"
-          strokeWidth="1"
-        />
-
-        <g clipPath="url(#moonClipMoonPage)">
+        <g clipPath="url(#moonClipClean)">
           {/* Base moon surface */}
-          <circle cx="110" cy="110" r={r} fill="url(#moonSurfaceMoonPage)" />
+          <circle cx={cx} cy={cy} r={r} fill="url(#moonSurfaceClean)" />
 
-          {/* Lunar maria (dark patches - like Mare Imbrium, Mare Serenitatis, etc.) */}
-          <g opacity="0.4">
-            {/* Mare Imbrium area */}
-            <ellipse cx="85" cy="75" rx="28" ry="22" fill="rgba(70,65,58,0.45)" />
-            {/* Mare Serenitatis */}
-            <ellipse cx="130" cy="85" rx="18" ry="20" fill="rgba(75,70,62,0.4)" />
-            {/* Mare Tranquillitatis */}
-            <ellipse cx="145" cy="115" rx="22" ry="18" fill="rgba(72,68,60,0.35)" />
-            {/* Oceanus Procellarum */}
-            <ellipse cx="65" cy="110" rx="20" ry="30" fill="rgba(68,64,56,0.35)" />
-            {/* Mare Nubium */}
-            <ellipse cx="95" cy="150" rx="25" ry="15" fill="rgba(70,66,58,0.3)" />
+          {/* Simplified maria - subtle, elegant */}
+          <g opacity="0.35">
+            <ellipse cx={cx - 18} cy={cy - 22} rx="20" ry="16" fill="rgba(80,76,68,0.5)" />
+            <ellipse cx={cx + 16} cy={cy - 14} rx="14" ry="15" fill="rgba(82,78,70,0.45)" />
+            <ellipse cx={cx + 22} cy={cy + 8} rx="16" ry="14" fill="rgba(78,74,66,0.4)" />
+            <ellipse cx={cx - 24} cy={cy + 4} rx="15" ry="22" fill="rgba(76,72,64,0.4)" />
+            <ellipse cx={cx - 6} cy={cy + 28} rx="18" ry="12" fill="rgba(80,76,68,0.35)" />
           </g>
 
-          {/* Craters with depth */}
-          <g>
-            {/* Tycho - prominent southern crater */}
-            <circle cx="105" cy="170" r="8" fill="rgba(90,85,78,0.35)" />
-            <circle cx="105" cy="170" r="6" fill="rgba(200,195,188,0.25)" />
-            {/* Copernicus */}
-            <circle cx="75" cy="105" r="7" fill="rgba(85,80,72,0.3)" />
-            <circle cx="75" cy="105" r="5" fill="rgba(195,190,182,0.2)" />
-            {/* Kepler */}
-            <circle cx="55" cy="95" r="4" fill="rgba(88,82,75,0.35)" />
-            {/* Aristarchus - bright crater */}
-            <circle cx="48" cy="80" r="5" fill="rgba(220,215,205,0.3)" />
-            {/* Plato */}
-            <circle cx="95" cy="52" r="6" fill="rgba(65,60,55,0.4)" />
-            {/* Grimaldi */}
-            <circle cx="35" cy="115" r="5" fill="rgba(60,56,50,0.45)" />
-            {/* Smaller craters scattered */}
-            <circle cx="150" cy="70" r="3" fill="rgba(80,75,68,0.3)" />
-            <circle cx="165" cy="100" r="4" fill="rgba(85,80,72,0.25)" />
-            <circle cx="140" cy="145" r="3" fill="rgba(78,74,66,0.3)" />
-            <circle cx="70" cy="140" r="3" fill="rgba(82,77,70,0.28)" />
-            <circle cx="120" cy="60" r="3" fill="rgba(75,70,64,0.32)" />
-            <circle cx="160" cy="130" r="2" fill="rgba(80,75,68,0.25)" />
-            <circle cx="55" cy="145" r="2" fill="rgba(78,73,66,0.3)" />
+          {/* Key craters only - cleaner look */}
+          <g opacity="0.5">
+            <circle cx={cx - 4} cy={cy + 38} r="5" fill="rgba(95,90,82,0.4)" />
+            <circle cx={cx - 4} cy={cy + 38} r="3.5" fill="rgba(210,205,195,0.25)" />
+            <circle cx={cx - 22} cy={cy} r="4" fill="rgba(90,85,78,0.35)" />
+            <circle cx={cx - 22} cy={cy} r="2.5" fill="rgba(200,195,185,0.2)" />
+            <circle cx={cx - 6} cy={cy - 36} r="4" fill="rgba(70,66,60,0.45)" />
           </g>
 
-          {/* Subtle surface texture overlay */}
-          <circle cx="110" cy="110" r={r} fill="url(#moonSurfaceMoonPage)" filter="url(#moonTexture)" opacity="0.6" />
+          {/* Subtle inner shadow for depth */}
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke="rgba(0,0,0,0.08)"
+            strokeWidth="8"
+            style={{ filter: "blur(4px)" }}
+          />
 
           {/* Phase shadow */}
-          <circle cx={110 + dx} cy="110" r={r + 2} fill="url(#moonShadowMoonPage)" />
+          <circle cx={cx + dx} cy={cy} r={r + 2} fill="url(#moonShadowClean)" />
 
-          {/* Terminator softening (edge of shadow) */}
-          <circle cx={110 + dx * 0.95} cy="110" r={r + 1} fill="rgba(15,18,25,0.15)" />
+          {/* Terminator edge softening */}
+          <circle cx={cx + dx * 0.92} cy={cy} r={r + 1} fill="rgba(20,24,32,0.12)" />
         </g>
 
-        {/* Subtle rim highlight */}
+        {/* Crisp rim */}
         <circle
-          cx="110"
-          cy="110"
+          cx={cx}
+          cy={cy}
           r={r}
           fill="none"
-          stroke="rgba(220,215,205,0.12)"
-          strokeWidth="1"
+          stroke="rgba(200,195,185,0.18)"
+          strokeWidth="0.75"
         />
       </svg>
 
@@ -299,6 +275,32 @@ export default function MoonClient() {
   const [data, setData] = useState<CalendarAPI | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Synthesis state
+  const [synthesis, setSynthesis] = useState<Synthesis | null>(null);
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string | null>(null);
+  const [synthesisCached, setSynthesisCached] = useState(false);
+
+  async function loadSynthesis() {
+    setSynthesisLoading(true);
+    setSynthesisError(null);
+    try {
+      const res = await fetch("/api/moon/synthesis", { cache: "no-store" });
+      const json = await res.json();
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed to load synthesis");
+      }
+
+      setSynthesis(json.synthesis);
+      setSynthesisCached(json.cached ?? false);
+    } catch (e: any) {
+      setSynthesisError(e?.message ?? "Failed to generate synthesis");
+    } finally {
+      setSynthesisLoading(false);
+    }
+  }
 
   async function load(targetYmd?: string) {
     setLoading(true);
@@ -485,6 +487,134 @@ export default function MoonClient() {
           </div>
         </div>
 
+        {/* Daily Synthesis Section */}
+        <div className="mt-5 text-left">
+          <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
+            <div
+              className="text-xs tracking-widest text-center"
+              style={{ color: M.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+            >
+              DAILY SYNTHESIS
+            </div>
+
+            {!synthesis && !synthesisLoading && !synthesisError && (
+              <div className="mt-4 text-center">
+                <div className="text-sm mb-3" style={{ color: M.inkMuted }}>
+                  Generate your personalized daily guidance using the URA system:
+                  <br />
+                  <span style={{ color: M.ink, fontWeight: 500 }}>Planet (force) → Orisha (motion) → Phase (timing)</span>
+                </div>
+                <button
+                  onClick={loadSynthesis}
+                  className="rounded-full border px-5 py-2.5 text-sm font-medium transition-all"
+                  style={{
+                    color: M.ink,
+                    borderColor: "rgba(18,22,32,0.18)",
+                    background: "rgba(255,255,255,0.65)",
+                  }}
+                >
+                  Generate Today's Synthesis
+                </button>
+                <div className="mt-2 text-xs" style={{ color: M.inkSoft }}>
+                  One synthesis per day · Cached until midnight
+                </div>
+              </div>
+            )}
+
+            {synthesisLoading && (
+              <div className="mt-4 text-center py-4">
+                <div className="text-sm" style={{ color: M.inkMuted }}>
+                  Generating synthesis…
+                </div>
+              </div>
+            )}
+
+            {synthesisError && !synthesis && (
+              <div className="mt-4 text-center">
+                <div className="text-sm mb-2" style={{ color: "rgba(180,80,60,0.9)" }}>
+                  {synthesisError}
+                </div>
+                <button
+                  onClick={loadSynthesis}
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{
+                    color: M.ink,
+                    borderColor: "rgba(18,22,32,0.14)",
+                    background: "rgba(255,255,255,0.55)",
+                  }}
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+
+            {synthesis && (
+              <div className="mt-4 space-y-4">
+                <div className="text-center">
+                  <div className="text-xl font-semibold" style={{ color: M.ink }}>
+                    {synthesis.headline}
+                  </div>
+                  {synthesisCached && (
+                    <div className="mt-1 text-xs" style={{ color: M.inkSoft }}>
+                      Cached synthesis · Generated earlier today
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="rounded-xl border px-4 py-3"
+                  style={{
+                    borderColor: "rgba(18,22,32,0.10)",
+                    background: "rgba(255,255,255,0.50)",
+                  }}
+                >
+                  <div className="text-sm leading-relaxed" style={{ color: M.ink }}>
+                    {synthesis.guidance}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div
+                    className="rounded-xl border px-4 py-3"
+                    style={{
+                      borderColor: "rgba(18,22,32,0.10)",
+                      background: "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: M.inkSoft }}>
+                      Action
+                    </div>
+                    <div className="text-sm" style={{ color: M.ink }}>
+                      {synthesis.actionHint}
+                    </div>
+                  </div>
+
+                  <div
+                    className="rounded-xl border px-4 py-3"
+                    style={{
+                      borderColor: "rgba(18,22,32,0.10)",
+                      background: "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: M.inkSoft }}>
+                      Journal Prompt
+                    </div>
+                    <div className="text-sm italic" style={{ color: M.ink }}>
+                      {synthesis.journalPrompt}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* WNTR Phase Module - Current phase detailed info */}
+        <div className="mt-4 text-left">
+          <PhaseMicrocopyCard copy={lunarCopy} tone="linen" defaultExpanded={false} showJournal={true} showActionHint={true} />
+        </div>
+
+        {/* 8-Phase Reference Grid - moved below Phase Module */}
         <div className="mt-5 text-left">
           <div className="rounded-2xl border px-5 py-4" style={panelStyle}>
             <div
@@ -535,10 +665,6 @@ export default function MoonClient() {
               <span style={{ color: M.ink, fontWeight: 700 }}>{lunarCopy.orisha}</span> — {lunarCopy.oneLine}
             </div>
           </div>
-        </div>
-
-        <div className="mt-4 text-left">
-          <PhaseMicrocopyCard copy={lunarCopy} tone="linen" defaultExpanded={false} showJournal={true} showActionHint={true} />
         </div>
 
         <div className="mt-6 flex items-center justify-between">
