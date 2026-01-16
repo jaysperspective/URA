@@ -105,6 +105,17 @@ function iconFor(kind: Marker["kind"]) {
   return "◑";
 }
 
+function formatDateOnly(dateStr: string) {
+  // Extract just the date part (YYYY-MM-DD) from timestamps
+  const match = dateStr?.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) {
+    const [year, month, day] = match[1].split("-");
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${months[parseInt(month, 10) - 1]} ${parseInt(day, 10)}`;
+  }
+  return dateStr ?? "—";
+}
+
 function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleDeg?: number }) {
   const aRaw =
     typeof phaseAngleDeg === "number"
@@ -124,23 +135,44 @@ function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleD
     <div className="relative mx-auto w-[220px] h-[220px]">
       <svg viewBox="0 0 220 220" className="w-full h-full">
         <defs>
-          <radialGradient id="moonSurfaceMoonPage" cx="35%" cy="30%" r="70%">
-            <stop offset="0%" stopColor="#FFFFFF" />
-            <stop offset="45%" stopColor="#F4EEE6" />
-            <stop offset="100%" stopColor="#E7DDD1" />
+          {/* Realistic lunar surface gradient */}
+          <radialGradient id="moonSurfaceMoonPage" cx="38%" cy="32%" r="65%">
+            <stop offset="0%" stopColor="#E8E4DC" />
+            <stop offset="30%" stopColor="#D8D2C8" />
+            <stop offset="60%" stopColor="#C8C0B4" />
+            <stop offset="100%" stopColor="#B8AFA0" />
           </radialGradient>
 
-          <radialGradient id="moonShadowMoonPage" cx="50%" cy="50%" r="70%">
-            <stop offset="0%" stopColor="rgba(10,14,24,0.45)" />
-            <stop offset="100%" stopColor="rgba(10,14,24,0.92)" />
+          {/* Maria (dark patches) gradient */}
+          <radialGradient id="mariaDark" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(80,75,68,0.5)" />
+            <stop offset="100%" stopColor="rgba(80,75,68,0.2)" />
           </radialGradient>
+
+          {/* Shadow gradient */}
+          <radialGradient id="moonShadowMoonPage" cx="50%" cy="50%" r="60%">
+            <stop offset="0%" stopColor="rgba(15,18,25,0.5)" />
+            <stop offset="60%" stopColor="rgba(10,12,18,0.85)" />
+            <stop offset="100%" stopColor="rgba(5,8,12,0.95)" />
+          </radialGradient>
+
+          {/* Texture noise filter */}
+          <filter id="moonTexture" x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" result="noise" />
+            <feColorMatrix type="saturate" values="0" result="mono" />
+            <feComponentTransfer result="adjusted">
+              <feFuncA type="linear" slope="0.08" />
+            </feComponentTransfer>
+            <feBlend in="SourceGraphic" in2="adjusted" mode="overlay" />
+          </filter>
 
           <clipPath id="moonClipMoonPage">
-            <circle cx="110" cy="110" r="100" />
+            <circle cx="110" cy="110" r={r} />
           </clipPath>
 
-          <filter id="moonGlowMoonPage" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="2.2" result="blur" />
+          {/* Subtle outer glow */}
+          <filter id="moonGlowMoonPage" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -148,31 +180,79 @@ function MoonDisc({ phaseName, phaseAngleDeg }: { phaseName: string; phaseAngleD
           </filter>
         </defs>
 
+        {/* Outer glow ring */}
         <circle
           cx="110"
           cy="110"
-          r="108"
-          fill="rgba(255,255,255,0.10)"
-          stroke="rgba(255,255,255,0.18)"
-          strokeWidth="2"
+          r="100"
+          fill="rgba(200,195,185,0.08)"
+          stroke="rgba(180,175,165,0.15)"
+          strokeWidth="1"
         />
 
-        <g clipPath="url(#moonClipMoonPage)" filter="url(#moonGlowMoonPage)">
+        <g clipPath="url(#moonClipMoonPage)">
+          {/* Base moon surface */}
           <circle cx="110" cy="110" r={r} fill="url(#moonSurfaceMoonPage)" />
 
-          <g opacity="0.12">
-            <circle cx="78" cy="88" r="10" fill="rgba(40,44,60,0.35)" />
-            <circle cx="145" cy="78" r="7" fill="rgba(40,44,60,0.30)" />
-            <circle cx="125" cy="135" r="12" fill="rgba(40,44,60,0.28)" />
-            <circle cx="92" cy="140" r="6" fill="rgba(40,44,60,0.30)" />
-            <circle cx="160" cy="120" r="5" fill="rgba(40,44,60,0.30)" />
+          {/* Lunar maria (dark patches - like Mare Imbrium, Mare Serenitatis, etc.) */}
+          <g opacity="0.4">
+            {/* Mare Imbrium area */}
+            <ellipse cx="85" cy="75" rx="28" ry="22" fill="rgba(70,65,58,0.45)" />
+            {/* Mare Serenitatis */}
+            <ellipse cx="130" cy="85" rx="18" ry="20" fill="rgba(75,70,62,0.4)" />
+            {/* Mare Tranquillitatis */}
+            <ellipse cx="145" cy="115" rx="22" ry="18" fill="rgba(72,68,60,0.35)" />
+            {/* Oceanus Procellarum */}
+            <ellipse cx="65" cy="110" rx="20" ry="30" fill="rgba(68,64,56,0.35)" />
+            {/* Mare Nubium */}
+            <ellipse cx="95" cy="150" rx="25" ry="15" fill="rgba(70,66,58,0.3)" />
           </g>
 
-          <circle cx={110 + dx} cy="110" r={r} fill="url(#moonShadowMoonPage)" />
-          <circle cx={110 + dx * 0.92} cy="110" r={r} fill="rgba(10,14,24,0.06)" />
+          {/* Craters with depth */}
+          <g>
+            {/* Tycho - prominent southern crater */}
+            <circle cx="105" cy="170" r="8" fill="rgba(90,85,78,0.35)" />
+            <circle cx="105" cy="170" r="6" fill="rgba(200,195,188,0.25)" />
+            {/* Copernicus */}
+            <circle cx="75" cy="105" r="7" fill="rgba(85,80,72,0.3)" />
+            <circle cx="75" cy="105" r="5" fill="rgba(195,190,182,0.2)" />
+            {/* Kepler */}
+            <circle cx="55" cy="95" r="4" fill="rgba(88,82,75,0.35)" />
+            {/* Aristarchus - bright crater */}
+            <circle cx="48" cy="80" r="5" fill="rgba(220,215,205,0.3)" />
+            {/* Plato */}
+            <circle cx="95" cy="52" r="6" fill="rgba(65,60,55,0.4)" />
+            {/* Grimaldi */}
+            <circle cx="35" cy="115" r="5" fill="rgba(60,56,50,0.45)" />
+            {/* Smaller craters scattered */}
+            <circle cx="150" cy="70" r="3" fill="rgba(80,75,68,0.3)" />
+            <circle cx="165" cy="100" r="4" fill="rgba(85,80,72,0.25)" />
+            <circle cx="140" cy="145" r="3" fill="rgba(78,74,66,0.3)" />
+            <circle cx="70" cy="140" r="3" fill="rgba(82,77,70,0.28)" />
+            <circle cx="120" cy="60" r="3" fill="rgba(75,70,64,0.32)" />
+            <circle cx="160" cy="130" r="2" fill="rgba(80,75,68,0.25)" />
+            <circle cx="55" cy="145" r="2" fill="rgba(78,73,66,0.3)" />
+          </g>
+
+          {/* Subtle surface texture overlay */}
+          <circle cx="110" cy="110" r={r} fill="url(#moonSurfaceMoonPage)" filter="url(#moonTexture)" opacity="0.6" />
+
+          {/* Phase shadow */}
+          <circle cx={110 + dx} cy="110" r={r + 2} fill="url(#moonShadowMoonPage)" />
+
+          {/* Terminator softening (edge of shadow) */}
+          <circle cx={110 + dx * 0.95} cy="110" r={r + 1} fill="rgba(15,18,25,0.15)" />
         </g>
 
-        <circle cx="110" cy="110" r="100" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" />
+        {/* Subtle rim highlight */}
+        <circle
+          cx="110"
+          cy="110"
+          r={r}
+          fill="none"
+          stroke="rgba(220,215,205,0.12)"
+          strokeWidth="1"
+        />
       </svg>
 
       <div className="sr-only">{phaseName}</div>
@@ -366,22 +446,7 @@ export default function MoonClient() {
               The Moon is in <span className="font-semibold">{data?.astro?.moonSign ?? "—"}</span>
             </div>
             <div className="mt-1 text-sm" style={{ color: M.inkMuted }}>
-              As of{" "}
-              <span style={{ color: M.ink }} className="opacity-85">
-                {data?.gregorian?.asOfLocal ?? "—"}
-              </span>
-            </div>
-            <div className="text-sm" style={{ color: M.inkMuted }}>
-              Enters{" "}
-              <span style={{ color: M.ink }} className="opacity-85">
-                {data?.astro?.moonEntersSign ?? "—"}
-              </span>{" "}
-              <span style={{ color: M.ink }} className="opacity-85">
-                {data?.astro?.moonEntersLocal ?? "—"}
-              </span>
-            </div>
-            <div className="mt-2 text-xs" style={{ color: M.inkSoft }}>
-              Lunar Day: <span style={{ color: M.inkMuted }}>{data?.lunar?.lunarDay ?? "—"}</span>
+              Lunar Day {data?.lunar?.lunarDay ?? "—"}
             </div>
           </div>
         </div>
@@ -398,18 +463,15 @@ export default function MoonClient() {
 
             <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
               {markers.map((m) => (
-                <div key={m.kind} className="space-y-2">
+                <div key={m.kind} className="space-y-1">
                   <div style={{ color: M.ink }} className="text-2xl opacity-80">
                     {iconFor(m.kind)}
                   </div>
-                  <div style={{ color: M.inkMuted }} className="text-xs">
+                  <div style={{ color: M.ink }} className="text-sm font-medium">
                     {m.kind}
                   </div>
-                  <div style={{ color: M.ink }} className="text-sm font-semibold">
-                    {m.degreeText}
-                  </div>
-                  <div style={{ color: M.inkMuted }} className="text-xs">
-                    {m.whenLocal}
+                  <div style={{ color: M.inkMuted }} className="text-sm">
+                    {formatDateOnly(m.whenLocal)}
                   </div>
                 </div>
               ))}

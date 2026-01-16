@@ -189,6 +189,27 @@ function fmtLocalFromUTC(isoUTC: string, tzOffsetMinEast: number) {
 }
 
 /**
+ * Check if phase angle crossed the target going forward (increasing phase angle).
+ * Handles wrap-around from 360 to 0.
+ */
+function crossedTarget(prevAngle: number, curAngle: number, target: number): boolean {
+  // Normalize all to [0, 360)
+  const p = normalize360(prevAngle);
+  const c = normalize360(curAngle);
+  const t = normalize360(target);
+
+  // Phase angle increases as moon moves through cycle
+  // Detect if target is between prev and cur (accounting for wrap)
+  if (c >= p) {
+    // No wrap: simple range check
+    return t > p && t <= c;
+  } else {
+    // Wrapped from ~360 to ~0: target could be in [p, 360) or [0, c]
+    return t > p || t <= c;
+  }
+}
+
+/**
  * Find next crossing of phaseAngleDeg to targetDeg using:
  * - coarse stepping (default 6 hours)
  * - then binary search in the bracket
@@ -210,32 +231,25 @@ async function findNextMarkerFast(params: {
 
   let prevT = new Date(startUTC.getTime());
   let prev = await chartAtUTC(prevT, latitude, longitude);
-  let prevDiff = signedDiffDeg(prev.phaseAngleDeg, targetDeg);
 
   for (let h = stepHours; h <= maxHours; h += stepHours) {
     const t = new Date(startUTC.getTime() + h * 3600_000);
     const cur = await chartAtUTC(t, latitude, longitude);
-    const curDiff = signedDiffDeg(cur.phaseAngleDeg, targetDeg);
 
-    if (
-      prevDiff === 0 ||
-      curDiff === 0 ||
-      (prevDiff < 0 && curDiff > 0) ||
-      (prevDiff > 0 && curDiff < 0)
-    ) {
+    if (crossedTarget(prev.phaseAngleDeg, cur.phaseAngleDeg, targetDeg)) {
+      // Found bracket - refine with binary search
       let lo = prevT.getTime();
       let hi = t.getTime();
 
       for (let k = 0; k < 18; k++) {
         const mid = Math.floor((lo + hi) / 2);
         const midChart = await chartAtUTC(new Date(mid), latitude, longitude);
-        const midDiff = signedDiffDeg(midChart.phaseAngleDeg, targetDeg);
 
-        if ((prevDiff <= 0 && midDiff <= 0) || (prevDiff >= 0 && midDiff >= 0)) {
-          lo = mid;
-          prevDiff = midDiff;
-        } else {
+        if (crossedTarget(prev.phaseAngleDeg, midChart.phaseAngleDeg, targetDeg)) {
           hi = mid;
+        } else {
+          lo = mid;
+          prev = midChart;
         }
       }
 
@@ -247,7 +261,7 @@ async function findNextMarkerFast(params: {
     }
 
     prevT = t;
-    prevDiff = curDiff;
+    prev = cur;
   }
 
   return null;
