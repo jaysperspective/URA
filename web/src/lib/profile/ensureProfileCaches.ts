@@ -36,7 +36,6 @@ function getLocalDayKey(timezone: string, d = new Date()) {
 
 /**
  * Convert local wall-clock birth time in a timezone into a UTC Date.
- * (Avoid treating local birth time as UTC.)
  */
 function zonedLocalToUtcDate(opts: {
   year: number;
@@ -48,10 +47,8 @@ function zonedLocalToUtcDate(opts: {
 }) {
   const { year, month, day, hour, minute, timezone } = opts;
 
-  // Create a date in UTC with the local time values (as a reference point)
   const referenceUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
 
-  // Get what time it would be in the target timezone at this UTC moment
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     year: "numeric",
@@ -72,18 +69,15 @@ function zonedLocalToUtcDate(opts: {
   const zonedHour = parseInt(getPart("hour"), 10);
   const zonedMinute = parseInt(getPart("minute"), 10);
 
-  // Calculate the offset: how much the timezone differs from UTC at this moment
   const zonedAsUtc = new Date(Date.UTC(zonedYear, zonedMonth - 1, zonedDay, zonedHour, zonedMinute, 0));
   const offsetMs = zonedAsUtc.getTime() - referenceUtc.getTime();
 
-  // Local -> UTC: subtract the offsetMs
   const localAsUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
   return new Date(localAsUtc.getTime() - offsetMs);
 }
 
 /**
- * IMPORTANT: for server-side internal calls, do NOT rely on `localhost`
- * (can resolve to ::1 and cause intermittent fetch failures).
+ * IMPORTANT: avoid localhost (::1) for internal server fetches.
  */
 function getAppBaseUrl() {
   const base =
@@ -101,31 +95,24 @@ function getAppBaseUrl() {
 
 async function fetchAstroNatalUTC(birthUTC: BirthPayloadUTC) {
   const response = await fetchChart(birthUTC);
-
-  if (!response.ok) {
-    throw new Error(response.error || "astro-service /chart failed");
-  }
-
+  if (!response.ok) throw new Error(response.error || "astro-service /chart failed");
   return response;
 }
 
-/**
- * Small helper to sleep.
- */
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
- * POST JSON to an internal route safely:
- * - hard timeout (prevents SSR hangs)
+ * Internal POST with:
+ * - timeout
  * - bounded retry on 429
- * - does NOT throw (returns ok:false)
+ * - never throws (returns ok:false)
  */
 async function postJsonSafe(path: string, payload: unknown): Promise<SafeResult> {
   const base = getAppBaseUrl();
 
-  const timeoutMs = Number(process.env.INTERNAL_API_TIMEOUT_MS || 9000); // keep under nginx/proxy timeout
+  const timeoutMs = Number(process.env.INTERNAL_API_TIMEOUT_MS || 9000);
   const maxRetries429 = Number(process.env.INTERNAL_API_RETRY_429 || 1);
 
   for (let attempt = 0; attempt <= maxRetries429; attempt++) {
@@ -147,7 +134,6 @@ async function postJsonSafe(path: string, payload: unknown): Promise<SafeResult>
 
       clearTimeout(t);
 
-      // Rate-limited: honor Retry-After if present, otherwise short backoff.
       if (r.status === 429) {
         const retryAfterHeader = r.headers.get("retry-after");
         const retryAfterSec = retryAfterHeader ? Number(retryAfterHeader) : NaN;
@@ -159,39 +145,65 @@ async function postJsonSafe(path: string, payload: unknown): Promise<SafeResult>
         }
 
         const text = await r.text().catch(() => "");
-        return {
-          ok: false,
-          error: `${path} rate limited: 429`,
-          status: 429,
-          body: text.slice(0, 300),
-        };
+        return { ok: false, error: `${path} rate limited: 429`, status: 429, body: text.slice(0, 300) };
       }
 
       if (!r.ok) {
         const text = await r.text().catch(() => "");
-        return {
-          ok: false,
-          error: `${path} failed: ${r.status}`,
-          status: r.status,
-          body: text.slice(0, 300),
-        };
+        return { ok: false, error: `${path} failed: ${r.status}`, status: r.status, body: text.slice(0, 300) };
       }
 
       const json = await r.json().catch(() => null);
       return { ok: true, data: json };
     } catch (err: any) {
       clearTimeout(t);
-
       const isAbort = err?.name === "AbortError";
-      return {
-        ok: false,
-        error: isAbort ? `${path} timeout after ${timeoutMs}ms` : err?.message || `${path} fetch error`,
-      };
+      return { ok: false, error: isAbort ? `${path} timeout after ${timeoutMs}ms` : err?.message || `${path} fetch error` };
     }
   }
 
-  // should not reach
   return { ok: false, error: `${path} failed (unexpected)` };
+}
+
+/**
+ * ✅ NEW: Validate natal cache.
+ * Your UI expects:
+ * - planets map with at least Sun/Moon/Mercury/Venus/Mars/Jupiter/Saturn
+ * - angles: ascendant + mc
+ *
+ * We accept multiple shapes:
+ * - { ok:true, data:{ planets, ascendant, mc, ... } }
+ * - { data:{ planets, ascendant, mc } }
+ * - { planets, ascendant, mc }
+ */
+function isNatalCacheComplete(natal: any): boolean {
+  if (!natal || typeof natal !== "object") return false;
+
+  const data = (natal.data && typeof natal.data === "object") ? natal.data : natal;
+
+  const asc = data.ascendant;
+  const mc = data.mc;
+
+  const planets = data.planets;
+
+  const hasAsc = typeof asc === "number" && Number.isFinite(asc);
+  const hasMc = typeof mc === "number" && Number.isFinite(mc);
+
+  if (!hasAsc || !hasMc) return false;
+
+  if (!planets || typeof planets !== "object") return false;
+
+  const req = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn"];
+  const hasPlanet = (k: string) => {
+    const p = (planets as any)[k];
+    if (!p) return false;
+    if (typeof p === "number" && Number.isFinite(p)) return true;
+    if (typeof p === "object" && typeof p.lon === "number" && Number.isFinite(p.lon)) return true;
+    return false;
+  };
+
+  // Require core set; outer planets/nodes can be optional
+  return req.every(hasPlanet);
 }
 
 /**
@@ -215,10 +227,7 @@ async function updateProfileCachesAtomic(
         data: updates,
       });
     },
-    {
-      maxWait: 5000,
-      timeout: 10000,
-    }
+    { maxWait: 5000, timeout: 10000 }
   );
 }
 
@@ -258,9 +267,7 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
 
   if (!hasBirth) return profile;
 
-  /**
-   * astro-service wants UTC parts
-   */
+  // astro-service wants UTC parts
   const birthUTC = zonedLocalToUtcDate({
     year: birthYear,
     month: birthMonth,
@@ -289,7 +296,9 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
     !profile.asOfDate ||
     cachedKey !== todayKey;
 
-  const needsNatal = !profile.natalChartJson;
+  // ✅ CHANGE: natal is "missing" if absent OR structurally incomplete
+  const natalLooksComplete = isNatalCacheComplete(profile.natalChartJson as any);
+  const needsNatal = !profile.natalChartJson || !natalLooksComplete;
 
   let natalChartJson: Prisma.InputJsonValue | undefined =
     (profile.natalChartJson ?? undefined) as unknown as Prisma.InputJsonValue | undefined;
@@ -307,7 +316,7 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
   let didDailyUpdate = false;
 
   if (needsDaily) {
-    // Send LOCAL birth inputs to app routes (they normalize)
+    // LOCAL birth parts to app routes (they normalize themselves)
     const payloadLocal = {
       year: birthYear,
       month: birthMonth,
@@ -315,11 +324,10 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
       hour: birthHour,
       minute: birthMinute,
 
-      // core contract
       lat: birthLat,
       lon: birthLon,
 
-      // compatibility
+      // compat
       latitude: birthLat,
       longitude: birthLon,
 
@@ -327,7 +335,6 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
       asOfDate: todayKey,
     };
 
-    // Run them in parallel, but both are bounded by INTERNAL_API_TIMEOUT_MS
     const [ascRes, lunaRes] = await Promise.all([
       postJsonSafe("/api/asc-year", payloadLocal),
       postJsonSafe("/api/lunation", payloadLocal),
