@@ -553,7 +553,8 @@ function makeSepCache(
 }
 
 /**
- * FAST coarse scan to find the wrap (sep crosses 360->0) in a bounded window, then refine by bisection.
+ * FAST coarse scan to find the wrap (sep crosses 360->0) in a bounded window.
+ * Returns approximate date (midpoint of bracket) - no bisection refinement.
  */
 async function findNewMoonWrapUTC(params: {
   startUTC: Date;
@@ -568,7 +569,6 @@ async function findNewMoonWrapUTC(params: {
   const maxDays = Math.max(1, Math.floor(FULL_SCAN_MAX_YEARS * 366));
   const maxSteps = Math.ceil(maxDays / Math.max(1, FULL_SCAN_STEP_DAYS));
 
-  // We'll track two points tA, tB such that sep wraps between them
   // Use wrap180 for sign-crossing detection (works with any step size)
   let tPrev = startUTC.getTime();
   let wPrev = wrap180((await getAt(tPrev)).sep);
@@ -579,45 +579,16 @@ async function findNewMoonWrapUTC(params: {
 
     // Wrap condition: wrap180(sep) crosses from negative to non-negative
     // (i.e., separation crossed 360°→0° boundary, indicating a new moon)
-    // For direction=-1 (backward), wPrev is later time, wCur is earlier
-    // For direction=+1 (forward), wPrev is earlier time, wCur is later
     const crossesZero =
       direction === 1
-        ? wPrev < 0 && wCur >= 0 // forward: earlier negative, later non-negative
-        : wCur < 0 && wPrev >= 0; // backward: earlier (wCur) negative, later (wPrev) non-negative
+        ? wPrev < 0 && wCur >= 0
+        : wCur < 0 && wPrev >= 0;
 
     if (crossesZero) {
-      // bracket [tCur, tPrev] or [tPrev, tCur] depending on direction
+      // Return midpoint of bracket (approximate date, no bisection)
       const lo = Math.min(tPrev, tCur);
       const hi = Math.max(tPrev, tCur);
-
-      // refine root of wrap180(sep) = 0 by bisection
-      const f = async (ms: number) => wrap180((await getAt(ms)).sep);
-      let a = lo;
-      let b = hi;
-      let fa = await f(a);
-      let fb = await f(b);
-
-      for (let it = 0; it < 28; it++) {
-        const mid = Math.floor((a + b) / 2);
-        const fm = await f(mid);
-
-        if (Math.abs(fm) < 1e-6) {
-          a = b = mid;
-          break;
-        }
-
-        // want sign change
-        if ((fa <= 0 && fm >= 0) || (fa >= 0 && fm <= 0)) {
-          b = mid;
-          fb = fm;
-        } else {
-          a = mid;
-          fa = fm;
-        }
-      }
-
-      return new Date(Math.floor((a + b) / 2));
+      return new Date(Math.floor((lo + hi) / 2));
     }
 
     tPrev = tCur;
@@ -628,7 +599,8 @@ async function findNewMoonWrapUTC(params: {
 }
 
 /**
- * Find boundary sep >= targetDeg starting from anchorUTC with small forward steps, then bisection.
+ * Find boundary sep >= targetDeg starting from anchorUTC with forward steps.
+ * Returns approximate date (midpoint of bracket) - no bisection refinement.
  */
 async function findBoundaryUTC_fast(
   anchorUTC: Date,
@@ -646,7 +618,7 @@ async function findBoundaryUTC_fast(
   const step = Math.max(1, FULL_BOUNDARY_STEP_DAYS) * oneDay;
   let sHi = (await getAt(hi)).sep;
 
-  const maxDaysForward = Math.max(30, Math.floor(FULL_SCAN_MAX_YEARS * 366)); // bounded
+  const maxDaysForward = Math.max(30, Math.floor(FULL_SCAN_MAX_YEARS * 366));
   const maxSteps = Math.ceil(maxDaysForward / Math.max(1, FULL_BOUNDARY_STEP_DAYS));
 
   for (let i = 0; i < maxSteps && sHi < targetDeg; i++) {
@@ -657,17 +629,8 @@ async function findBoundaryUTC_fast(
 
   if (sHi < targetDeg) throw new Error(`could not bracket boundary for ${targetDeg}°`);
 
-  // Bisection
-  for (let it = 0; it < 28; it++) {
-    const mid = Math.floor((lo + hi) / 2);
-    const sm = (await getAt(mid)).sep;
-    if (sm >= targetDeg) hi = mid;
-    else lo = mid;
-
-    if (hi - lo < 30 * 60_000) break; // within 30 minutes
-  }
-
-  return new Date(hi);
+  // Return midpoint of bracket (approximate date, no bisection)
+  return new Date(Math.floor((lo + hi) / 2));
 }
 
 function formatYMD(d: Date) {
