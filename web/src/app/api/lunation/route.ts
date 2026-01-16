@@ -5,16 +5,31 @@ import { withComputeRateLimit } from "@/lib/withRateLimit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function getAppBaseUrl() {
-  const base =
-    process.env.APP_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXTAUTH_URL ||
-    process.env.APP_URL ||
-    "";
+/**
+ * /api/lunation
+ * - Returns lunation + derived summary by proxying into /api/core.
+ *
+ * OPTION A (resolved):
+ * - Accept BOTH contracts:
+ *   A) Legacy/proxy: { birth_datetime, tz_offset, as_of_date, lat?, lon? }
+ *   B) URA structured: { year, month, day, hour, minute, lat/lon, timezone, asOfDate }
+ * - Normalize input -> send JSON to /api/core (which already supports both).
+ */
 
-  if (base) return base.replace(/\/$/, "");
-  return "http://127.0.0.1:3000";
+function getAppBaseUrlFromReq(req: NextRequest) {
+  const url = new URL(req.url);
+
+  const host =
+    req.headers.get("x-forwarded-host") ||
+    req.headers.get("host") ||
+    url.host;
+
+  const proto =
+    req.headers.get("x-forwarded-proto") ||
+    url.protocol.replace(":", "") ||
+    "http";
+
+  return `${proto}://${host}`.replace(/\/$/, "");
 }
 
 function angleToSign(lon: number) {
@@ -82,7 +97,9 @@ function buildLunationText(core: any) {
   return lines.join("\n");
 }
 
-async function postToCore(base: string, body: string, contentType: string) {
+async function postToCore(req: NextRequest, body: string, contentType: string) {
+  const base = getAppBaseUrlFromReq(req);
+
   const r = await fetch(`${base}/api/core`, {
     method: "POST",
     headers: {
@@ -101,6 +118,100 @@ async function postToCore(base: string, body: string, contentType: string) {
   return { r, core };
 }
 
+// ---------------------------
+// Normalization helpers
+// ---------------------------
+
+function toNum(v: any): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeToCorePayload(obj: any): { ok: true; payload: any } | { ok: false; error: string } {
+  if (!obj || typeof obj !== "object") {
+    return { ok: false, error: "Invalid JSON body." };
+  }
+
+  // A) Legacy/proxy contract
+  const hasProxy =
+    typeof obj.birth_datetime === "string" &&
+    typeof obj.as_of_date === "string" &&
+    (typeof obj.tz_offset === "string" || typeof obj.timezone === "string");
+
+  if (hasProxy) {
+    const lat = toNum(obj.lat ?? obj.latitude);
+    const lon = toNum(obj.lon ?? obj.longitude);
+
+    // Core requires lat/lon (because it also computes asc-year).
+    if (lat == null || lon == null) {
+      return { ok: false, error: "Missing lat/lon (required for core because asc-year uses ascendant)." };
+    }
+
+    return {
+      ok: true,
+      payload: {
+        birth_datetime: obj.birth_datetime,
+        tz_offset: typeof obj.tz_offset === "string" ? obj.tz_offset : undefined,
+        timezone: typeof obj.timezone === "string" ? obj.timezone : undefined,
+        as_of_date: obj.as_of_date,
+        lat,
+        lon,
+      },
+    };
+  }
+
+  // B) URA structured contract (what ensureProfileCaches sends)
+  const year = toNum(obj.year);
+  const month = toNum(obj.month);
+  const day = toNum(obj.day);
+  const hour = toNum(obj.hour);
+  const minute = toNum(obj.minute);
+
+  const lat = toNum(obj.lat ?? obj.latitude);
+  const lon = toNum(obj.lon ?? obj.longitude);
+  const timezone = typeof obj.timezone === "string" ? obj.timezone : null;
+
+  // allow asOfDate (local day key) or as_of_date (legacy)
+  const asOfDate =
+    (typeof obj.asOfDate === "string" && obj.asOfDate) ||
+    (typeof obj.as_of_date === "string" && obj.as_of_date) ||
+    null;
+
+  // In your core normalizer:
+  // - as_of_date expects "YYYY-MM-DD"
+  // - if missing, core defaults to today UTC
+  const as_of_date =
+    asOfDate && /^\d{4}-\d{2}-\d{2}$/.test(asOfDate)
+      ? asOfDate
+      : undefined;
+
+  if ([year, month, day, hour, minute].some((x) => x == null)) {
+    return { ok: false, error: "Missing birth inputs (year/month/day/hour/minute)." };
+  }
+  if (lat == null || lon == null) {
+    return { ok: false, error: "Missing lat/lon (required for core because asc-year uses ascendant)." };
+  }
+  if (!timezone) {
+    return { ok: false, error: "Missing timezone." };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      year,
+      month,
+      day,
+      hour,
+      minute,
+      lat,
+      lon,
+      timezone,
+      ...(as_of_date ? { as_of_date } : {}),
+      // NOTE: we do NOT need tz_offset here because core can compute it from timezone + birth local datetime
+    },
+  };
+}
+
 /**
  * ✅ GET support
  * - If query params exist, we proxy them into /api/core by sending a JSON body.
@@ -108,16 +219,16 @@ async function postToCore(base: string, body: string, contentType: string) {
  */
 async function handleGet(req: NextRequest) {
   try {
-    const base = getAppBaseUrl();
     const url = new URL(req.url);
 
-    // Optional inputs (only used if provided)
     const birth_datetime = url.searchParams.get("birth_datetime");
     const tz_offset = url.searchParams.get("tz_offset");
     const as_of_date = url.searchParams.get("as_of_date");
+    const timezone = url.searchParams.get("timezone");
+    const lat = url.searchParams.get("lat");
+    const lon = url.searchParams.get("lon");
 
-    // If nothing provided, return a stable shape instead of 405.
-    if (!birth_datetime && !tz_offset && !as_of_date) {
+    if (!birth_datetime && !tz_offset && !as_of_date && !timezone && !lat && !lon) {
       return NextResponse.json(
         {
           ok: true,
@@ -131,15 +242,23 @@ async function handleGet(req: NextRequest) {
       );
     }
 
-    // Build a JSON body for /api/core (adjust fields to your core schema if needed)
     const payload: any = {};
     if (birth_datetime) payload.birth_datetime = birth_datetime;
     if (tz_offset) payload.tz_offset = tz_offset;
+    if (timezone) payload.timezone = timezone;
     if (as_of_date) payload.as_of_date = as_of_date;
+    if (lat != null) payload.lat = Number(lat);
+    if (lon != null) payload.lon = Number(lon);
 
-    const body = JSON.stringify(payload);
+    const normalized = normalizeToCorePayload(payload);
+    if (!normalized.ok) {
+      return NextResponse.json(
+        { ok: false, error: normalized.error },
+        { status: 400, headers: { "Cache-Control": "no-store" } }
+      );
+    }
 
-    const { r, core } = await postToCore(base, body, "application/json");
+    const { r, core } = await postToCore(req, JSON.stringify(normalized.payload), "application/json");
 
     if (!r.ok || core?.ok === false) {
       return NextResponse.json(
@@ -154,7 +273,7 @@ async function handleGet(req: NextRequest) {
         text: buildLunationText(core),
         summary: core?.derived?.summary ?? null,
         lunation: core?.derived?.lunation ?? null,
-        input: core?.input ?? payload ?? null,
+        input: core?.input ?? normalized.payload ?? null,
       },
       { status: 200, headers: { "Cache-Control": "no-store" } }
     );
@@ -167,14 +286,51 @@ async function handleGet(req: NextRequest) {
 }
 
 /**
- * ✅ Existing POST behavior preserved
+ * ✅ POST behavior preserved, now with normalization for both contracts.
  */
 async function handlePost(req: NextRequest) {
   try {
-    const body = await req.text();
-    const base = getAppBaseUrl();
+    const contentType = req.headers.get("content-type") || "";
+    const raw = await req.text();
 
-    const { r, core } = await postToCore(base, body, req.headers.get("content-type") || "text/plain");
+    // Prefer JSON when it looks like JSON
+    const trimmed = raw.trim();
+    const looksJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+
+    if (contentType.includes("application/json") || looksJson) {
+      const obj = JSON.parse(raw || "{}");
+      const normalized = normalizeToCorePayload(obj);
+
+      if (!normalized.ok) {
+        return NextResponse.json(
+          { ok: false, error: normalized.error },
+          { status: 400, headers: { "Cache-Control": "no-store" } }
+        );
+      }
+
+      const { r, core } = await postToCore(req, JSON.stringify(normalized.payload), "application/json");
+
+      if (!r.ok || core?.ok === false) {
+        return NextResponse.json(
+          { ok: false, error: core?.error || `core failed (${r.status})`, core },
+          { status: 500, headers: { "Cache-Control": "no-store" } }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          ok: true,
+          text: buildLunationText(core),
+          summary: core?.derived?.summary ?? null,
+          lunation: core?.derived?.lunation ?? null,
+          input: core?.input ?? normalized.payload ?? null,
+        },
+        { status: 200, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    // If someone posts plain text, keep old proxy behavior (go straight to core)
+    const { r, core } = await postToCore(req, raw, contentType || "text/plain");
 
     if (!r.ok || core?.ok === false) {
       return NextResponse.json(
