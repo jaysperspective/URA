@@ -1,5 +1,4 @@
 // src/app/about/page.tsx
-import AppNav from "@/components/AppNav";
 
 function Card({
   children,
@@ -196,19 +195,14 @@ export default function AboutPage() {
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
       <div className="mx-auto w-full max-w-5xl">
-        {/* Header + Nav */}
-        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-baseline justify-between md:block">
-            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
-              URA
-            </div>
-            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
-              About
-            </div>
+        {/* Header */}
+        <div className="mb-5">
+          <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
+            URA
           </div>
-
-          {/* ✅ unified nav (includes Astrology now, consistent across app) */}
-          <AppNav activePathOverride="/about" />
+          <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
+            About
+          </div>
         </div>
 
         {/* Title */}

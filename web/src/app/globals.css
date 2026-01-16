@@ -1,13 +1,66 @@
 /* src/app/globals.css */
 @import "tailwindcss";
 
+/* ============================================
+   URA COLOR SYSTEM
+   A calm, grounded "orientation" UI palette
+   ============================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* === BACKGROUNDS === */
+  --ura-bg-primary: #243E36;        /* Deep Moss - main app background */
+  --ura-bg-secondary: #2E4A41;      /* Forest Shadow - cards, panels */
+  --ura-bg-tertiary: #385249;       /* Lighter panel variant */
+
+  /* === TEXT === */
+  --ura-text-primary: #EDE7D8;      /* Moon Parchment - main reading color */
+  --ura-text-secondary: #B9C4B1;    /* Soft Sage - secondary text */
+  --ura-text-muted: #8F9E93;        /* Ash Green - metadata, timestamps */
+
+  /* === ACCENTS (meaning-bearing, use sparingly) === */
+  --ura-accent-primary: #C8B26A;    /* Saturn Gold - selected, active, highlights */
+  --ura-accent-secondary: #7FA8A1;  /* Water Ash - links, informational */
+
+  /* === ALERT === */
+  --ura-alert: #B56A4D;             /* Dried Clay - warnings only */
+
+  /* === BORDERS & DIVIDERS (low alpha) === */
+  --ura-border-subtle: rgba(143, 158, 147, 0.18);
+  --ura-border-medium: rgba(143, 158, 147, 0.28);
+  --ura-border-strong: rgba(143, 158, 147, 0.40);
+
+  /* === SHADOWS === */
+  --ura-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --ura-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --ura-shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.18);
+
+  /* === FOCUS RING === */
+  --ura-focus-ring: rgba(127, 168, 161, 0.35);
+
+  /* === GRADIENT (moonlight → earth) === */
+  --ura-gradient-page: radial-gradient(
+    1200px 600px at 50% -200px,
+    rgba(127, 168, 161, 0.25),
+    rgba(36, 62, 54, 1)
+  );
+
+  /* === BUTTON STATES === */
+  --ura-btn-primary-bg: var(--ura-accent-primary);
+  --ura-btn-primary-text: var(--ura-bg-primary);
+  --ura-btn-primary-hover: #D4C07A;
+
+  --ura-btn-secondary-bg: transparent;
+  --ura-btn-secondary-border: var(--ura-border-medium);
+  --ura-btn-secondary-text: var(--ura-text-primary);
+  --ura-btn-secondary-hover-bg: rgba(237, 231, 216, 0.08);
 
   /* Safe-area defaults (works on iPhone with notch) */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Legacy compatibility */
+  --background: var(--ura-bg-primary);
+  --foreground: var(--ura-text-primary);
 }
 
 @theme inline {
@@ -17,12 +70,8 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* Remove dark mode override - URA uses a single calm dark theme */
+/* @media (prefers-color-scheme: dark) removed intentionally */
 
 /* --- Global base --- */
 html,
@@ -32,8 +81,8 @@ body {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--ura-bg-primary);
+  color: var(--ura-text-primary);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
@@ -55,7 +104,7 @@ canvas {
   height: auto;
 }
 
-/* Long strings (dates, IDs, AI text) shouldn’t break cards/layouts */
+/* Long strings (dates, IDs, AI text) shouldn't break cards/layouts */
 * {
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -77,9 +126,179 @@ button {
   padding-bottom: var(--safe-bottom);
 }
 
-/* Optional: readable focus ring without changing palette */
+/* URA Focus ring - soft accent instead of bright blue */
 :focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.28);
+  outline: 2px solid var(--ura-focus-ring);
   outline-offset: 2px;
-  border-radius: 12px;
+  border-radius: 8px;
+}
+
+/* ============================================
+   URA UTILITY CLASSES
+   ============================================ */
+
+/* Backgrounds */
+.ura-bg-primary { background-color: var(--ura-bg-primary); }
+.ura-bg-secondary { background-color: var(--ura-bg-secondary); }
+.ura-bg-tertiary { background-color: var(--ura-bg-tertiary); }
+
+/* Text colors */
+.ura-text-primary { color: var(--ura-text-primary); }
+.ura-text-secondary { color: var(--ura-text-secondary); }
+.ura-text-muted { color: var(--ura-text-muted); }
+.ura-text-accent { color: var(--ura-accent-primary); }
+.ura-text-link { color: var(--ura-accent-secondary); }
+.ura-text-alert { color: var(--ura-alert); }
+
+/* Borders */
+.ura-border-subtle { border-color: var(--ura-border-subtle); }
+.ura-border-medium { border-color: var(--ura-border-medium); }
+.ura-border-strong { border-color: var(--ura-border-strong); }
+
+/* Card base style */
+.ura-card {
+  background-color: var(--ura-bg-secondary);
+  border: 1px solid var(--ura-border-subtle);
+  border-radius: 1.25rem;
+  box-shadow: var(--ura-shadow-sm);
+}
+
+/* Panel variant (slightly lighter) */
+.ura-panel {
+  background-color: var(--ura-bg-tertiary);
+  border: 1px solid var(--ura-border-subtle);
+  border-radius: 1rem;
+}
+
+/* Link styling */
+a.ura-link {
+  color: var(--ura-accent-secondary);
+  text-decoration: none;
+  transition: text-decoration 0.15s ease;
+}
+a.ura-link:hover {
+  text-decoration: underline;
+}
+
+/* Primary button */
+.ura-btn-primary {
+  background-color: var(--ura-btn-primary-bg);
+  color: var(--ura-btn-primary-text);
+  border: none;
+  border-radius: 9999px;
+  padding: 0.625rem 1.25rem;
+  font-weight: 500;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+}
+.ura-btn-primary:hover:not(:disabled) {
+  background-color: var(--ura-btn-primary-hover);
+}
+.ura-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Secondary button */
+.ura-btn-secondary {
+  background-color: var(--ura-btn-secondary-bg);
+  color: var(--ura-btn-secondary-text);
+  border: 1px solid var(--ura-btn-secondary-border);
+  border-radius: 9999px;
+  padding: 0.625rem 1.25rem;
+  font-weight: 500;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+}
+.ura-btn-secondary:hover:not(:disabled) {
+  background-color: var(--ura-btn-secondary-hover-bg);
+}
+.ura-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Section label (small uppercase) */
+.ura-section-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ura-text-muted);
+}
+
+/* Page title */
+.ura-page-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ura-text-primary);
+}
+
+/* Headline text */
+.ura-headline {
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ura-text-primary);
+}
+
+/* Input styling */
+.ura-input {
+  background-color: rgba(36, 62, 54, 0.6);
+  border: 1px solid var(--ura-border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  color: var(--ura-text-primary);
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease;
+}
+.ura-input:focus {
+  border-color: var(--ura-accent-secondary);
+  outline: none;
+}
+.ura-input::placeholder {
+  color: var(--ura-text-muted);
+}
+
+/* Select styling */
+.ura-select {
+  background-color: rgba(36, 62, 54, 0.6);
+  border: 1px solid var(--ura-border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  color: var(--ura-text-primary);
+  font-size: 0.875rem;
+}
+
+/* Progress bar track */
+.ura-progress-track {
+  background-color: rgba(143, 158, 147, 0.2);
+  border-radius: 9999px;
+  height: 0.5rem;
+  overflow: hidden;
+}
+
+/* Progress bar fill */
+.ura-progress-fill {
+  background-color: var(--ura-accent-primary);
+  border-radius: 9999px;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* Divider */
+.ura-divider {
+  border: none;
+  border-top: 1px solid var(--ura-border-subtle);
+  margin: 1.5rem 0;
+}
+
+/* Alert box */
+.ura-alert {
+  background-color: rgba(181, 106, 77, 0.15);
+  border: 1px solid rgba(181, 106, 77, 0.3);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: #E8C4B8;
 }

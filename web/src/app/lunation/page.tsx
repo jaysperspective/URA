@@ -2,25 +2,20 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroInputForm";
-import { NAV, NavPill } from "@/lib/ui/nav";
 
 const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
 // -----------------------------
-// Types (Lunation Wrapper API)
-// /api/lunation returns: { ok, text, summary, lunation, input }
+// Types
 // -----------------------------
 
 type CoreSummary = {
   ascYearLabel?: string;
   ascYearCyclePos?: number;
   ascYearDegreesInto?: number;
-
   lunationLabel?: string;
   lunationSeparation?: number;
-
   natal?: { asc?: number; ascSign?: string; mc?: number; mcSign?: string };
   asOf?: { sun?: number; sunSign?: string };
 };
@@ -61,24 +56,10 @@ function degNorm(d: number) {
   return x;
 }
 
-function pretty(x: any) {
-  try {
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return String(x);
-  }
-}
-
 function fmtYMD(isoOrDate: any) {
   const d = isoOrDate instanceof Date ? isoOrDate : new Date(String(isoOrDate));
   if (Number.isNaN(d.getTime())) return String(isoOrDate ?? "");
   return d.toISOString().slice(0, 10);
-}
-
-function fmtYMDHM(isoOrDate: any) {
-  const d = isoOrDate instanceof Date ? isoOrDate : new Date(String(isoOrDate));
-  if (Number.isNaN(d.getTime())) return String(isoOrDate ?? "");
-  return d.toISOString().slice(0, 16).replace("T", " ");
 }
 
 async function postText(endpoint: string, text: string) {
@@ -100,9 +81,6 @@ async function postText(endpoint: string, text: string) {
   return { res, data };
 }
 
-/**
- * Best-effort parse of the canonical payload text into initial form fields.
- */
 type AstroFormInitial = {
   birthDate?: string;
   birthTime?: string;
@@ -156,34 +134,9 @@ function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormIn
 // -----------------------------
 
 const SIGN_NAMES = [
-  "Aries",
-  "Taurus",
-  "Gemini",
-  "Cancer",
-  "Leo",
-  "Virgo",
-  "Libra",
-  "Scorpio",
-  "Sagittarius",
-  "Capricorn",
-  "Aquarius",
-  "Pisces",
+  "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+  "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces",
 ] as const;
-
-const SIGN_GLYPHS: Record<(typeof SIGN_NAMES)[number], string> = {
-  Aries: "♈︎",
-  Taurus: "♉︎",
-  Gemini: "♊︎",
-  Cancer: "♋︎",
-  Leo: "♌︎",
-  Virgo: "♍︎",
-  Libra: "♎︎",
-  Scorpio: "♏︎",
-  Sagittarius: "♐︎",
-  Capricorn: "♑︎",
-  Aquarius: "♒︎",
-  Pisces: "♓︎",
-};
 
 function lonToSignParts(lon: number) {
   const x = degNorm(lon);
@@ -199,175 +152,94 @@ function lonToSignParts(lon: number) {
 
 function fmtSignLon(lon: number) {
   const p = lonToSignParts(lon);
-  const glyph = SIGN_GLYPHS[p.sign] ?? "";
-  const mm = String(p.min).padStart(2, "0");
-  return {
-    glyph,
-    sign: p.sign,
-    text: `${glyph} ${p.deg}°${mm}′`,
-    raw: `${degNorm(lon).toFixed(2)}°`,
-  };
+  return `${p.deg}° ${p.sign}`;
 }
 
 // -----------------------------
-// Moonstone theme
+// UI Components
 // -----------------------------
 
-function moonstoneTheme() {
-  return {
-    pageBg: "bg-black",
-    shellBorder: "border-[#d9d4ca]",
-    shellBg: "bg-gradient-to-b from-[#fbfaf7] to-[#ece7de]",
-    shellSub: "text-[#3a3a44]",
-    shellMuted: "text-[#6b6b76]",
-    chipBg: "bg-[#d6d2cb]",
-    chipGlow: "shadow-[0_0_26px_rgba(210,205,198,0.55)]",
-    accent: "text-[#23232a]",
-    ring: "#bfb9b1",
-    panelBg: "bg-[#fbfaf7]",
-    panelBorder: "border-[#d9d4ca]",
-    panelMono: { fontFamily: "Menlo, Monaco, Consolas, monospace" as const },
-    dangerBg: "bg-[#fff2f2]",
-    dangerBorder: "border-[#e4bcbc]",
-    dangerText: "text-[#4a1f1f]",
-  };
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`ura-card p-6 md:p-7 ${className}`}>
+      {children}
+    </div>
+  );
 }
 
-// -----------------------------
-// UI pieces
-// -----------------------------
+function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`ura-panel px-5 py-4 ${className}`}>
+      {children}
+    </div>
+  );
+}
 
-function MoonDial({ separationDeg, ringColor }: { separationDeg: number | null; ringColor: string }) {
-  const cx = 90;
-  const cy = 90;
-  const r = 68;
+function LunationDial({ separationDeg }: { separationDeg: number | null }) {
+  const cx = 100;
+  const cy = 100;
+  const r = 75;
 
   const sep = typeof separationDeg === "number" ? degNorm(separationDeg) : 0;
-  const angle = -90 + sep; // 0° at top, clockwise
+  const angle = -90 + sep;
   const rad = (Math.PI / 180) * angle;
 
   const x2 = cx + r * Math.cos(rad);
   const y2 = cy + r * Math.sin(rad);
 
   return (
-    <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Lunation dial</div>
-        <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
-          {typeof separationDeg === "number" ? `${sep.toFixed(2)}°` : "—"}
-        </div>
+    <div className="flex flex-col items-center">
+      <svg width="200" height="200" viewBox="0 0 200 200">
+        {/* Track */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--ura-border-subtle)" strokeWidth="14" />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--ura-text-muted)" strokeWidth="14" strokeDasharray="2 14" opacity="0.3" />
+
+        {/* Cross lines */}
+        <line x1={cx} y1={cx - r - 6} x2={cx} y2={cx + r + 6} stroke="var(--ura-border-subtle)" strokeWidth="1" />
+        <line x1={cx - r - 6} y1={cy} x2={cx + r + 6} y2={cy} stroke="var(--ura-border-subtle)" strokeWidth="1" />
+
+        {/* Labels */}
+        <text x={cx} y={cy - r - 12} textAnchor="middle" fontSize="9" fill="var(--ura-text-muted)" letterSpacing="1.5">NEW</text>
+        <text x={cx + r + 14} y={cy + 3} textAnchor="middle" fontSize="9" fill="var(--ura-text-muted)" letterSpacing="1.5">1Q</text>
+        <text x={cx} y={cy + r + 18} textAnchor="middle" fontSize="9" fill="var(--ura-text-muted)" letterSpacing="1.5">FULL</text>
+        <text x={cx - r - 14} y={cy + 3} textAnchor="middle" fontSize="9" fill="var(--ura-text-muted)" letterSpacing="1.5">3Q</text>
+
+        {/* Hand */}
+        {typeof separationDeg === "number" && (
+          <>
+            <circle cx={cx} cy={cy} r="4" fill="var(--ura-accent-primary)" />
+            <line x1={cx} y1={cy} x2={x2} y2={y2} stroke="var(--ura-accent-primary)" strokeWidth="3" strokeLinecap="round" />
+            <circle cx={x2} cy={y2} r="4" fill="var(--ura-accent-primary)" />
+          </>
+        )}
+      </svg>
+      <div className="text-sm mt-2 ura-text-secondary">
+        {typeof separationDeg === "number" ? `${sep.toFixed(1)}° separation` : "No data"}
       </div>
-
-      <div className="flex items-center justify-center">
-        <svg width="180" height="180" viewBox="-20 -20 220 220">
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e6e1d8" strokeWidth="12" />
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth="12" strokeDasharray="2 12" opacity="0.5" />
-
-          <line x1={cx} y1={cy - r - 8} x2={cx} y2={cy + r + 8} stroke="#d9d4ca" strokeWidth="1" opacity="0.9" />
-          <line x1={cx - r - 8} y1={cy} x2={cx + r + 8} y2={cy} stroke="#d9d4ca" strokeWidth="1" opacity="0.9" />
-
-          <text x={cx} y={cy - r - 8} textAnchor="middle" dominantBaseline="hanging" fontSize="10" fill="#6b6b76" letterSpacing="2">
-            NEW
-          </text>
-          <text x={cx + r + 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#6b6b76" letterSpacing="2">
-            1Q
-          </text>
-          <text x={cx} y={cy + r + 18} textAnchor="middle" dominantBaseline="alphabetic" fontSize="10" fill="#6b6b76" letterSpacing="2">
-            FULL
-          </text>
-          <text x={cx - r - 12} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#6b6b76" letterSpacing="2">
-            3Q
-          </text>
-
-          <circle cx={cx} cy={cy} r="3.5" fill={ringColor} />
-          <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={ringColor} strokeWidth="2.6" strokeLinecap="round" />
-          <circle cx={x2} cy={y2} r="3" fill={ringColor} opacity="0.95" />
-        </svg>
-      </div>
-
-      <div className="mt-3 text-[11px] text-[#6b6b76]">0° = New Moon separation. The hand tracks Sun–Moon separation (0–360).</div>
     </div>
   );
 }
 
-function Meter({ value01, label, note }: { value01: number; label: string; note: string }) {
+function ProgressBar({ value01, label }: { value01: number; label: string }) {
   const pct = Math.round(clamp01(value01) * 100);
   return (
-    <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
+    <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">{label}</div>
-        <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
-          {pct}%
-        </div>
+        <div className="text-xs ura-text-muted">{label}</div>
+        <div className="text-xs font-medium ura-text-secondary">{pct}%</div>
       </div>
-
-      <div className="h-2 w-full rounded-full bg-[#ece7de] overflow-hidden">
-        <div className="h-2 rounded-full bg-[#bfb9b1]" style={{ width: `${pct}%` }} />
+      <div className="ura-progress-track">
+        <div className="ura-progress-fill" style={{ width: `${pct}%` }} />
       </div>
-
-      <div className="mt-3 text-[11px] text-[#6b6b76]">{note}</div>
     </div>
   );
 }
 
-function MiniCard({ label, value, note }: { label: string; value: string; note: string }) {
+function DataRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[#d9d4ca] bg-[#f3efe7] p-4">
-      <div className="text-[11px] text-[#6b6b76]">{label}</div>
-      <div className="mt-1 text-[18px] text-[#0f0f12]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
-        {value}
-      </div>
-      <div className="mt-2 text-[11px] text-[#6b6b76]">{note}</div>
-    </div>
-  );
-}
-
-function BoundariesList({
-  boundaries,
-  nextNewMoonUTC,
-}: {
-  boundaries: Array<{ deg?: number; label?: string; dateUTC?: string }>;
-  nextNewMoonUTC?: string;
-}) {
-  const items = Array.isArray(boundaries) ? boundaries : [];
-  return (
-    <div className="rounded-xl border border-[#d9d4ca] bg-[#f3efe7] p-4">
-      <div className="text-[11px] text-[#6b6b76] mb-3">Current cycle boundaries (approx dates when separation hits the boundary).</div>
-
-      <div className="grid grid-cols-1 gap-2">
-        {items.length ? (
-          items.map((b, idx) => {
-            const label = b?.label ?? `Boundary ${idx + 1}`;
-            const deg = typeof b?.deg === "number" ? `${b.deg}°` : "—";
-            const date = b?.dateUTC ? fmtYMD(b.dateUTC) : "—";
-            return (
-              <div
-                key={`${label}-${idx}`}
-                className="flex items-center justify-between rounded-lg border border-[#e3ded5] bg-[#fbfaf7] px-3 py-2"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="text-[12px] text-[#6b6b76] w-[86px]">{deg}</div>
-                  <div className="text-[12px] text-[#23232a]">{label}</div>
-                </div>
-                <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
-                  {date}
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="text-[12px] text-[#6b6b76]">—</div>
-        )}
-
-        {nextNewMoonUTC ? (
-          <div className="mt-2 flex items-center justify-between rounded-lg border border-[#e3ded5] bg-[#fbfaf7] px-3 py-2">
-            <div className="text-[12px] text-[#23232a]">Next New Moon (360°)</div>
-            <div className="text-[12px] text-[#3a3a44]" style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}>
-              {fmtYMD(nextNewMoonUTC)}
-            </div>
-          </div>
-        ) : null}
-      </div>
+    <div className="flex items-center justify-between py-2 border-b" style={{ borderColor: "var(--ura-border-subtle)" }}>
+      <span className="text-sm ura-text-muted">{label}</span>
+      <span className="text-sm font-medium ura-text-primary">{value}</span>
     </div>
   );
 }
@@ -377,20 +249,17 @@ function BoundariesList({
 // -----------------------------
 
 export default function LunationPage() {
-  const theme = useMemo(() => moonstoneTheme(), []);
-
-  const [payloadOut, setPayloadOut] = useState<string>("");
-  const [api, setApi] = useState<LunationResponse | null>(null);
-  const [errorOut, setErrorOut] = useState<string>("");
-  const [statusLine, setStatusLine] = useState<string>("");
-
+  const [payloadText, setPayloadText] = useState<string>("");
   const [savedPayload, setSavedPayload] = useState<string>("");
+  const [api, setApi] = useState<LunationResponse | null>(null);
+  const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     try {
       const x = window.localStorage.getItem(LS_PAYLOAD_KEY) || "";
       setSavedPayload(x);
-      if (x) setPayloadOut(x);
+      if (x) setPayloadText(x);
     } catch {
       // ignore
     }
@@ -401,19 +270,48 @@ export default function LunationPage() {
     return safeParsePayloadTextToInitial(savedPayload);
   }, [savedPayload]);
 
+  function handleFormGenerate(text: AstroPayloadText) {
+    setPayloadText(text);
+    try {
+      window.localStorage.setItem(LS_PAYLOAD_KEY, text);
+      setSavedPayload(text);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function generateLunation() {
+    if (!payloadText.trim()) {
+      setError("Please enter your natal data first and click Generate in the input form.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setApi(null);
+
+    const out = await postText("/api/lunation", payloadText);
+
+    if (!out.res.ok || out.data?.ok === false) {
+      setError(out.data?.error ?? `Request failed (${out.res.status})`);
+      setLoading(false);
+      return;
+    }
+
+    setApi(out.data as LunationResponse);
+    setLoading(false);
+  }
+
   const summary = api?.summary ?? null;
   const lun = api?.lunation ?? null;
 
   const lunationLabel = summary?.lunationLabel ?? lun?.phase ?? null;
+  const separation = typeof summary?.lunationSeparation === "number"
+    ? summary.lunationSeparation
+    : typeof lun?.separation === "number"
+      ? lun.separation
+      : null;
 
-  const separation =
-    typeof summary?.lunationSeparation === "number"
-      ? summary.lunationSeparation
-      : typeof lun?.separation === "number"
-        ? lun.separation
-        : null;
-
-  const progressedDateUTC = lun?.progressedDateUTC ?? null;
   const progressedSunLon = typeof lun?.progressedSunLon === "number" ? lun.progressedSunLon : null;
   const progressedMoonLon = typeof lun?.progressedMoonLon === "number" ? lun.progressedMoonLon : null;
 
@@ -427,110 +325,27 @@ export default function LunationPage() {
     return clamp01(within45 / 45);
   }, [separation]);
 
-  const subProgress01 = useMemo(() => {
-    if (typeof subWithin !== "number") return 0;
-    return clamp01(subWithin / 15);
-  }, [subWithin]);
-
-  async function handleGenerate(payloadText: AstroPayloadText) {
-    setPayloadOut(payloadText);
-
-    try {
-      window.localStorage.setItem(LS_PAYLOAD_KEY, payloadText);
-      setSavedPayload(payloadText);
-    } catch {
-      // ignore
-    }
-
-    setApi(null);
-    setErrorOut("");
-    setStatusLine("Computing lunation…");
-
-    const out = await postText("/api/lunation", payloadText);
-
-    if (!out.res.ok || out.data?.ok === false) {
-      setStatusLine("");
-      setErrorOut(
-        `ERROR\n${pretty({
-          status: out.res.status,
-          error: out.data?.error ?? "Unknown error",
-          response: out.data,
-        })}`
-      );
-      return;
-    }
-
-    setApi(out.data as LunationResponse);
-    setStatusLine("");
-  }
+  const hasNatalData = payloadText.trim().length > 0;
 
   return (
-    <div className={`min-h-[100svh] ${theme.pageBg} flex items-center justify-center p-6`}>
-      <div className="w-full max-w-6xl space-y-5">
+    <div className="min-h-screen px-4 py-8">
+      <div className="mx-auto w-full max-w-5xl">
         {/* Header */}
-        <div className={`rounded-2xl border ${theme.shellBorder} ${theme.shellBg} p-6`}>
-          <div className="flex items-start justify-between gap-6">
-            <div className="min-w-0">
-              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">URA • Lunation</div>
-
-              <div className={`mt-2 text-[34px] leading-[1.05] font-semibold ${theme.accent}`}>
-                {lunationLabel ?? "—"}
-                {subLabel ? <span className={`font-normal ${theme.shellMuted}`}> • {subLabel}</span> : null}
-              </div>
-
-              <div className={`mt-2 text-[13px] ${theme.shellSub} max-w-xl`}>
-                Progressed lunation (Sun–Moon separation) — rendered from{" "}
-                <span style={theme.panelMono}>/api/lunation</span> (wraps <span style={theme.panelMono}>/api/core</span>).
-              </div>
-
-              {/* ✅ APP NAV BAR (home access included) */}
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                {NAV.map((n) => (
-                  <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/lunation"} />
-                ))}
-              </div>
-            </div>
-
-            <div className="flex flex-col items-end gap-3">
-              <div className="flex items-center gap-3">
-                <Link
-                  href="/"
-                  className="rounded-xl border border-[#d9d4ca] bg-white/50 px-4 py-2 text-[12px] text-[#23232a] hover:bg-white/70"
-                >
-                  Home
-                </Link>
-
-                <Link
-                  href="/input"
-                  className="rounded-xl border border-[#d9d4ca] bg-white/40 px-4 py-2 text-[12px] text-[#23232a] hover:bg-white/60"
-                >
-                  Edit input
-                </Link>
-
-                <Link
-                  href="/seasons"
-                  className="rounded-xl border border-[#d9d4ca] bg-white/40 px-4 py-2 text-[12px] text-[#23232a] hover:bg-white/60"
-                >
-                  Go to /seasons
-                </Link>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className={`h-3 w-3 rounded-full ${theme.chipBg} ${theme.chipGlow}`} />
-                <div className="text-[12px] text-[#6b6b76]">Moonstone palette</div>
-              </div>
-            </div>
-          </div>
-
-          {statusLine ? <div className="mt-4 text-[12px] text-[#3a3a44]">{statusLine}</div> : null}
+        <div className="mb-5">
+          <div className="ura-section-label">URA</div>
+          <div className="ura-page-title mt-1">Lunation</div>
         </div>
 
-        {/* Body */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Left: input + payload + error */}
-          <div className="space-y-5">
+        {/* Section 1: Natal Data Input */}
+        <Card className="mb-4">
+          <div className="ura-section-label">Natal Data</div>
+          <p className="mt-2 text-sm ura-text-secondary">
+            Enter your birth information to calculate your progressed lunation cycle.
+          </p>
+
+          <div className="mt-5">
             <AstroInputForm
-              title="URA • Input"
+              title="Birth Information"
               defaultAsOfToToday
               initial={{
                 birthDate: initialFromSaved.birthDate ?? "1990-01-24",
@@ -542,82 +357,197 @@ export default function LunationPage() {
                 asOfDate: initialFromSaved.asOfDate,
                 resolvedLabel: initialFromSaved.resolvedLabel,
               }}
-              onGenerate={handleGenerate}
+              onGenerate={handleFormGenerate}
             />
-
-            <div className={`rounded-2xl border ${theme.panelBorder} ${theme.panelBg} p-4`}>
-              <div className="text-[12px] text-[#6b6b76] mb-2">Payload (text/plain)</div>
-              <pre className="text-[12px] leading-5 whitespace-pre-wrap break-words text-[#23232a]" style={theme.panelMono}>
-                {payloadOut || "Generate to view the request payload."}
-              </pre>
-            </div>
-
-            {errorOut ? (
-              <div className={`rounded-2xl border ${theme.dangerBorder} ${theme.dangerBg} p-4`}>
-                <div className={`text-[12px] ${theme.dangerText} mb-2`}>Error</div>
-                <pre className={`text-[12px] leading-5 whitespace-pre-wrap break-words ${theme.dangerText}`} style={theme.panelMono}>
-                  {errorOut}
-                </pre>
-              </div>
-            ) : null}
           </div>
 
-          {/* Right: lunation panels */}
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <MoonDial separationDeg={separation} ringColor={theme.ring} />
-              <Meter value01={phaseProgress01} label="Phase progress" note="Progress through the current 45° phase boundary (visual meter)." />
+          {hasNatalData && (
+            <div className="mt-4 flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full" style={{ background: "var(--ura-accent-secondary)" }} />
+              <span className="text-xs ura-text-muted">Natal data saved</span>
             </div>
+          )}
+        </Card>
 
-            <div className={`rounded-2xl border ${theme.panelBorder} ${theme.panelBg} p-6`}>
-              <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Details</div>
+        {/* Section 2: Secondary Lunation */}
+        <Card>
+          <div className="ura-section-label">The Progressed Lunation Cycle</div>
 
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <MiniCard label="Separation" value={typeof separation === "number" ? `${degNorm(separation).toFixed(2)}°` : "—"} note="Sun–Moon angular distance." />
-                <MiniCard label="Progressed date (UTC)" value={progressedDateUTC ? fmtYMDHM(progressedDateUTC) : "—"} note="Secondary progression date used to compute the phase." />
-                <MiniCard
-                  label="Progressed Sun"
-                  value={typeof progressedSunLon === "number" ? `${fmtSignLon(progressedSunLon).text}` : "—"}
-                  note={typeof progressedSunLon === "number" ? `Raw ${fmtSignLon(progressedSunLon).raw}` : "Zodiac placement of progressed Sun."}
-                />
-                <MiniCard
-                  label="Progressed Moon"
-                  value={typeof progressedMoonLon === "number" ? `${fmtSignLon(progressedMoonLon).text}` : "—"}
-                  note={typeof progressedMoonLon === "number" ? `Raw ${fmtSignLon(progressedMoonLon).raw}` : "Zodiac placement of progressed Moon."}
-                />
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight ura-text-primary">
+            Understanding Your Inner Seasons
+          </h2>
+
+          <div className="mt-4 space-y-3 text-sm ura-text-secondary leading-relaxed">
+            <p>
+              The Progressed Lunation Cycle tracks the relationship between your progressed Sun and
+              progressed Moon over a roughly 29-30 year period. This cycle mirrors the familiar
+              lunar phases we see in the sky each month, but unfolds across decades of your life.
+            </p>
+
+            <p>
+              Using secondary progressions (where one day after birth equals one year of life),
+              URA calculates the angular separation between your progressed Sun and Moon. This
+              separation moves through the same eight phases as the monthly lunar cycle: New Moon,
+              Crescent, First Quarter, Gibbous, Full Moon, Disseminating, Last Quarter, and Balsamic.
+            </p>
+
+            <p>
+              Each phase represents a distinct quality of inner development. The cycle does not
+              predict events. It orients you to your current developmental season, revealing
+              what mode of engagement is most appropriate for where you are in your personal
+              evolution.
+            </p>
+          </div>
+
+          {/* Phase descriptions */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Panel>
+              <div className="text-xs font-semibold mb-1 ura-text-primary">
+                Waxing Phases (0°-180°)
+              </div>
+              <div className="text-xs ura-text-muted">
+                Building, growing, establishing. Energy moves outward. New structures take form.
+              </div>
+            </Panel>
+            <Panel>
+              <div className="text-xs font-semibold mb-1 ura-text-primary">
+                Waning Phases (180°-360°)
+              </div>
+              <div className="text-xs ura-text-muted">
+                Sharing, releasing, integrating. Energy turns inward. Meaning is extracted from experience.
+              </div>
+            </Panel>
+          </div>
+
+          {/* Generate Button */}
+          <div className="mt-8 pt-6" style={{ borderTop: "1px solid var(--ura-border-subtle)" }}>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <div className="text-sm font-medium ura-text-primary">
+                  Calculate Your Progressed Lunation
+                </div>
+                <div className="text-xs mt-1 ura-text-muted">
+                  {hasNatalData
+                    ? "Ready to calculate based on your natal data."
+                    : "Enter natal data above first."}
+                </div>
               </div>
 
-              <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-5">
-                <Meter value01={subProgress01} label="Sub-phase" note={subLabel ? `Within “${subLabel}” (visual meter).` : "Sub-phase meter (uses subPhase.within if available)."} />
+              <button
+                onClick={generateLunation}
+                disabled={loading || !hasNatalData}
+                className={hasNatalData ? "ura-btn-primary" : "ura-btn-secondary"}
+                style={{ opacity: loading ? 0.7 : 1 }}
+              >
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-4 w-4 rounded-full border-2 animate-spin"
+                      style={{ borderColor: "var(--ura-border-subtle)", borderTopColor: "var(--ura-text-primary)" }}
+                    />
+                    Calculating...
+                  </span>
+                ) : (
+                  "Generate Lunation"
+                )}
+              </button>
+            </div>
 
-                <div className="rounded-2xl border border-[#d9d4ca] bg-[#fbfaf7] p-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Snapshot</div>
-                    <div className="text-[12px] text-[#3a3a44]" style={theme.panelMono}>
-                      {summary?.lunationLabel ?? lun?.phase ?? "—"}
+            {error && (
+              <div className="ura-alert mt-4">
+                {error}
+              </div>
+            )}
+          </div>
+
+          {/* Results */}
+          {api && (
+            <div className="mt-8 pt-6" style={{ borderTop: "1px solid var(--ura-border-subtle)" }}>
+              <div className="ura-section-label">Your Current Lunation</div>
+
+              {/* Phase headline */}
+              <div className="mt-4 flex flex-col md:flex-row md:items-center gap-4">
+                <div className="flex-1">
+                  <div className="text-3xl font-semibold tracking-tight ura-text-accent">
+                    {lunationLabel ?? "-"}
+                  </div>
+                  {subLabel && (
+                    <div className="mt-1 text-lg ura-text-secondary">
+                      {subLabel}
                     </div>
-                  </div>
-
-                  <div className="text-[11px] text-[#6b6b76]">
-                    This panel is intentionally “human-readable” — the raw JSON stays in the API.
-                  </div>
+                  )}
                 </div>
+
+                <LunationDial separationDeg={separation} />
               </div>
 
-              <div className="mt-7">
-                <div className="text-[12px] tracking-[0.18em] text-[#6b6b76] uppercase">Cycle boundaries</div>
-                <div className="mt-3">
-                  <BoundariesList boundaries={Array.isArray(lun?.boundaries) ? lun!.boundaries! : []} nextNewMoonUTC={lun?.nextNewMoonUTC} />
-                </div>
+              {/* Progress bars */}
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Panel>
+                  <ProgressBar value01={phaseProgress01} label="Progress through current phase" />
+                </Panel>
+                {typeof subWithin === "number" && (
+                  <Panel>
+                    <ProgressBar value01={clamp01(subWithin / 15)} label="Sub-phase progress" />
+                  </Panel>
+                )}
               </div>
+
+              {/* Details */}
+              <div className="mt-6">
+                <Panel>
+                  <div className="ura-section-label">Progressed Positions</div>
+                  <div className="mt-3">
+                    <DataRow
+                      label="Sun-Moon Separation"
+                      value={typeof separation === "number" ? `${degNorm(separation).toFixed(2)}°` : "-"}
+                    />
+                    <DataRow
+                      label="Progressed Sun"
+                      value={typeof progressedSunLon === "number" ? fmtSignLon(progressedSunLon) : "-"}
+                    />
+                    <DataRow
+                      label="Progressed Moon"
+                      value={typeof progressedMoonLon === "number" ? fmtSignLon(progressedMoonLon) : "-"}
+                    />
+                    {lun?.progressedDateUTC && (
+                      <DataRow
+                        label="Progressed Date"
+                        value={fmtYMD(lun.progressedDateUTC)}
+                      />
+                    )}
+                  </div>
+                </Panel>
+              </div>
+
+              {/* Boundaries */}
+              {Array.isArray(lun?.boundaries) && lun.boundaries.length > 0 && (
+                <div className="mt-4">
+                  <Panel>
+                    <div className="ura-section-label">Upcoming Phase Boundaries</div>
+                    <p className="mt-3 text-xs mb-3 ura-text-muted">
+                      Approximate dates when your progressed lunation reaches each boundary.
+                    </p>
+                    {lun.boundaries.map((b, idx) => (
+                      <DataRow
+                        key={idx}
+                        label={`${b.label ?? `Phase ${idx + 1}`} (${b.deg ?? 0}°)`}
+                        value={b.dateUTC ? fmtYMD(b.dateUTC) : "-"}
+                      />
+                    ))}
+                    {lun.nextNewMoonUTC && (
+                      <DataRow label="Next New Moon (360°)" value={fmtYMD(lun.nextNewMoonUTC)} />
+                    )}
+                  </Panel>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
+          )}
+        </Card>
 
-        <div className="text-[11px] text-[#a9a3a0] px-1">
-          /lunation is a presentation layer over <span className="text-[#e9e6e1]">/api/lunation</span> (wraps{" "}
-          <span className="text-[#e9e6e1]">/api/core</span>). Saved payload key:{" "}
-          <span className="text-[#e9e6e1]">{LS_PAYLOAD_KEY}</span>
+        {/* Footer */}
+        <div className="mt-6 text-center text-xs ura-text-muted">
+          Progressed Lunation System
         </div>
       </div>
     </div>

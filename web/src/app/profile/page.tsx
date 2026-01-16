@@ -8,27 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 import ProfileClient from "./ui/ProfileClient";
 import { logoutAction } from "./actions";
-import { NAV, NavPill } from "@/lib/ui/nav";
 
 function ActionPill({ children }: { children: React.ReactNode }) {
   return (
-    <span
-      className="group relative overflow-hidden rounded-full border px-4 py-2 text-sm transition"
-      style={{
-        borderColor: "rgba(31,36,26,0.18)",
-        background: "rgba(244,235,221,0.62)",
-        color: "rgba(31,36,26,0.88)",
-        boxShadow: "0 10px 30px rgba(31,36,26,0.08)",
-      }}
-    >
-      <span
-        className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(185,176,123,0.30) 0%, rgba(213,192,165,0.35) 55%, rgba(244,235,221,0.30) 120%)",
-        }}
-      />
-      <span className="relative">{children}</span>
+    <span className="ura-btn-secondary text-sm">
+      {children}
     </span>
   );
 }
@@ -184,26 +168,15 @@ function localDayKey(timezone: string, d = new Date()) {
 export default async function ProfilePage() {
   const user = await requireUser();
 
-  // Background (single source of truth)
-  const pageBg =
-    "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
-
   // 1) load profile
   let profile = await prisma.profile.findUnique({ where: { userId: user.id } });
 
   if (!profile) {
     return (
-      <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+      <div className="min-h-screen px-4 py-8">
         <div className="mx-auto w-full max-w-5xl">
-          <div
-            className="rounded-3xl border p-6"
-            style={{
-              borderColor: "rgba(31,36,26,0.16)",
-              background: "rgba(244,235,221,0.78)",
-              boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
-            }}
-          >
-            <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+          <div className="ura-card p-6">
+            <div className="text-sm ura-text-secondary">
               No profile found.
             </div>
           </div>
@@ -236,17 +209,10 @@ export default async function ProfilePage() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+      <div className="min-h-screen px-4 py-8">
         <div className="mx-auto w-full max-w-5xl">
-          <div
-            className="rounded-3xl border p-6"
-            style={{
-              borderColor: "rgba(31,36,26,0.16)",
-              background: "rgba(244,235,221,0.78)",
-              boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
-            }}
-          >
-            <div className="text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+          <div className="ura-card p-6">
+            <div className="text-sm ura-text-secondary">
               No profile found.
             </div>
           </div>
@@ -258,49 +224,25 @@ export default async function ProfilePage() {
   // setup gate
   if (!profile.setupDone) {
     return (
-      <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+      <div className="min-h-screen px-4 py-8">
         <div className="mx-auto w-full max-w-5xl">
-          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-baseline justify-between md:block">
-              <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
-                URA
-              </div>
-              <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
-                Profile
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {NAV.map((n) => (
-                <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
-              ))}
-            </div>
+          <div className="mb-5">
+            <div className="ura-section-label">URA</div>
+            <div className="ura-page-title mt-1">Profile</div>
           </div>
 
-          <div
-            className="w-full rounded-3xl border p-6"
-            style={{
-              borderColor: "rgba(31,36,26,0.16)",
-              background: "rgba(244,235,221,0.86)",
-              boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
-            }}
-          >
-            <div
-              className="text-[11px] tracking-[0.18em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-            >
-              Setup
-            </div>
-            <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.92)" }}>
+          <div className="ura-card p-6">
+            <div className="ura-section-label">Setup</div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight ura-text-primary">
               Finish your profile
             </div>
-            <div className="mt-3 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+            <div className="mt-3 text-sm ura-text-secondary">
               Add birth details and location so URA can generate your live cycle.
             </div>
 
             <div className="mt-6">
-              <Link href="/profile/edit" className="inline-block">
-                <ActionPill>Continue</ActionPill>
+              <Link href="/profile/edit" className="ura-btn-primary inline-block">
+                Continue
               </Link>
             </div>
           </div>
@@ -342,23 +284,15 @@ export default async function ProfilePage() {
   const name = pickName(user, profile);
 
   return (
-    <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+    <div className="min-h-screen px-4 py-8">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-baseline justify-between md:block">
-            <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
-              URA
-            </div>
-            <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
-              Profile
-            </div>
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <div className="ura-section-label">URA</div>
+            <div className="ura-page-title mt-1">Profile</div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {NAV.map((n) => (
-              <NavPill key={n.href} href={n.href} label={n.label} active={n.href === "/profile"} />
-            ))}
-
             <Link href="/profile/edit" aria-label="Edit profile">
               <ActionPill>Edit</ActionPill>
             </Link>
