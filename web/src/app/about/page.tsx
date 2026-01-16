@@ -1,79 +1,32 @@
 // src/app/about/page.tsx
 
-function Card({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div
-      className={["rounded-3xl border p-6 md:p-7", className].join(" ")}
-      style={{
-        borderColor: "rgba(31,36,26,0.16)",
-        background: "rgba(244,235,221,0.86)",
-        boxShadow: "0 18px 50px rgba(31,36,26,0.10)",
-      }}
-    >
+    <div className={`ura-card p-6 md:p-7 ${className}`}>
       {children}
     </div>
   );
 }
 
-function SubCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div
-      className="rounded-2xl border px-5 py-4"
-      style={{
-        borderColor: "rgba(31,36,26,0.14)",
-        background: "rgba(248,242,232,0.72)",
-      }}
-    >
-      <div
-        className="text-[11px] tracking-[0.18em] uppercase"
-        style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-      >
-        {title}
-      </div>
-      <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.78)" }}>
-        {children}
-      </div>
+    <div className="ura-panel px-5 py-4">
+      <div className="ura-section-label">{title}</div>
+      <div className="mt-2 text-sm ura-text-secondary">{children}</div>
     </div>
   );
 }
 
 function H2({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="text-[11px] tracking-[0.18em] uppercase"
-      style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-    >
-      {children}
-    </div>
-  );
+  return <div className="ura-section-label">{children}</div>;
 }
 
 function P({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-sm leading-relaxed" style={{ color: "rgba(31,36,26,0.78)" }}>
-      {children}
-    </div>
-  );
+  return <div className="text-sm leading-relaxed ura-text-secondary">{children}</div>;
 }
 
 function Bullet({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="text-sm leading-relaxed" style={{ color: "rgba(31,36,26,0.78)" }}>
-      {children}
-    </li>
-  );
+  return <li className="text-sm leading-relaxed ura-text-secondary">{children}</li>;
 }
 
 type Phase = {
@@ -189,46 +142,30 @@ const PHASES: Phase[] = [
 ];
 
 export default function AboutPage() {
-  const pageBg =
-    "radial-gradient(1200px 700px at 50% -10%, rgba(244,235,221,0.55), rgba(255,255,255,0) 60%), linear-gradient(180deg, rgba(245,240,232,0.70), rgba(245,240,232,0.92))";
-
   return (
-    <div className="min-h-screen px-4 py-8" style={{ background: pageBg }}>
+    <div className="min-h-screen px-4 py-8">
       <div className="mx-auto w-full max-w-5xl">
         {/* Header */}
         <div className="mb-5">
-          <div className="text-xs tracking-[0.28em] uppercase" style={{ color: "rgba(31,36,26,0.55)" }}>
-            URA
-          </div>
-          <div className="mt-1 text-lg font-semibold tracking-tight" style={{ color: "rgba(31,36,26,0.90)" }}>
-            About
-          </div>
+          <div className="ura-section-label">URA</div>
+          <div className="ura-page-title mt-1">About</div>
         </div>
 
         {/* Title */}
         <Card>
           <div className="text-center">
-            <div
-              className="text-[11px] tracking-[0.28em] uppercase"
-              style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-            >
-              URA
-            </div>
+            <div className="ura-section-label">URA</div>
 
-            <div
-              className="mt-3 text-2xl md:text-3xl font-semibold tracking-tight"
-              style={{ color: "rgba(31,36,26,0.92)" }}
-            >
+            <div className="mt-3 text-2xl md:text-3xl font-semibold tracking-tight ura-text-primary">
               A Temporal–Ecological System for Human Orientation
             </div>
 
-            <div className="mt-3 text-sm md:text-base" style={{ color: "rgba(31,36,26,0.72)" }}>
+            <div className="mt-3 text-sm md:text-base ura-text-secondary">
               URA is a timing system. It restores coherence between effort, season, and meaning.
             </div>
           </div>
         </Card>
 
-        {/* (Everything below unchanged) */}
         <div className="mt-4">
           <Card>
             <H2>I. What URA Is</H2>
@@ -265,27 +202,27 @@ export default function AboutPage() {
           <Card>
             <H2>II. Foundational Assumptions</H2>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <SubCard title="1. Time is cyclical, not linear">
+              <Panel title="1. Time is cyclical, not linear">
                 Human experience unfolds in recurring arcs, not straight lines. Growth, decay, rest, and
                 renewal are structural necessities, not failures of discipline.
-              </SubCard>
-              <SubCard title="2. Consciousness is ecological">
+              </Panel>
+              <Panel title="2. Consciousness is ecological">
                 Human psychology evolved in continuous relationship with non-human systems. Mental health
                 depends on participation in rhythms larger than the individual.
-              </SubCard>
-              <SubCard title="3. Symbols arise from embodiment">
+              </Panel>
+              <Panel title="3. Symbols arise from embodiment">
                 Meaning does not originate in abstraction. It emerges from lived interaction between
                 body, environment, and time.
-              </SubCard>
-              <SubCard title="4. Animals are participants, not metaphors">
+              </Panel>
+              <Panel title="4. Animals are participants, not metaphors">
                 Animals function simultaneously as ecological agents and symbolic interfaces. Their
                 presence reflects system health; their disappearance signals ecological and perceptual
                 collapse.
-              </SubCard>
-              <SubCard title="5. Wisdom emerges through pattern recognition">
+              </Panel>
+              <Panel title="5. Wisdom emerges through pattern recognition">
                 Meaning is not immediate. It is generated retrospectively, through witnessing cycles
                 across time.
-              </SubCard>
+              </Panel>
             </div>
           </Card>
         </div>
@@ -298,26 +235,26 @@ export default function AboutPage() {
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <SubCard title="Layer 1 — Time">
+              <Panel title="Layer 1 — Time">
                 Time is expressed as an 8-phase recurring cycle. Each phase is a qualitative state of
                 motion, not a duration.
-              </SubCard>
-              <SubCard title="Layer 2 — Ecology">
+              </Panel>
+              <Panel title="Layer 2 — Ecology">
                 Each phase corresponds to an ecological function necessary for system stability. No
                 phase is optional. Suppression produces distortion.
-              </SubCard>
-              <SubCard title="Layer 3 — Psyche">
+              </Panel>
+              <Panel title="Layer 3 — Psyche">
                 Human psychological states mirror ecological functions. Mental coherence depends on
                 phase-appropriate behavior.
-              </SubCard>
-              <SubCard title="Layer 4 — Symbolic Interface">
+              </Panel>
+              <Panel title="Layer 4 — Symbolic Interface">
                 Animals and natural processes serve as perceptual anchors. Symbols are tools for
                 recognition, not objects of belief.
-              </SubCard>
-              <SubCard title="Layer 5 — Modality (Orisha)">
+              </Panel>
+              <Panel title="Layer 5 — Modality (Orisha)">
                 Orisha represent modes of life intelligence. They describe how energy moves, not who a
                 person is.
-              </SubCard>
+              </Panel>
             </div>
           </Card>
         </div>
@@ -341,14 +278,8 @@ export default function AboutPage() {
                 defines where the individual is within their personal seasonal cycle. The Ascendant Year
                 is therefore measured by angular separation (0°–360°), not dates.
               </P>
-              <div
-                className="mt-4 rounded-2xl border px-5 py-4"
-                style={{
-                  borderColor: "rgba(31,36,26,0.14)",
-                  background: "rgba(248,242,232,0.72)",
-                }}
-              >
-                <div className="text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
+              <div className="mt-4 ura-panel px-5 py-4">
+                <div className="text-sm ura-text-primary">
                   The chart is a clock, not a label.
                 </div>
               </div>
@@ -367,35 +298,21 @@ export default function AboutPage() {
 
               <div className="mt-4 grid grid-cols-1 gap-3">
                 {PHASES.map((p) => (
-                  <details
-                    key={p.id}
-                    className="rounded-2xl border px-5 py-4"
-                    style={{
-                      borderColor: "rgba(31,36,26,0.14)",
-                      background: "rgba(248,242,232,0.72)",
-                    }}
-                  >
+                  <details key={p.id} className="ura-panel px-5 py-4">
                     <summary className="cursor-pointer select-none list-none" style={{ outline: "none" }}>
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold" style={{ color: "rgba(31,36,26,0.90)" }}>
+                          <div className="text-sm font-semibold ura-text-primary">
                             Phase {p.id} — {p.name}{" "}
-                            <span style={{ color: "rgba(31,36,26,0.62)" }}>({p.range})</span>
+                            <span className="ura-text-muted">({p.range})</span>
                           </div>
-                          <div className="mt-1 text-xs" style={{ color: "rgba(31,36,26,0.65)" }}>
+                          <div className="mt-1 text-xs ura-text-muted">
                             Modal Intelligence:{" "}
-                            <span className="font-semibold">{p.orisha}</span>
+                            <span className="font-semibold ura-text-accent">{p.orisha}</span>
                           </div>
                         </div>
 
-                        <div
-                          className="rounded-full border px-3 py-1 text-xs"
-                          style={{
-                            borderColor: "rgba(31,36,26,0.14)",
-                            background: "rgba(244,235,221,0.70)",
-                            color: "rgba(31,36,26,0.78)",
-                          }}
-                        >
+                        <div className="ura-btn-secondary text-xs px-3 py-1">
                           Open
                         </div>
                       </div>
@@ -404,25 +321,14 @@ export default function AboutPage() {
                     <div className="mt-3 space-y-2">
                       <P>{p.gist}</P>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                        <SubCard title="Function">{p.functionLine.replace("Function: ", "")}</SubCard>
-                        <SubCard title="Ecology">{p.ecology.replace("Ecological Role: ", "")}</SubCard>
-                        <SubCard title="Psyche">{p.psyche.replace("Psychological Orientation: ", "")}</SubCard>
-                        <SubCard title="Distortion">{p.distortion.replace("Distortion if suppressed: ", "")}</SubCard>
+                        <Panel title="Function">{p.functionLine.replace("Function: ", "")}</Panel>
+                        <Panel title="Ecology">{p.ecology.replace("Ecological Role: ", "")}</Panel>
+                        <Panel title="Psyche">{p.psyche.replace("Psychological Orientation: ", "")}</Panel>
+                        <Panel title="Distortion">{p.distortion.replace("Distortion if suppressed: ", "")}</Panel>
                       </div>
-                      <div
-                        className="mt-3 rounded-2xl border px-5 py-4"
-                        style={{
-                          borderColor: "rgba(31,36,26,0.14)",
-                          background: "rgba(244,235,221,0.62)",
-                        }}
-                      >
-                        <div
-                          className="text-xs tracking-[0.18em] uppercase"
-                          style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-                        >
-                          Right participation
-                        </div>
-                        <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
+                      <div className="mt-3 ura-panel px-5 py-4" style={{ background: "var(--ura-bg-secondary)" }}>
+                        <div className="ura-section-label">Right participation</div>
+                        <div className="mt-2 text-sm ura-text-primary">
                           {p.participation.replace("Right participation: ", "")}
                         </div>
                       </div>
@@ -431,7 +337,7 @@ export default function AboutPage() {
                 ))}
               </div>
 
-              <div className="mt-4 text-sm" style={{ color: "rgba(31,36,26,0.78)" }}>
+              <div className="mt-4 text-sm ura-text-secondary">
                 At 360°, the Sun returns to the Ascendant degree, and a new cycle begins.
               </div>
             </div>
@@ -445,21 +351,15 @@ export default function AboutPage() {
               <P>URA treats astrology as a time-mapping system, not a belief framework.</P>
               <ul className="list-disc pl-5 space-y-2">
                 <Bullet>
-                  <span className="font-semibold" style={{ color: "rgba(31,36,26,0.88)" }}>
-                    Planets
-                  </span>{" "}
+                  <span className="font-semibold ura-text-primary">Planets</span>{" "}
                   describe forces
                 </Bullet>
                 <Bullet>
-                  <span className="font-semibold" style={{ color: "rgba(31,36,26,0.88)" }}>
-                    Signs
-                  </span>{" "}
+                  <span className="font-semibold ura-text-primary">Signs</span>{" "}
                   describe instinctual zones
                 </Bullet>
                 <Bullet>
-                  <span className="font-semibold" style={{ color: "rgba(31,36,26,0.88)" }}>
-                    The URA cycle
-                  </span>{" "}
+                  <span className="font-semibold ura-text-primary">The URA cycle</span>{" "}
                   describes when and how forces are metabolized
                 </Bullet>
               </ul>
@@ -478,20 +378,9 @@ export default function AboutPage() {
                 force is expressed out of phase.
               </P>
 
-              <div
-                className="rounded-2xl border px-5 py-4"
-                style={{
-                  borderColor: "rgba(31,36,26,0.14)",
-                  background: "rgba(248,242,232,0.72)",
-                }}
-              >
-                <div
-                  className="text-xs tracking-[0.18em] uppercase"
-                  style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}
-                >
-                  Operative sequence
-                </div>
-                <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.85)" }}>
+              <div className="ura-panel px-5 py-4">
+                <div className="ura-section-label">Operative sequence</div>
+                <div className="mt-2 text-sm ura-text-primary">
                   Planet (force) → Orisha (motion) → Phase (timing)
                 </div>
               </div>
@@ -574,23 +463,23 @@ export default function AboutPage() {
         <div className="mt-4">
           <Card>
             <div className="text-center">
-              <div className="text-sm font-semibold" style={{ color: "rgba(31,36,26,0.92)" }}>
+              <div className="text-sm font-semibold ura-text-accent">
                 Truth is knowing what time it is.
               </div>
-              <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
+              <div className="mt-2 text-sm ura-text-secondary">
                 URA exists to restore that knowledge.
               </div>
-              <div className="mt-4 text-sm" style={{ color: "rgba(31,36,26,0.78)" }}>
+              <div className="mt-4 text-sm ura-text-secondary">
                 When timing is respected: effort decreases, clarity increases, meaning returns.
               </div>
-              <div className="mt-1 text-sm" style={{ color: "rgba(31,36,26,0.78)" }}>
+              <div className="mt-1 text-sm ura-text-secondary">
                 Human beings are seasonal organisms. Life becomes coherent when we stop arguing with our own timing.
               </div>
             </div>
           </Card>
         </div>
 
-        <div className="mt-6 text-center text-xs" style={{ color: "rgba(31,36,26,0.55)" }}>
+        <div className="mt-6 text-center text-xs ura-text-muted">
           URA • A Temporal–Ecological System for Human Orientation
         </div>
       </div>

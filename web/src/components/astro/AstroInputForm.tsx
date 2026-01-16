@@ -237,7 +237,7 @@ export default function AstroInputForm({
     const q = birthCityState.trim();
     if (!q) return { ok: false, error: "Enter a City, State first." };
 
-    setStatusLine("Resolving location…");
+    setStatusLine("Resolving location...");
 
     const res = await fetch("/api/geocode", {
       method: "POST",
@@ -328,7 +328,7 @@ export default function AstroInputForm({
 
       const payloadText = buildPayloadText(lat, lon);
 
-      setStatusLine("Generating…");
+      setStatusLine("Generating...");
       await onGenerate(payloadText);
       setStatusLine("");
     } catch (e: any) {
@@ -341,16 +341,13 @@ export default function AstroInputForm({
   const generateLooksDisabled = !hasResolvedLocation;
 
   return (
-    <div className="w-full rounded-xl bg-[#0b0b0c] border border-neutral-800 p-4">
+    <div className="w-full ura-panel p-4">
       <div className="flex items-center justify-between mb-3">
-        <div className="text-sm text-neutral-400">{title}</div>
+        <div className="text-sm ura-text-muted">{title}</div>
 
         <button
           onClick={onGenerateClick}
-          className={[
-            "text-sm px-3 py-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 disabled:opacity-50",
-            generateLooksDisabled ? "opacity-50" : "",
-          ].join(" ")}
+          className={`ura-btn-secondary text-sm px-3 py-1.5 ${generateLooksDisabled ? "opacity-50" : ""}`}
           disabled={loading}
           aria-disabled={generateLooksDisabled || loading}
           title={
@@ -359,39 +356,39 @@ export default function AstroInputForm({
               : "Generate"
           }
         >
-          {loading ? "Generating…" : "Generate"}
+          {loading ? "Generating..." : "Generate"}
         </button>
       </div>
 
-      <div className="text-[12px] text-neutral-400 mb-2">Birth</div>
+      <div className="text-xs ura-text-muted mb-2">Birth</div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <div className="text-[11px] text-neutral-500 mb-1">Birth date</div>
+          <div className="text-[11px] ura-text-muted mb-1">Birth date</div>
           <input
             type="date"
             value={birthDate}
             onChange={(e) => setBirthDate(e.target.value)}
-            className="w-full rounded-md bg-black/40 border border-neutral-800 px-3 py-2 text-[13px] outline-none"
-            style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+            className="w-full ura-input"
+            style={{ fontFamily: "var(--font-mono), Menlo, Monaco, Consolas, monospace" }}
           />
         </div>
 
         <div>
-          <div className="text-[11px] text-neutral-500 mb-1">Birth time</div>
+          <div className="text-[11px] ura-text-muted mb-1">Birth time</div>
           <div className="flex gap-2">
             <input
               type="time"
               value={birthTime}
               onChange={(e) => setBirthTime(e.target.value)}
-              className="w-full rounded-md bg-black/40 border border-neutral-800 px-3 py-2 text-[13px] outline-none"
-              style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+              className="w-full ura-input"
+              style={{ fontFamily: "var(--font-mono), Menlo, Monaco, Consolas, monospace" }}
             />
             <select
               value={timeZone}
               onChange={(e) => setTimeZone(e.target.value)}
-              className="min-w-[110px] rounded-md bg-black/40 border border-neutral-800 px-2 py-2 text-[13px] outline-none text-neutral-100"
-              style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+              className="min-w-[110px] ura-select"
+              style={{ fontFamily: "var(--font-mono), Menlo, Monaco, Consolas, monospace" }}
               title="Time zone (IANA)"
             >
               {TIMEZONES.map((tz) => (
@@ -405,7 +402,7 @@ export default function AstroInputForm({
       </div>
 
       <div className="mt-4">
-        <div className="text-[11px] text-neutral-500 mb-1">
+        <div className="text-[11px] ura-text-muted mb-1">
           Birth location (City, State)
         </div>
 
@@ -422,8 +419,8 @@ export default function AstroInputForm({
               setLocationNudge("");
             }}
             placeholder="Danville, VA"
-            className="w-full rounded-md bg-black/40 border border-neutral-800 px-3 py-2 text-[13px] outline-none"
-            style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+            className="w-full ura-input"
+            style={{ fontFamily: "var(--font-mono), Menlo, Monaco, Consolas, monospace" }}
           />
 
           <button
@@ -437,7 +434,7 @@ export default function AstroInputForm({
               }
               await resolveLocation();
             }}
-            className="text-sm px-3 py-2 rounded-md bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 disabled:opacity-50"
+            className="ura-btn-secondary text-sm px-3 py-2"
             disabled={loading}
           >
             Resolve
@@ -445,23 +442,23 @@ export default function AstroInputForm({
         </div>
 
         {locationNudge ? (
-          <div className="mt-2 text-[12px] text-neutral-400">{locationNudge}</div>
+          <div className="mt-2 text-xs ura-text-muted">{locationNudge}</div>
         ) : null}
 
-        <div className="mt-2 text-[12px] text-neutral-500">
+        <div className="mt-2 text-xs ura-text-muted">
           {hasResolvedLocation ? (
             <div className="space-y-1">
               {resolvedLabel ? (
-                <div className="text-neutral-400">
-                  Resolved to: <span className="text-neutral-200">{resolvedLabel}</span>
+                <div>
+                  Resolved to: <span className="ura-text-secondary">{resolvedLabel}</span>
                 </div>
               ) : (
-                <div className="text-neutral-400">Resolved.</div>
+                <div>Resolved.</div>
               )}
 
-              <div className="text-neutral-600">
-                lat: <span className="text-neutral-400">{resolvedLat}</span> • lon:{" "}
-                <span className="text-neutral-400">{resolvedLon}</span>
+              <div>
+                lat: <span className="ura-text-secondary">{resolvedLat}</span> • lon:{" "}
+                <span className="ura-text-secondary">{resolvedLon}</span>
               </div>
             </div>
           ) : (
@@ -470,25 +467,25 @@ export default function AstroInputForm({
         </div>
       </div>
 
-      <div className="mt-5 pt-4 border-t border-neutral-900">
-        <div className="text-[12px] text-neutral-400 mb-2">As-of</div>
+      <div className="mt-5 pt-4" style={{ borderTop: "1px solid var(--ura-border-subtle)" }}>
+        <div className="text-xs ura-text-muted mb-2">As-of</div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <div className="text-[11px] text-neutral-500 mb-1">As-of date</div>
+            <div className="text-[11px] ura-text-muted mb-1">As-of date</div>
             <input
               type="date"
               value={asOfDate}
               onChange={(e) => setAsOfDate(e.target.value)}
               disabled={lockAsOfToToday}
-              className="w-full rounded-md bg-black/40 border border-neutral-800 px-3 py-2 text-[13px] outline-none disabled:opacity-60"
-              style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+              className="w-full ura-input disabled:opacity-60"
+              style={{ fontFamily: "var(--font-mono), Menlo, Monaco, Consolas, monospace" }}
               title={lockAsOfToToday ? "As-of date is locked to today on this page." : "As-of date"}
             />
           </div>
 
           <div className="flex items-end">
-            <div className="text-[11px] text-neutral-500">
+            <div className="text-[11px] ura-text-muted">
               {lockAsOfToToday
                 ? "as_of_date is locked to today (local)."
                 : "tz_offset is computed automatically from your selected time zone + birth time (DST-safe)."}
@@ -498,16 +495,20 @@ export default function AstroInputForm({
       </div>
 
       {statusLine ? (
-        <div className="mt-3 text-[12px] text-neutral-400">{statusLine}</div>
+        <div className="mt-3 text-xs ura-text-secondary">{statusLine}</div>
       ) : null}
 
       <details className="mt-4">
-        <summary className="text-[12px] text-neutral-500 cursor-pointer select-none">
+        <summary className="text-xs ura-text-muted cursor-pointer select-none">
           Debug payload (what gets sent to the APIs)
         </summary>
         <pre
-          className="mt-2 rounded-lg bg-black/40 border border-neutral-900 p-3 text-[12px] leading-5 whitespace-pre-wrap break-words"
-          style={{ fontFamily: "Menlo, Monaco, Consolas, monospace" }}
+          className="mt-2 rounded-lg p-3 text-xs leading-5 whitespace-pre-wrap break-words ura-text-secondary"
+          style={{
+            fontFamily: "var(--font-mono), Menlo, Monaco, Consolas, monospace",
+            background: "var(--ura-bg-primary)",
+            border: "1px solid var(--ura-border-subtle)",
+          }}
         >
           {debugPayload || "Resolve a location to see the payload."}
         </pre>
