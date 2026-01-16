@@ -37,6 +37,9 @@ function getLocalDayKey(timezone: string, d = new Date()) {
 /**
  * Convert a "wall clock" local time in a timezone into a UTC Date.
  * This avoids treating local birth time as UTC.
+ *
+ * Approach: Use Intl.DateTimeFormat to get the timezone offset for that date/time,
+ * then apply it to convert local -> UTC.
  */
 function zonedLocalToUtcDate(opts: {
   year: number;
@@ -48,8 +51,10 @@ function zonedLocalToUtcDate(opts: {
 }) {
   const { year, month, day, hour, minute, timezone } = opts;
 
+  // Create a date in UTC with the local time values (as a reference point)
   const referenceUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
 
+  // Get what time it would be in the target timezone at this UTC moment
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     year: "numeric",
@@ -70,26 +75,33 @@ function zonedLocalToUtcDate(opts: {
   const zonedHour = parseInt(getPart("hour"), 10);
   const zonedMinute = parseInt(getPart("minute"), 10);
 
+  // Calculate the offset: how much the timezone differs from UTC at this moment
   const zonedAsUtc = new Date(Date.UTC(zonedYear, zonedMonth - 1, zonedDay, zonedHour, zonedMinute, 0));
   const offsetMs = zonedAsUtc.getTime() - referenceUtc.getTime();
 
+  // The user's local time needs to be shifted by the OPPOSITE of this offset to get UTC
+  // If timezone is UTC-5, offset is -5 hours, so we ADD 5 hours to local time to get UTC
   const localAsUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
   return new Date(localAsUtc.getTime() - offsetMs);
 }
 
+/**
+ * ✅ IMPORTANT: do NOT default to "localhost" for server-to-server fetch.
+ * On many Linux hosts, "localhost" resolves to ::1 first (IPv6), while Next is bound on 127.0.0.1.
+ * That produces a generic Node "fetch failed" and can cascade into SSR timeouts.
+ */
 function getAppBaseUrl() {
   const base =
     process.env.APP_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
     process.env.NEXTAUTH_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
     "";
 
   if (base) return base.replace(/\/$/, "");
 
-  // ✅ IMPORTANT: avoid localhost -> ::1 (IPv6) resolution issues on droplet.
   const port = process.env.PORT || "3000";
-  return `http://127.0.0.1:${port}`;
+  return `http://127.0.0.1:${port}`; // ✅ IPv4 loopback (avoid ::1)
 }
 
 async function fetchAstroNatalUTC(birthUTC: BirthPayloadUTC) {
@@ -105,16 +117,28 @@ async function fetchAstroNatalUTC(birthUTC: BirthPayloadUTC) {
 /**
  * NOTE: Daily caches should NOT crash SSR if endpoints are down.
  * We return ok:false and keep old blobs.
+ *
+ * ✅ Also: set an explicit timeout so SSR cannot hang indefinitely.
  */
 async function postJsonSafe(path: string, payload: unknown): Promise<SafeResult> {
   const base = getAppBaseUrl();
 
+  // Hard cap per request (prevents /profile SSR from stalling forever)
+  const controller = new AbortController();
+  const timeoutMs = Number(process.env.URA_INTERNAL_FETCH_TIMEOUT_MS || 12_000);
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const r = await fetch(`${base}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // mark as internal (useful if you later bypass rate limiting for internal hops)
+        "x-ura-internal": "1",
+      },
       body: JSON.stringify(payload),
       cache: "no-store",
+      signal: controller.signal,
     });
 
     if (!r.ok) {
@@ -130,10 +154,18 @@ async function postJsonSafe(path: string, payload: unknown): Promise<SafeResult>
     const json = await r.json().catch(() => null);
     return { ok: true, data: json };
   } catch (err: any) {
-    return { ok: false, error: err?.message || `${path} fetch error` };
+    // Normalize AbortError to something readable
+    const msg = err?.name === "AbortError" ? `${path} timed out after ${timeoutMs}ms` : err?.message || `${path} fetch error`;
+    return { ok: false, error: msg };
+  } finally {
+    clearTimeout(t);
   }
 }
 
+/**
+ * Atomic profile cache update with transaction safety.
+ * Prevents race conditions during concurrent updates.
+ */
 async function updateProfileCachesAtomic(
   userId: number,
   updates: {
@@ -147,6 +179,7 @@ async function updateProfileCachesAtomic(
 ): Promise<Profile> {
   return await prisma.$transaction(
     async (tx) => {
+      // Perform the update atomically
       return await tx.profile.update({
         where: { userId },
         data: updates,
@@ -159,6 +192,9 @@ async function updateProfileCachesAtomic(
   );
 }
 
+/**
+ * Internal implementation of cache updates.
+ */
 async function ensureProfileCachesInternal(userId: number): Promise<Profile | null> {
   const profile = await prisma.profile.findUnique({ where: { userId } });
   if (!profile) return null;
@@ -193,8 +229,14 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
     typeof birthLat === "number" &&
     typeof birthLon === "number";
 
+  // If incomplete, don't compute.
   if (!hasBirth) return profile;
 
+  /**
+   * ✅ IMPORTANT FIX:
+   * - astro-service wants UTC parts
+   * - app routes (/api/asc-year, /api/lunation) want LOCAL birth parts + timezone
+   */
   const birthUTC = zonedLocalToUtcDate({
     year: birthYear,
     month: birthMonth,
@@ -225,6 +267,7 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
 
   const needsNatal = !profile.natalChartJson;
 
+  // Prisma JSON typing: avoid passing plain null
   let natalChartJson: Prisma.InputJsonValue | undefined =
     (profile.natalChartJson ?? undefined) as unknown as Prisma.InputJsonValue | undefined;
 
@@ -241,6 +284,7 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
   let didDailyUpdate = false;
 
   if (needsDaily) {
+    // ✅ Send LOCAL birth inputs to your app routes (they do their own tz→UTC)
     const payloadLocal = {
       year: birthYear,
       month: birthMonth,
@@ -248,16 +292,19 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
       hour: birthHour,
       minute: birthMinute,
 
+      // core contract (preferred)
       lat: birthLat,
       lon: birthLon,
 
+      // compatibility
       latitude: birthLat,
       longitude: birthLon,
 
       timezone: tz,
-      asOfDate: todayKey,
+      asOfDate: todayKey, // lets APIs compute stable "as-of" for that local day
     };
 
+    // Run in parallel, but each is capped by postJsonSafe timeout
     const [ascRes, lunaRes] = await Promise.all([
       postJsonSafe("/api/asc-year", payloadLocal),
       postJsonSafe("/api/lunation", payloadLocal),
@@ -291,6 +338,7 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
         dailyUpdatedAt: didDailyUpdate ? new Date() : (profile.dailyUpdatedAt ?? undefined),
       });
     } catch (err) {
+      // On conflict, re-fetch the profile (another request may have updated it)
       console.warn("[ensureProfileCaches] Transaction conflict, re-fetching:", err);
       return await prisma.profile.findUnique({ where: { userId } });
     }
@@ -299,6 +347,12 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
   return profile;
 }
 
+/**
+ * Ensures the user's cached natal + daily outputs exist and are current.
+ * - Natal: computed once (until birth data changes; edit should rebuild)
+ * - Daily: recomputed once per local day (timezone-aware)
+ * - Uses a lock to prevent concurrent updates for the same user
+ */
 export async function ensureProfileCaches(userId: number): Promise<Profile | null> {
   return withProfileLock(userId, () => ensureProfileCachesInternal(userId));
 }
