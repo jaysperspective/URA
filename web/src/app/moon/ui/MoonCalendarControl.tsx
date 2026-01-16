@@ -343,7 +343,7 @@ export default function MoonCalendarControl() {
         <CalendarIcon />
       </button>
 
-      <Modal open={open} onClose={handleClose} title={monthLabel(year, month)}>
+      <Modal open={open} onClose={handleClose} title="Moon Calendar">
         <div className="flex items-center justify-between mb-3">
           <button
             onClick={prevMonth}
@@ -352,8 +352,8 @@ export default function MoonCalendarControl() {
             ←
           </button>
 
-          <div className="text-white/60 text-xs tracking-[0.22em] uppercase">
-            {year}-{pad2(month)}
+          <div className="text-white/90 text-base font-medium tracking-wide">
+            {monthLabel(year, month)}
           </div>
 
           <button

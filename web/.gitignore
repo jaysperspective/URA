@@ -42,3 +42,4 @@ next-env.d.ts
 
 # local generated outputs
 generated/
+.DS_Store

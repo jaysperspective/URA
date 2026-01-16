@@ -123,15 +123,16 @@ function safeJsonParse(s: string): any {
   }
 }
 
-function buildMockSynthesis(lunarPhase: PhaseId, solarPhase: number | null): SynthesisResult {
+function buildMockSynthesis(lunarPhase: PhaseId, solarPhase: number | null, moonSign: string | null): SynthesisResult {
   const lunar = microcopyForPhase(lunarPhase);
   const now = new Date();
 
+  // Phase-first synthesis (mock version)
+  const signColor = moonSign ? ` The Moon in ${moonSign} colors how this unfolds.` : "";
+
   return {
-    headline: `${lunar.orisha} guides today's rhythm`,
-    guidance: `Today is shaped by Lunar Phase ${lunarPhase} (${lunar.orisha}): ${lunar.oneLine}` +
-      (solarPhase ? ` Your Solar URA is Phase ${solarPhase}, adding context to how this unfolds.` : "") +
-      " This is a mock synthesis. Enable OPENAI_API_KEY for full LLM synthesis.",
+    headline: `${lunar.season} · Phase ${lunarPhase} — ${lunar.orisha}`,
+    guidance: `${lunar.oneLine}${signColor} ${lunar.description.split(".")[0]}.`,
     actionHint: lunar.actionHint || "Start with one clear action.",
     journalPrompt: lunar.journalPrompt,
     generatedAt: now.toISOString(),
@@ -149,33 +150,45 @@ async function generateSynthesis(
 
   // If no API key, return mock
   if (!process.env.OPENAI_API_KEY) {
-    return buildMockSynthesis(lunarPhaseId, solarPhase);
+    return buildMockSynthesis(lunarPhaseId, solarPhase, moonSign);
   }
 
   const prompt = `
-Generate a daily synthesis using the URA system: Planet (force) → Orisha (motion) → Phase (timing).
+Generate a daily synthesis using the URA system.
 
-TODAY'S CONTEXT:
-- Lunar Phase: ${lunarPhaseId} (${lunar.orisha}) — ${lunar.header}
-- Lunar Phase Meaning: ${lunar.oneLine}
-- Lunar Phase Description: ${lunar.description}
-${solarPhase ? `- Solar URA Phase: ${solarPhase}` : ""}
-${moonSign ? `- Moon Sign: ${moonSign}` : ""}
+CRITICAL HIERARCHY (follow this strictly):
+1. PHASE is the FOUNDATION — The phase determines WHAT energy we are in (timing, rhythm)
+2. MOON SIGN is the MODALITY — The sign determines HOW that phase energy expresses itself
 
-ORISHA CONTEXT:
-${lunar.orisha} represents the motion/energy quality of this phase:
-- Action hint: ${lunar.actionHint || "None specified"}
-- Journal prompt: ${lunar.journalPrompt}
+DO NOT let the moon sign override the phase meaning. The phase is primary.
+
+CURRENT PHASE (This is the foundation - synthesize FROM this):
+- Phase ${lunarPhaseId}: ${lunar.orisha}
+- Phase Meaning: ${lunar.oneLine}
+- Phase Description: ${lunar.description}
+- Season: ${lunar.season}
+
+${moonSign ? `MOON SIGN (This colors HOW the phase expresses - not WHAT it is):
+- Moon in ${moonSign}
+- Key question: "In Phase ${lunarPhaseId} (${lunar.orisha}), how does ${moonSign} express this phase's energy?"
+- For example: If Phase 8 is about rest/dissolution and Moon is in Capricorn, the synthesis should be about DISCIPLINED rest, STRUCTURED completion, METHODICAL letting go — NOT about building or establishing (that would be Phase 2).` : ""}
+
+${solarPhase ? `Solar URA Phase: ${solarPhase} (secondary context)` : ""}
+
+PHASE-APPROPRIATE ACTION:
+- ${lunar.actionHint || "None specified"}
 
 OUTPUT: Return JSON with this exact structure:
 {
-  "headline": "A short (5-10 word) headline capturing today's energy",
-  "guidance": "2-3 sentences synthesizing the phase energy with practical orientation. No predictions.",
-  "actionHint": "One specific action for today",
-  "journalPrompt": "One reflective question"
+  "headline": "5-10 words capturing the PHASE energy, colored by the sign",
+  "guidance": "2-3 sentences. Start with the PHASE meaning, then show how the moon sign flavors that expression. No predictions.",
+  "actionHint": "One action aligned with the PHASE (not the sign's typical domain)",
+  "journalPrompt": "One reflective question rooted in the phase"
 }
 
-Keep it grounded, practical, and oriented toward what the user can actually do today.
+EXAMPLE (Phase 8 + Capricorn):
+- WRONG: "Focus on building structure" (this is Capricorn overriding Phase 8)
+- RIGHT: "Rest with Capricorn's discipline" (Phase 8 rest, colored by Capricorn's style)
 `.trim();
 
   const { content } = await callLLM(prompt);
@@ -263,7 +276,7 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     // On error, return mock synthesis so user still gets something
-    const mockSynthesis = buildMockSynthesis(lunarPhaseId, solarPhase);
+    const mockSynthesis = buildMockSynthesis(lunarPhaseId, solarPhase, moonSign);
 
     return NextResponse.json({
       ok: true,
@@ -272,6 +285,7 @@ export async function GET(req: Request) {
       synthesis: mockSynthesis,
       lunarPhaseId,
       solarPhase,
+      moonSign,
       isFallback: true,
     });
   }
