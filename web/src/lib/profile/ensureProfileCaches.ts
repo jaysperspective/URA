@@ -94,7 +94,10 @@ function getAppBaseUrl() {
     "";
 
   if (base) return base.replace(/\/$/, "");
-  return "http://127.0.0.1:3000";
+
+  // Use localhost with the PORT env var if set, otherwise default to 3000
+  const port = process.env.PORT || "3000";
+  return `http://localhost:${port}`;
 }
 
 async function fetchAstroNatalUTC(birthUTC: BirthPayloadUTC) {
@@ -290,14 +293,14 @@ async function ensureProfileCachesInternal(userId: number): Promise<Profile | nu
       ascYearJson = ascRes.data as unknown as Prisma.InputJsonValue;
       didDailyUpdate = true;
     } else {
-      console.warn("[ensureProfileCaches] asc-year skipped:", ascRes);
+      console.error("[ensureProfileCaches] asc-year FAILED:", ascRes.error, ascRes);
     }
 
     if (lunaRes.ok) {
       lunationJson = lunaRes.data as unknown as Prisma.InputJsonValue;
       didDailyUpdate = true;
     } else {
-      console.warn("[ensureProfileCaches] lunation skipped:", lunaRes);
+      console.error("[ensureProfileCaches] lunation FAILED:", lunaRes.error, lunaRes);
     }
   }
 
