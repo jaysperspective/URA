@@ -23,7 +23,6 @@ type ParsedInput = {
   lat?: number;
   lon?: number;
 
-  // NEW (optional): keep core fast by default
   includeBoundaries?: boolean;
   detail?: "quick" | "full";
 };
@@ -45,8 +44,13 @@ type AstroServiceData = NonNullable<AstroServiceChart["data"]>;
 const ASTRO_URL = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
 const ASTRO_TIMEOUT_MS = Number(process.env.ASTRO_TIMEOUT_MS || 9000);
 
+// Lunation FULL scan tuning (safe defaults)
+const FULL_SCAN_MAX_YEARS = Number(process.env.URA_LUNATION_FULL_MAX_YEARS || 40); // bounded
+const FULL_SCAN_STEP_DAYS = Number(process.env.URA_LUNATION_FULL_STEP_DAYS || 7); // coarse scan step
+const FULL_BOUNDARY_STEP_DAYS = Number(process.env.URA_LUNATION_BOUNDARY_STEP_DAYS || 2); // bracket step for boundaries
+
 // ------------------------------
-// Parsing (copied from asc-year/lunation; keep identical behavior)
+// Parsing
 // ------------------------------
 
 function pad2(n: number) {
@@ -80,7 +84,6 @@ function parseTextKV(body: string): ParsedInput {
   if (out.lat != null) out.lat = Number(out.lat);
   if (out.lon != null) out.lon = Number(out.lon);
 
-  // NEW optional flags from text
   if (out.includeBoundaries != null) out.includeBoundaries = String(out.includeBoundaries).toLowerCase() === "true";
   if (out.detail != null) out.detail = String(out.detail);
 
@@ -94,7 +97,7 @@ function parseTextKV(body: string): ParsedInput {
 function tzOffsetForZoneAtLocal(
   timeZone: string,
   year: number,
-  month: number, // 1-12
+  month: number,
   day: number,
   hour: number,
   minute: number
@@ -124,7 +127,7 @@ function tzOffsetForZoneAtLocal(
 }
 
 function normalizeJsonToParsedInput(obj: any): ParsedInput {
-  // 1) Legacy ParsedInput
+  // Legacy ParsedInput
   if (
     obj &&
     typeof obj === "object" &&
@@ -155,7 +158,7 @@ function normalizeJsonToParsedInput(obj: any): ParsedInput {
     };
   }
 
-  // 2) URA structured contract
+  // URA structured contract
   const year = toNum(obj?.year);
   const month = toNum(obj?.month);
   const day = toNum(obj?.day);
@@ -242,7 +245,6 @@ async function readInput(req: Request): Promise<ParsedInput> {
       // fall through
     }
   }
-
   return parseTextKV(raw);
 }
 
@@ -283,7 +285,6 @@ function parseAsOfToUTCDate(as_of_date: string): Date {
   return new Date(Date.UTC(year, month, day, 0, 0, 0));
 }
 
-// Secondary progression: day-for-year
 function progressedDateUTC(birthUTC: Date, asOfUTC: Date): Date {
   const msPerDay = 86_400_000;
   const elapsedDays = (asOfUTC.getTime() - birthUTC.getTime()) / msPerDay;
@@ -360,17 +361,14 @@ function buildDerivedSummary(params: { natal: any; asOf: any; ascYear: any; luna
     ascYearLabel,
     ascYearCyclePos: fmtDeg(ascYear?.cyclePosition),
     ascYearDegreesInto: fmtDeg(ascYear?.degreesIntoModality),
-
     lunationLabel,
     lunationSeparation: fmtDeg(lunation?.separation),
-
     natal: {
       asc: natalAsc,
       ascSign: signLabel(natalAsc),
       mc: natalMc,
       mcSign: signLabel(natalMc),
     },
-
     asOf: {
       sun: asOfSun,
       sunSign: signLabel(asOfSun),
@@ -415,7 +413,10 @@ async function fetchChartByYMDHM(
     if (!json.data) throw new Error("astro-service missing data");
     return json.data;
   } catch (e: any) {
-    const msg = e?.name === "AbortError" ? `astro-service timeout after ${ASTRO_TIMEOUT_MS}ms` : e?.message || "astro-service fetch failed";
+    const msg =
+      e?.name === "AbortError"
+        ? `astro-service timeout after ${ASTRO_TIMEOUT_MS}ms`
+        : e?.message || "astro-service fetch failed";
     throw new Error(msg);
   } finally {
     clearTimeout(t);
@@ -504,7 +505,7 @@ function boundariesFromAsc(asc: number) {
 }
 
 // ------------------------------
-// Derived: Lunation (QUICK by default)
+// Derived: Lunation
 // ------------------------------
 
 function phaseLabelFromSep(sep: number) {
@@ -529,7 +530,6 @@ function subPhaseLabelFromSep(sep: number) {
   return { label, segment: seg + 1, total: 3, within };
 }
 
-// Full-mode helpers (expensive) — kept, but ONLY used when includeBoundaries=true
 function makeSepCache(
   birthUTC: Date,
   fetchAt: (pDateUTC: Date) => Promise<{ sunLon: number; moonLon: number }>
@@ -551,126 +551,111 @@ function makeSepCache(
   };
 }
 
-async function findPreviousNewMoonUTC(asOfUTC: Date, getAt: (ms: number) => Promise<{ sep: number }>): Promise<Date> {
+/**
+ * FAST coarse scan to find the wrap (sep crosses 360->0) in a bounded window, then refine by bisection.
+ */
+async function findNewMoonWrapUTC(params: {
+  startUTC: Date;
+  direction: -1 | 1; // -1 previous, +1 next
+  getAt: (ms: number) => Promise<{ sep: number }>;
+}): Promise<Date> {
+  const { startUTC, direction, getAt } = params;
+
   const oneDay = 86_400_000;
-  const maxDaysBack = 80 * 366;
+  const step = FULL_SCAN_STEP_DAYS * oneDay * direction;
 
-  let t1 = asOfUTC.getTime();
-  let s1 = (await getAt(t1)).sep;
+  const maxDays = Math.max(1, Math.floor(FULL_SCAN_MAX_YEARS * 366));
+  const maxSteps = Math.ceil(maxDays / Math.max(1, FULL_SCAN_STEP_DAYS));
 
-  for (let i = 0; i < maxDaysBack; i++) {
-    const t0 = t1 - oneDay;
-    const s0 = (await getAt(t0)).sep;
+  // We'll track two points tA, tB such that sep wraps between them
+  let tPrev = startUTC.getTime();
+  let sPrev = (await getAt(tPrev)).sep;
 
-    if (s0 > 300 && s1 < 60) {
-      let lo = t0;
-      let hi = t1;
+  for (let i = 0; i < maxSteps; i++) {
+    const tCur = tPrev + step;
+    const sCur = (await getAt(tCur)).sep;
 
+    // Wrap condition: one side is "late" (near 360) and the other is "early" (near 0)
+    // We allow either direction.
+    if (sPrev > 300 && sCur < 60) {
+      // bracket [tCur, tPrev] or [tPrev, tCur] depending on direction
+      const lo = Math.min(tPrev, tCur);
+      const hi = Math.max(tPrev, tCur);
+
+      // refine root of wrap180(sep) = 0 by bisection
       const f = async (ms: number) => wrap180((await getAt(ms)).sep);
-      let flo = await f(lo);
-      let fhi = await f(hi);
+      let a = lo;
+      let b = hi;
+      let fa = await f(a);
+      let fb = await f(b);
 
       for (let it = 0; it < 28; it++) {
-        const mid = Math.floor((lo + hi) / 2);
-        const fmid = await f(mid);
+        const mid = Math.floor((a + b) / 2);
+        const fm = await f(mid);
 
-        if (Math.abs(fmid) < 1e-6) {
-          lo = hi = mid;
+        if (Math.abs(fm) < 1e-6) {
+          a = b = mid;
           break;
         }
 
-        if (flo <= 0 && fmid >= 0) (hi = mid), (fhi = fmid);
-        else if (fmid <= 0 && fhi >= 0) (lo = mid), (flo = fmid);
-        else {
-          if (Math.abs(flo) < Math.abs(fhi)) hi = mid;
-          else lo = mid;
+        // want sign change
+        if ((fa <= 0 && fm >= 0) || (fa >= 0 && fm <= 0)) {
+          b = mid;
+          fb = fm;
+        } else {
+          a = mid;
+          fa = fm;
         }
       }
 
-      return new Date(Math.floor((lo + hi) / 2));
+      return new Date(Math.floor((a + b) / 2));
     }
 
-    t1 = t0;
-    s1 = s0;
+    tPrev = tCur;
+    sPrev = sCur;
   }
 
-  throw new Error("could not locate previous progressed new moon (scan exceeded limit)");
+  throw new Error("could not locate progressed new moon wrap within bounded scan window");
 }
 
-async function findNextNewMoonUTC(startUTC: Date, getAt: (ms: number) => Promise<{ sep: number }>): Promise<Date> {
-  const oneDay = 86_400_000;
-  const maxDaysForward = 80 * 366;
-
-  let t0 = startUTC.getTime();
-  let s0 = (await getAt(t0)).sep;
-
-  for (let i = 0; i < maxDaysForward; i++) {
-    const t1 = t0 + oneDay;
-    const s1 = (await getAt(t1)).sep;
-
-    if (s0 > 300 && s1 < 60) {
-      let lo = t0;
-      let hi = t1;
-
-      const f = async (ms: number) => wrap180((await getAt(ms)).sep);
-      let flo = await f(lo);
-      let fhi = await f(hi);
-
-      for (let it = 0; it < 28; it++) {
-        const mid = Math.floor((lo + hi) / 2);
-        const fmid = await f(mid);
-
-        if (Math.abs(fmid) < 1e-6) {
-          lo = hi = mid;
-          break;
-        }
-
-        if (flo <= 0 && fmid >= 0) (hi = mid), (fhi = fmid);
-        else if (fmid <= 0 && fhi >= 0) (lo = mid), (flo = fmid);
-        else {
-          if (Math.abs(flo) < Math.abs(fhi)) hi = mid;
-          else lo = mid;
-        }
-      }
-
-      return new Date(Math.floor((lo + hi) / 2));
-    }
-
-    t0 = t1;
-    s0 = s1;
-  }
-
-  throw new Error("could not locate next progressed new moon (scan exceeded limit)");
-}
-
-async function findBoundaryUTC(
+/**
+ * Find boundary sep >= targetDeg starting from anchorUTC with small forward steps, then bisection.
+ */
+async function findBoundaryUTC_fast(
   anchorUTC: Date,
   targetDeg: number,
   getAt: (ms: number) => Promise<{ sep: number }>
 ): Promise<Date> {
   const oneDay = 86_400_000;
+
   if (targetDeg === 0) return new Date(anchorUTC.getTime());
 
   let lo = anchorUTC.getTime();
-  let hi = lo + oneDay;
+  let hi = lo;
 
-  let shi = (await getAt(hi)).sep;
+  // Step forward until we cross target
+  const step = Math.max(1, FULL_BOUNDARY_STEP_DAYS) * oneDay;
+  let sHi = (await getAt(hi)).sep;
 
-  const maxDaysForward = 90 * 366;
-  for (let i = 0; i < maxDaysForward && shi < targetDeg; i++) {
+  const maxDaysForward = Math.max(30, Math.floor(FULL_SCAN_MAX_YEARS * 366)); // bounded
+  const maxSteps = Math.ceil(maxDaysForward / Math.max(1, FULL_BOUNDARY_STEP_DAYS));
+
+  for (let i = 0; i < maxSteps && sHi < targetDeg; i++) {
     lo = hi;
-    hi = hi + 7 * oneDay;
-    shi = (await getAt(hi)).sep;
+    hi = hi + step;
+    sHi = (await getAt(hi)).sep;
   }
 
-  if (shi < targetDeg) throw new Error(`could not bracket boundary for ${targetDeg}° (forward scan exceeded limit)`);
+  if (sHi < targetDeg) throw new Error(`could not bracket boundary for ${targetDeg}°`);
 
-  for (let it = 0; it < 30; it++) {
+  // Bisection
+  for (let it = 0; it < 28; it++) {
     const mid = Math.floor((lo + hi) / 2);
-    const smid = (await getAt(mid)).sep;
-    if (smid >= targetDeg) hi = mid;
+    const sm = (await getAt(mid)).sep;
+    if (sm >= targetDeg) hi = mid;
     else lo = mid;
-    if (hi - lo < 30 * 60_000) break;
+
+    if (hi - lo < 30 * 60_000) break; // within 30 minutes
   }
 
   return new Date(hi);
@@ -698,7 +683,6 @@ async function handlePost(req: NextRequest) {
       throw new Error("Missing lat/lon (required for core because asc-year uses ascendant).");
     }
 
-    // ✅ Decide lunation detail level (FAST by default)
     const wantsFull = input.detail === "full" || input.includeBoundaries === true;
     const detail: "quick" | "full" = wantsFull ? "full" : "quick";
 
@@ -730,7 +714,7 @@ async function handlePost(req: NextRequest) {
     if (typeof natal.bodies.sun.lon !== "number") throw new Error("astro-service missing natal sun lon");
     if (typeof natal.bodies.moon.lon !== "number") throw new Error("astro-service missing natal moon lon");
 
-    // --- as-of chart (00:00 UTC on as_of_date) ---
+    // --- as-of chart ---
     const asOfData = await fetchChartByYMDHM(
       asOfUTC.getUTCFullYear(),
       asOfUTC.getUTCMonth() + 1,
@@ -767,9 +751,8 @@ async function handlePost(req: NextRequest) {
       boundariesLongitude,
     };
 
-    // --- derived: lunation (QUICK default) ---
+    // --- derived: lunation ---
     const fetchProgressedSunMoon = async (pDateUTC: Date) => {
-      // Keep existing behavior: progressed sun/moon at (0,0)
       const d = await fetchChartByYMDHM(
         pDateUTC.getUTCFullYear(),
         pDateUTC.getUTCMonth() + 1,
@@ -795,8 +778,7 @@ async function handlePost(req: NextRequest) {
     const phase = phaseLabelFromSep(separation);
     const sub = subPhaseLabelFromSep(separation);
 
-    // Base lunation (fast)
-    const lunationBase: any = {
+    const lunation: any = {
       mode: detail,
       progressedDateUTC: pDateUTC.toISOString(),
       progressedSunLon: pSunLon,
@@ -811,12 +793,12 @@ async function handlePost(req: NextRequest) {
       },
     };
 
-    // Full lunation only when requested (expensive)
     if (detail === "full") {
       const getAt = makeSepCache(birthUTC, fetchProgressedSunMoon);
 
-      const prevNewMoonUTC = await findPreviousNewMoonUTC(asOfUTC, getAt);
-      const nextNewMoonUTC = await findNextNewMoonUTC(asOfUTC, getAt);
+      // FAST bounded coarse scans
+      const prevNewMoonUTC = await findNewMoonWrapUTC({ startUTC: asOfUTC, direction: -1, getAt });
+      const nextNewMoonUTC = await findNewMoonWrapUTC({ startUTC: asOfUTC, direction: +1, getAt });
 
       const boundaryTargets = [0, 45, 90, 135, 180, 225, 270, 315] as const;
       const boundaryLabels = [
@@ -834,16 +816,14 @@ async function handlePost(req: NextRequest) {
       for (let i = 0; i < boundaryTargets.length; i++) {
         const deg = boundaryTargets[i];
         const label = boundaryLabels[i];
-        const d = await findBoundaryUTC(prevNewMoonUTC, deg, getAt);
+        const d = await findBoundaryUTC_fast(prevNewMoonUTC, deg, getAt);
         boundaries.push({ deg, label, dateUTC: formatYMD(d) });
       }
 
-      lunationBase.prevNewMoonUTC = formatYMD(prevNewMoonUTC);
-      lunationBase.nextNewMoonUTC = formatYMD(nextNewMoonUTC);
-      lunationBase.boundaries = boundaries;
+      lunation.prevNewMoonUTC = formatYMD(prevNewMoonUTC);
+      lunation.nextNewMoonUTC = formatYMD(nextNewMoonUTC);
+      lunation.boundaries = boundaries;
     }
-
-    const lunation = lunationBase;
 
     const summary = buildDerivedSummary({ natal, asOf, ascYear, lunation });
 
@@ -857,9 +837,11 @@ async function handlePost(req: NextRequest) {
     textLines.push(`AsOf Sun:   ${asOf.bodies.sun.lon.toFixed(2)}° (${angleToSign(asOf.bodies.sun.lon)})`);
     textLines.push("");
     textLines.push(`Asc-Year: ${ascYear.season} · ${ascYear.modality} · ${ascYear.cyclePosition.toFixed(2)}°`);
-    textLines.push(`Lunation(${detail}): ${lunation.phase} · ${lunation.subPhase.label} · sep ${lunation.separation.toFixed(2)}°`);
+    textLines.push(
+      `Lunation(${detail}): ${lunation.phase} · ${lunation.subPhase.label} · sep ${lunation.separation.toFixed(2)}°`
+    );
 
-    const payload = {
+    return NextResponse.json({
       ok: true,
       input,
       birthUTC: birthUTC.toISOString(),
@@ -868,9 +850,7 @@ async function handlePost(req: NextRequest) {
       asOf,
       derived: { ascYear, lunation, summary },
       text: textLines.join("\n"),
-    };
-
-    return NextResponse.json(payload);
+    });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || "unknown error" }, { status: 400 });
   }
