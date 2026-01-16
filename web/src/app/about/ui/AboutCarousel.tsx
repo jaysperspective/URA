@@ -358,7 +358,7 @@ function FieldGuideItem({ label, value }: { label: string; value: string }) {
 // THRESHOLD PANEL (Post-Carousel)
 // ============================================
 
-function ThresholdPanel() {
+function ThresholdPanel({ onRestart }: { onRestart: () => void }) {
   const [showWhereToStart, setShowWhereToStart] = useState(false);
 
   return (
@@ -448,6 +448,16 @@ function ThresholdPanel() {
             />
           </div>
         )}
+
+        <div className="pt-4 text-center">
+          <button
+            onClick={onRestart}
+            className="text-xs"
+            style={{ color: "var(--ura-text-muted)" }}
+          >
+            Review the introduction
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -522,10 +532,28 @@ function ProgressDots({
 // MAIN CAROUSEL COMPONENT
 // ============================================
 
+const STORAGE_KEY = "ura-about-completed";
+
+// Helper to check localStorage (safe for SSR)
+function getInitialState(): { showThreshold: boolean; currentSlide: number } {
+  if (typeof window === "undefined") {
+    return { showThreshold: false, currentSlide: 0 };
+  }
+  try {
+    const hasCompleted = localStorage.getItem(STORAGE_KEY);
+    if (hasCompleted === "true") {
+      return { showThreshold: true, currentSlide: SLIDES.length - 1 };
+    }
+  } catch {
+    // localStorage not available
+  }
+  return { showThreshold: false, currentSlide: 0 };
+}
+
 export default function AboutCarousel() {
-  const [currentSlide, setCurrentSlide] = useState(0);
+  // Use lazy initialization to check localStorage once on mount (client-side only)
+  const [carouselState, setCarouselState] = useState(() => getInitialState());
   const [expandedPhase, setExpandedPhase] = useState<number | null>(null);
-  const [showThreshold, setShowThreshold] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef(0);
@@ -538,6 +566,33 @@ export default function AboutCarousel() {
 
   const TOTAL_SLIDES = SLIDES.length;
   const SWIPE_THRESHOLD = 50;
+
+  // Derived state
+  const currentSlide = carouselState.currentSlide;
+  const showThreshold = carouselState.showThreshold;
+
+  // Save to localStorage when user reaches threshold
+  const saveCompletionStatus = useCallback((completed: boolean) => {
+    if (completed) {
+      try {
+        localStorage.setItem(STORAGE_KEY, "true");
+      } catch {
+        // localStorage not available
+      }
+    }
+  }, []);
+
+  // State updaters
+  const setShowThreshold = useCallback((value: boolean) => {
+    setCarouselState((prev) => ({ ...prev, showThreshold: value }));
+    if (value) {
+      saveCompletionStatus(true);
+    }
+  }, [saveCompletionStatus]);
+
+  const setCurrentSlide = useCallback((value: number) => {
+    setCarouselState((prev) => ({ ...prev, currentSlide: value }));
+  }, []);
 
   // Check if swipe is disabled (accordion open on slide 8)
   const isSwipeDisabled = currentSlide === 7 && expandedPhase !== null;
@@ -556,7 +611,7 @@ export default function AboutCarousel() {
       setCurrentSlide(index);
       setVisualOffset(0);
     },
-    [TOTAL_SLIDES]
+    [TOTAL_SLIDES, setShowThreshold, setCurrentSlide]
   );
 
   // Touch handlers for swipe
@@ -697,7 +752,15 @@ export default function AboutCarousel() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentSlide, isSwipeDisabled, goToSlide, showThreshold, TOTAL_SLIDES]);
+  }, [currentSlide, isSwipeDisabled, goToSlide, showThreshold, TOTAL_SLIDES, setShowThreshold]);
+
+  // Restart the carousel from slide 1
+  const handleRestart = useCallback(() => {
+    setShowThreshold(false);
+    setCurrentSlide(0);
+    setExpandedPhase(null);
+    setVisualOffset(0);
+  }, [setShowThreshold, setCurrentSlide]);
 
   const currentContent = SLIDES[currentSlide];
   const isSlide8 = currentSlide === 7;
@@ -750,7 +813,7 @@ export default function AboutCarousel() {
         }}
       >
         {showThreshold ? (
-          <ThresholdPanel />
+          <ThresholdPanel onRestart={handleRestart} />
         ) : (
           <div
             className="w-full max-w-md rounded-2xl px-6 py-8"
