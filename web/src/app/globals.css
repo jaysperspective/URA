@@ -302,3 +302,17 @@ a.ura-link:hover {
   padding: 0.75rem 1rem;
   color: #E8C4B8;
 }
+
+/* Horizontal bounce animation for swipe hint */
+@keyframes bounce-x {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(6px);
+  }
+}
+
+.animate-bounce-x {
+  animation: bounce-x 1s ease-in-out infinite;
+}
