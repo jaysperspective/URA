@@ -1,7 +1,10 @@
 // src/app/api/astrology/natal/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/requireUser";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function norm360(d: number) {
   let x = d % 360;
@@ -232,6 +235,218 @@ export async function GET() {
     return NextResponse.json(
       { ok: false, error: err?.message || "Unknown error" },
       { status: 400 }
+    );
+  }
+}
+
+// ============================================
+// POST - Free chart generation for non-members
+// ============================================
+
+function getAstroServiceChartUrl() {
+  const raw = process.env.ASTRO_SERVICE_URL || "http://127.0.0.1:3002";
+  const base = raw.replace(/\/+$/, "").replace(/\/chart$/, "");
+  return `${base}/chart`;
+}
+
+async function geocodePlace(q: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("q", q);
+    url.searchParams.set("limit", "1");
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "User-Agent": "URA-Geocoder/1.0",
+        "Accept-Language": "en",
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    if (!Array.isArray(json) || json.length === 0) return null;
+
+    const top = json[0];
+    const lat = Number(top.lat);
+    const lon = Number(top.lon);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    return { lat, lon };
+  } catch {
+    return null;
+  }
+}
+
+function degInSign(lon: number): number {
+  return Math.floor(norm360(lon) % 30);
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => null);
+
+    if (!body) {
+      return NextResponse.json({ ok: false, error: "Invalid request body" }, { status: 400 });
+    }
+
+    const { birthDate, birthTime, birthPlace } = body;
+
+    // Validate required fields
+    if (!birthDate || !birthTime) {
+      return NextResponse.json(
+        { ok: false, error: "Birth date and time are required" },
+        { status: 400 }
+      );
+    }
+
+    // Parse birth date - handle both YYYY-MM-DD and display formats
+    let year: number, month: number, day: number;
+
+    // Try YYYY-MM-DD format first
+    const isoMatch = String(birthDate).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoMatch) {
+      year = parseInt(isoMatch[1], 10);
+      month = parseInt(isoMatch[2], 10);
+      day = parseInt(isoMatch[3], 10);
+    } else {
+      // Try parsing as a Date string (e.g., "May 18, 1987")
+      const parsed = new Date(birthDate);
+      if (isNaN(parsed.getTime())) {
+        return NextResponse.json(
+          { ok: false, error: "Invalid birth date format. Use YYYY-MM-DD." },
+          { status: 400 }
+        );
+      }
+      year = parsed.getFullYear();
+      month = parsed.getMonth() + 1;
+      day = parsed.getDate();
+    }
+
+    // Parse birth time (HH:MM)
+    const timeMatch = String(birthTime).match(/^(\d{1,2}):(\d{2})$/);
+    if (!timeMatch) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid birth time format. Use HH:MM." },
+        { status: 400 }
+      );
+    }
+    const hour = parseInt(timeMatch[1], 10);
+    const minute = parseInt(timeMatch[2], 10);
+
+    // Get coordinates - geocode if place provided, else default
+    let lat = 40.7128; // Default: NYC
+    let lon = -74.006;
+
+    if (birthPlace && String(birthPlace).trim()) {
+      const geo = await geocodePlace(String(birthPlace).trim());
+      if (geo) {
+        lat = geo.lat;
+        lon = geo.lon;
+      }
+    }
+
+    // Call the astro service
+    const chartUrl = getAstroServiceChartUrl();
+    const payload = {
+      year,
+      month,
+      day,
+      hour,
+      minute,
+      latitude: lat,
+      longitude: lon,
+    };
+
+    const chartRes = await fetch(chartUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+
+    if (!chartRes.ok) {
+      const errText = await chartRes.text().catch(() => "");
+      return NextResponse.json(
+        { ok: false, error: `Astro service error: ${chartRes.status} - ${errText.slice(0, 100)}` },
+        { status: 502 }
+      );
+    }
+
+    const chartData = await chartRes.json();
+    const planets = chartData?.data?.planets ?? chartData?.planets ?? {};
+
+    // Extract placements
+    const placements: { planet: string; sign: string; degree: number }[] = [];
+
+    const planetKeys = [
+      { key: "sun", label: "Sun" },
+      { key: "moon", label: "Moon" },
+      { key: "mercury", label: "Mercury" },
+      { key: "venus", label: "Venus" },
+      { key: "mars", label: "Mars" },
+      { key: "jupiter", label: "Jupiter" },
+      { key: "saturn", label: "Saturn" },
+      { key: "uranus", label: "Uranus" },
+      { key: "neptune", label: "Neptune" },
+      { key: "pluto", label: "Pluto" },
+      { key: "chiron", label: "Chiron" },
+      { key: "north_node", label: "North Node" },
+      { key: "true_node", label: "North Node" },
+    ];
+
+    const seenPlanets = new Set<string>();
+
+    for (const { key, label } of planetKeys) {
+      if (seenPlanets.has(label)) continue;
+
+      const p = planets[key];
+      if (!p) continue;
+
+      const plon = typeof p === "number" ? p : p?.lon;
+      if (typeof plon !== "number" || !Number.isFinite(plon)) continue;
+
+      seenPlanets.add(label);
+      placements.push({
+        planet: label,
+        sign: signNameFromLon(plon),
+        degree: degInSign(plon),
+      });
+    }
+
+    // Also try to get ASC
+    const asc = chartData?.data?.ascendant ?? chartData?.data?.angles?.asc ?? chartData?.ascendant;
+    if (typeof asc === "number" && Number.isFinite(asc)) {
+      placements.push({
+        planet: "ASC",
+        sign: signNameFromLon(asc),
+        degree: degInSign(asc),
+      });
+    }
+
+    // Also try to get MC
+    const mc = chartData?.data?.mc ?? chartData?.data?.angles?.mc ?? chartData?.mc;
+    if (typeof mc === "number" && Number.isFinite(mc)) {
+      placements.push({
+        planet: "MC",
+        sign: signNameFromLon(mc),
+        degree: degInSign(mc),
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      placements,
+      coordinates: { lat, lon },
+      input: { year, month, day, hour, minute },
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Failed to generate chart" },
+      { status: 500 }
     );
   }
 }

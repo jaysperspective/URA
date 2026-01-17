@@ -1,7 +1,7 @@
 // src/app/profile/edit/ui/EditProfileClient.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import { saveProfileEditAction } from "../actions";
 
 type Initial = {
@@ -44,6 +44,48 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [geoError, setGeoError] = useState<string | null>(null);
+
+  // Avatar upload state
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(initial.avatarUrl);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAvatarUploading(true);
+    setAvatarError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/profile/photo", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (data.ok && data.url) {
+        setAvatarUrl(data.url);
+        // Also save to localStorage for the profile page
+        try {
+          localStorage.setItem("ura:profileImage", data.url);
+        } catch {
+          // ignore
+        }
+      } else {
+        setAvatarError(data.error || "Upload failed");
+      }
+    } catch (err: any) {
+      setAvatarError(err?.message || "Upload failed");
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
 
   const query = useMemo(() => {
     // Prefer explicit birthPlace label if present; else City, State
@@ -283,15 +325,96 @@ export default function EditProfileClient({ initial }: { initial: Initial }) {
           </div>
         </div>
 
-        {/* Avatar placeholder */}
+        {/* Avatar upload */}
         <div className="rounded-2xl border px-5 py-4" style={{ borderColor: "rgba(31,36,26,0.14)", background: "rgba(248,242,232,0.72)" }}>
           <div className="text-[11px] tracking-[0.18em] uppercase" style={{ color: "rgba(31,36,26,0.55)", fontWeight: 800 }}>
             Profile image (optional)
           </div>
           <div className="mt-2 text-sm" style={{ color: "rgba(31,36,26,0.72)" }}>
-            Upload wiring next (R2/S3). For now this preserves existing URL if you already have one.
+            Upload a profile photo. Images are automatically compressed and resized.
           </div>
-          <input type="hidden" name="avatarUrl" value={initial.avatarUrl ?? ""} />
+
+          <div className="mt-4 flex items-center gap-4">
+            {/* Preview */}
+            <div
+              className="h-20 w-20 rounded-2xl overflow-hidden border flex items-center justify-center"
+              style={{
+                borderColor: "rgba(31,36,26,0.18)",
+                background: avatarUrl ? "transparent" : "rgba(80,80,80,0.8)",
+              }}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Profile" className="h-full w-full object-cover" />
+              ) : (
+                <svg
+                  width="32"
+                  height="32"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ color: "rgba(244,235,221,0.6)" }}
+                >
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+                </svg>
+              )}
+            </div>
+
+            {/* Upload button */}
+            <div className="flex-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={handleAvatarUpload}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={avatarUploading}
+                className="rounded-full border px-4 py-2 text-sm transition"
+                style={{
+                  borderColor: "rgba(31,36,26,0.20)",
+                  background: "rgba(244,235,221,0.85)",
+                  color: "rgba(31,36,26,0.88)",
+                  opacity: avatarUploading ? 0.6 : 1,
+                }}
+              >
+                {avatarUploading ? "Uploading..." : avatarUrl ? "Change photo" : "Upload photo"}
+              </button>
+
+              {avatarUrl && (
+                <button
+                  type="button"
+                  onClick={() => setAvatarUrl(null)}
+                  className="ml-2 rounded-full border px-3 py-2 text-sm"
+                  style={{
+                    borderColor: "rgba(31,36,26,0.12)",
+                    background: "transparent",
+                    color: "rgba(31,36,26,0.60)",
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+
+              {avatarError && (
+                <div className="mt-2 text-sm" style={{ color: "rgba(180,60,60,0.9)" }}>
+                  {avatarError}
+                </div>
+              )}
+
+              <div className="mt-2 text-xs" style={{ color: "rgba(31,36,26,0.55)" }}>
+                PNG, JPG, or WebP. Max 5MB. Will be resized to 400x400.
+              </div>
+            </div>
+          </div>
+
+          <input type="hidden" name="avatarUrl" value={avatarUrl ?? ""} />
         </div>
 
         {/* Actions */}

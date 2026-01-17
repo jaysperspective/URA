@@ -30,6 +30,20 @@ type UserRow = {
   } | null;
 };
 
+type UserPlacement = {
+  id: number;
+  email: string;
+  displayName: string | null;
+  username: string | null;
+  birthDate: string | null;
+  birthPlace: string | null;
+  setupDone: boolean;
+  sun: string | null;
+  moon: string | null;
+  asc: string | null;
+  createdAt: string;
+};
+
 export default function AdminClient({ unlocked, masterKey, metrics, serverHasConfig }: Props) {
   const [revealKey, setRevealKey] = useState(false);
 
@@ -50,6 +64,12 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
   const [users, setUsers] = useState<UserRow[]>([]);
   const [userLoading, setUserLoading] = useState(false);
   const [toast, setToast] = useState<string>("");
+
+  // User placements state
+  const [placements, setPlacements] = useState<UserPlacement[]>([]);
+  const [placementsLoading, setPlacementsLoading] = useState(false);
+  const [placementsLastFetch, setPlacementsLastFetch] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -125,6 +145,38 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
     // update local list
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, status } : u)));
   }
+
+  async function fetchPlacements() {
+    setPlacementsLoading(true);
+    try {
+      const res = await fetch("/api/admin/users/placements");
+      const json = await res.json();
+      if (json.ok) {
+        setPlacements(json.users || []);
+        setPlacementsLastFetch(new Date().toLocaleTimeString());
+      } else {
+        setToast("Failed to fetch placements");
+      }
+    } catch {
+      setToast("Failed to fetch placements");
+    } finally {
+      setPlacementsLoading(false);
+    }
+  }
+
+  // Fetch placements on mount when unlocked
+  useEffect(() => {
+    if (unlocked) {
+      fetchPlacements();
+    }
+  }, [unlocked]);
+
+  // Auto-refresh every 30 seconds when enabled
+  useEffect(() => {
+    if (!autoRefresh || !unlocked) return;
+    const interval = setInterval(fetchPlacements, 30000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, unlocked]);
 
   if (!unlocked) {
     return (
@@ -269,6 +321,91 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
 
             <div className="mt-4 text-xs text-white/50">
               Last signup: {metrics?.lastSignupAt ? fmtIso(metrics.lastSignupAt) : "—"}
+            </div>
+          </Panel>
+
+          {/* User Placements */}
+          <Panel title="User Placements" subtitle="All users with their Sun, Moon, and Ascendant">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={fetchPlacements}
+                  disabled={placementsLoading}
+                  className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-60"
+                >
+                  {placementsLoading ? "Loading..." : "Refresh"}
+                </button>
+                <label className="flex items-center gap-2 text-sm text-white/70">
+                  <input
+                    type="checkbox"
+                    checked={autoRefresh}
+                    onChange={(e) => setAutoRefresh(e.target.checked)}
+                    className="rounded"
+                  />
+                  Auto-refresh (30s)
+                </label>
+              </div>
+              <div className="text-xs text-white/50">
+                {placementsLastFetch ? `Last updated: ${placementsLastFetch}` : ""}
+                {placements.length > 0 ? ` · ${placements.length} users` : ""}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-black/30 overflow-hidden max-h-[500px] overflow-y-auto">
+              <div className="grid grid-cols-12 px-4 py-2 text-xs text-white/50 border-b border-white/10 sticky top-0 bg-black/80 backdrop-blur">
+                <div className="col-span-3">Name</div>
+                <div className="col-span-2">Birthday</div>
+                <div className="col-span-2">Sun</div>
+                <div className="col-span-2">Moon</div>
+                <div className="col-span-2">ASC</div>
+                <div className="col-span-1">Setup</div>
+              </div>
+
+              {placements.length === 0 ? (
+                <div className="px-4 py-4 text-sm text-white/60">
+                  {placementsLoading ? "Loading users..." : "No users found."}
+                </div>
+              ) : (
+                <div className="divide-y divide-white/10">
+                  {placements.map((u) => (
+                    <div key={u.id} className="grid grid-cols-12 px-4 py-3 text-sm items-center hover:bg-white/5">
+                      <div className="col-span-3">
+                        <div className="font-medium truncate">{u.displayName || u.username || u.email.split("@")[0]}</div>
+                        <div className="text-xs text-white/50 font-mono truncate">{u.email}</div>
+                      </div>
+                      <div className="col-span-2 text-white/80">
+                        {u.birthDate || "—"}
+                      </div>
+                      <div className="col-span-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${u.sun ? "bg-yellow-500/20 text-yellow-300" : "text-white/40"}`}>
+                          {u.sun || "—"}
+                        </span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${u.moon ? "bg-blue-500/20 text-blue-300" : "text-white/40"}`}>
+                          {u.moon || "—"}
+                        </span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${u.asc ? "bg-purple-500/20 text-purple-300" : "text-white/40"}`}>
+                          {u.asc || "—"}
+                        </span>
+                      </div>
+                      <div className="col-span-1 text-center">
+                        {u.setupDone ? (
+                          <span className="text-green-400">Y</span>
+                        ) : (
+                          <span className="text-white/30">N</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 text-xs text-white/50">
+              Showing most recent 200 users. Placements derived from natal chart data.
             </div>
           </Panel>
 

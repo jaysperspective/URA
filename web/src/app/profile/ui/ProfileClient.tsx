@@ -81,20 +81,22 @@ function CardShell({ children, className = "" }: { children: React.ReactNode; cl
   );
 }
 
-function ProfileAvatar({ onUpload }: { onUpload?: (url: string) => void }) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+function ProfileAvatar({ initialUrl, onUpload }: { initialUrl?: string | null; onUpload?: (url: string) => void }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(initialUrl ?? null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load saved image from localStorage on mount
+  // Sync with localStorage (fallback for when initialUrl is null but localStorage has value)
   React.useEffect(() => {
-    try {
-      const saved = localStorage.getItem("ura:profileImage");
-      if (saved) setImageUrl(saved);
-    } catch {
-      // ignore
+    if (!imageUrl) {
+      try {
+        const saved = localStorage.getItem("ura:profileImage");
+        if (saved) setImageUrl(saved);
+      } catch {
+        // ignore
+      }
     }
-  }, []);
+  }, [imageUrl]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -477,6 +479,9 @@ type Props = {
 
   // Handoff from /sun page
   handoffFromSun?: HandoffData;
+
+  // Avatar
+  avatarUrl?: string | null;
 };
 
 function phaseIdFromCyclePos45(cyclePosDeg: number): PhaseId {
@@ -635,6 +640,7 @@ export default function ProfileClient(props: Props) {
     ascYearDegreesIntoModality,
 
     handoffFromSun,
+    avatarUrl,
   } = props;
 
   const [showAllPlacements, setShowAllPlacements] = useState(false);
@@ -973,7 +979,7 @@ export default function ProfileClient(props: Props) {
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="flex items-start gap-3">
-            <ProfileAvatar />
+            <ProfileAvatar initialUrl={avatarUrl} />
 
             <div>
               <div className="text-[#F4EFE6]/80 text-sm">Profile</div>

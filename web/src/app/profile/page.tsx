@@ -351,6 +351,7 @@ export default async function ProfilePage({ searchParams }: PageProps) {
           ascYearModality={ascYearModality}
           ascYearDegreesIntoModality={ascYearDegreesIntoModality}
           handoffFromSun={handoffData}
+          avatarUrl={profile.avatarUrl ?? null}
         />
       </div>
     </div>
