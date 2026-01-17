@@ -9,7 +9,6 @@ const NAV_ITEMS = [
   { href: "/sun", label: "Sun", icon: SunIcon },
   { href: "/moon", label: "Moon", icon: MoonIcon },
   { href: "/profile", label: "Profile", icon: ProfileIcon },
-  { href: "/lunation", label: "Lunation", icon: LunationIcon },
   { href: "/astrology", label: "Astrology", icon: AstrologyIcon },
   { href: "/about", label: "About", icon: AboutIcon },
 ] as const;
@@ -44,19 +43,6 @@ function ProfileIcon({ active }: { active: boolean }) {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="8" r="4" fill={active ? "currentColor" : "none"} />
       <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
-    </svg>
-  );
-}
-
-function LunationIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="3" fill={active ? "currentColor" : "none"} />
-      <line x1="12" y1="3" x2="12" y2="6" />
-      <line x1="12" y1="18" x2="12" y2="21" />
-      <line x1="3" y1="12" x2="6" y2="12" />
-      <line x1="18" y1="12" x2="21" y2="12" />
     </svg>
   );
 }

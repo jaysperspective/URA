@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
@@ -77,6 +77,99 @@ function CardShell({ children, className = "" }: { children: React.ReactNode; cl
       ].join(" ")}
     >
       {children}
+    </div>
+  );
+}
+
+function ProfileAvatar({ onUpload }: { onUpload?: (url: string) => void }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load saved image from localStorage on mount
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem("ura:profileImage");
+      if (saved) setImageUrl(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/profile/photo", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (data.ok && data.url) {
+        setImageUrl(data.url);
+        localStorage.setItem("ura:profileImage", data.url);
+        onUpload?.(data.url);
+      }
+    } catch {
+      // ignore upload errors
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="relative">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className="h-12 w-12 rounded-2xl overflow-hidden border border-[#E2D9CC]/25 flex items-center justify-center transition hover:opacity-80"
+        style={{
+          background: imageUrl ? "transparent" : "#4A4A4A",
+        }}
+        title="Click to upload photo"
+      >
+        {uploading ? (
+          <div
+            className="h-5 w-5 rounded-full border-2 animate-spin"
+            style={{ borderColor: "rgba(244,239,230,0.3)", borderTopColor: "#F4EFE6" }}
+          />
+        ) : imageUrl ? (
+          <img
+            src={imageUrl}
+            alt="Profile"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ color: "rgba(244,239,230,0.6)" }}
+          >
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+          </svg>
+        )}
+      </button>
     </div>
   );
 }
@@ -290,6 +383,27 @@ function PersonalLunationCard({
               <div className="mt-2 text-sm text-[#403A32]/70">
                 {typeof separationNorm === "number" ? `${separationNorm.toFixed(1)} separation` : "—"}
               </div>
+            </div>
+          </div>
+
+          {/* Lunation Explainer */}
+          <div className="mt-5 rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-4">
+            <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55 mb-2">
+              About Your Lunation Cycle
+            </div>
+            <div className="space-y-2 text-sm text-[#403A32]/80 leading-relaxed">
+              <p>
+                The Progressed Lunation Cycle tracks the relationship between your progressed Sun and
+                progressed Moon over a roughly 29-30 year period.
+              </p>
+              <p>
+                Using secondary progressions (where one day after birth equals one year of life),
+                URA calculates the angular separation between your progressed Sun and Moon.
+              </p>
+              <p>
+                Each phase represents a distinct quality of inner development. The cycle does not
+                predict events—it orients you to your current developmental season.
+              </p>
             </div>
           </div>
 
@@ -859,9 +973,7 @@ export default function ProfileClient(props: Props) {
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="flex items-start gap-3">
-            <div className="mt-1 h-10 w-10 rounded-2xl bg-[#151515] border border-[#E2D9CC]/25 flex items-center justify-center text-[#F4EFE6]/70 text-xs">
-              +
-            </div>
+            <ProfileAvatar />
 
             <div>
               <div className="text-[#F4EFE6]/80 text-sm">Profile</div>

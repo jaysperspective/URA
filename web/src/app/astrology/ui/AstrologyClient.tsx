@@ -193,6 +193,15 @@ function readAutoParam(): string | null {
 export default function AstrologyClient() {
   const [mode, setMode] = useState<Mode>("placement");
   const [natalExpanded, setNatalExpanded] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [showBirthInput, setShowBirthInput] = useState(false);
+
+  // Birth data input for non-members
+  const [birthDate, setBirthDate] = useState("");
+  const [birthTime, setBirthTime] = useState("");
+  const [birthPlace, setBirthPlace] = useState("");
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
 
   // Single
   const [q, setQ] = useState("Mars Virgo");
@@ -239,6 +248,74 @@ export default function AstrologyClient() {
 
   function resetSynthesis() {
     setSx(null);
+  }
+
+  // Show welcome popup on first visit
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem("ura:astrologyWelcomeSeen");
+      if (!seen) {
+        setShowWelcome(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  function dismissWelcome() {
+    setShowWelcome(false);
+    try {
+      localStorage.setItem("ura:astrologyWelcomeSeen", "true");
+    } catch {
+      // ignore
+    }
+  }
+
+  async function generateFreeChart() {
+    if (!birthDate || !birthTime) {
+      setChartError("Please enter your birth date and time.");
+      return;
+    }
+
+    setChartLoading(true);
+    setChartError(null);
+
+    try {
+      // Call the natal chart API
+      const res = await fetch("/api/astrology/natal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          birthDate,
+          birthTime,
+          birthPlace: birthPlace || "New York, NY",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.ok && data.placements) {
+        // Store placements and refresh the natal chart section
+        const placementStrings = data.placements.map((p: any) => `${p.planet} ${p.sign}`);
+        setNatalPlacements(placementStrings);
+        setShowBirthInput(false);
+        setNatalExpanded(true);
+
+        // Save to session storage for persistence
+        sessionStorage.setItem("ura:natalPlacements", JSON.stringify({
+          v: 1,
+          createdAt: Date.now(),
+          placements: placementStrings,
+        }));
+      } else {
+        setChartError(data.error || "Failed to generate chart. Please try again.");
+      }
+    } catch (e: any) {
+      setChartError(e?.message || "Network error. Please try again.");
+    } finally {
+      setChartLoading(false);
+    }
   }
 
   // Load natal placements once (client only)
@@ -539,6 +616,171 @@ export default function AstrologyClient() {
 
   return (
     <section className="space-y-4">
+      {/* Welcome Popup */}
+      {showWelcome && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
+          <div
+            className="rounded-2xl border p-6 max-w-md w-full"
+            style={{
+              borderColor: TOKENS.panelBorder,
+              background: TOKENS.panelBg,
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            <div className="text-center">
+              <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: TOKENS.textSoft }}>
+                Welcome to
+              </div>
+              <div className="text-2xl font-semibold mb-4" style={{ color: TOKENS.text }}>
+                URA Astrology
+              </div>
+            </div>
+
+            <div className="space-y-3 text-sm mb-6" style={{ color: TOKENS.textSoft }}>
+              <p>Look up any planetary placement in our doctrine system. Here's what you can do:</p>
+              <ul className="space-y-2 pl-4">
+                <li className="flex items-start gap-2">
+                  <span style={{ color: TOKENS.text }}>1.</span>
+                  <span><strong style={{ color: TOKENS.text }}>Single Placement</strong> - Look up any planet in any sign (e.g., "Mars Virgo")</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span style={{ color: TOKENS.text }}>2.</span>
+                  <span><strong style={{ color: TOKENS.text }}>Pair Analysis</strong> - Compare two placements to understand their interaction</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span style={{ color: TOKENS.text }}>3.</span>
+                  <span><strong style={{ color: TOKENS.text }}>Mini Chart</strong> - Analyze 3-6 placements together for synthesis</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span style={{ color: TOKENS.text }}>4.</span>
+                  <span><strong style={{ color: TOKENS.text }}>Free Birth Chart</strong> - Generate your natal placements instantly</span>
+                </li>
+              </ul>
+            </div>
+
+            <button
+              onClick={dismissWelcome}
+              className="w-full rounded-xl py-3 text-sm font-semibold transition"
+              style={{ background: TOKENS.buttonBg, color: TOKENS.buttonText }}
+            >
+              Get Started
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hero Section */}
+      <div
+        className="rounded-2xl border p-5"
+        style={{
+          borderColor: TOKENS.panelBorder,
+          background: `linear-gradient(135deg, ${TOKENS.panelBg} 0%, rgba(36,62,54,0.5) 100%)`,
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: TOKENS.textSoft }}>
+              URA Doctrine System
+            </div>
+            <div className="text-xl font-semibold" style={{ color: TOKENS.text }}>
+              Explore Any Planetary Placement
+            </div>
+            <div className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
+              Look up meanings, patterns, and synthesis for any combination of planets and signs.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowWelcome(true)}
+              className="rounded-xl px-4 py-2 text-xs font-semibold transition border"
+              style={{ borderColor: TOKENS.pillBorder, color: TOKENS.text }}
+            >
+              How it works
+            </button>
+            <button
+              onClick={() => setShowBirthInput(!showBirthInput)}
+              className="rounded-xl px-4 py-2 text-xs font-semibold transition"
+              style={{ background: TOKENS.buttonBg, color: TOKENS.buttonText }}
+            >
+              {showBirthInput ? "Hide" : "Free Birth Chart"}
+            </button>
+          </div>
+        </div>
+
+        {/* Birth Input Form */}
+        {showBirthInput && (
+          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${TOKENS.panelBorder}` }}>
+            <div className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: TOKENS.textSoft }}>
+              Generate Your Free Birth Chart
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: TOKENS.textSoft }}>Birth Date</label>
+                <input
+                  type="date"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2 text-sm"
+                  style={{
+                    background: TOKENS.inputBg,
+                    border: `1px solid ${TOKENS.inputBorder}`,
+                    color: TOKENS.text,
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: TOKENS.textSoft }}>Birth Time</label>
+                <input
+                  type="time"
+                  value={birthTime}
+                  onChange={(e) => setBirthTime(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2 text-sm"
+                  style={{
+                    background: TOKENS.inputBg,
+                    border: `1px solid ${TOKENS.inputBorder}`,
+                    color: TOKENS.text,
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: TOKENS.textSoft }}>Birth Place (optional)</label>
+                <input
+                  type="text"
+                  value={birthPlace}
+                  onChange={(e) => setBirthPlace(e.target.value)}
+                  placeholder="City, Country"
+                  className="w-full rounded-xl px-3 py-2 text-sm"
+                  style={{
+                    background: TOKENS.inputBg,
+                    border: `1px solid ${TOKENS.inputBorder}`,
+                    color: TOKENS.text,
+                  }}
+                />
+              </div>
+            </div>
+            {chartError && (
+              <div className="mt-2 text-xs" style={{ color: "#E57373" }}>{chartError}</div>
+            )}
+            <button
+              onClick={generateFreeChart}
+              disabled={chartLoading}
+              className="mt-3 rounded-xl px-6 py-2 text-sm font-semibold transition"
+              style={{
+                background: TOKENS.buttonBg,
+                color: TOKENS.buttonText,
+                opacity: chartLoading ? 0.7 : 1,
+              }}
+            >
+              {chartLoading ? "Generating..." : "Generate Chart"}
+            </button>
+            <div className="mt-2 text-xs" style={{ color: TOKENS.textSoft }}>
+              No account required. Your chart will be calculated instantly.
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Natal Chart - Collapsible */}
       <div
         className="rounded-2xl border overflow-hidden"

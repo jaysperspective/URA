@@ -882,7 +882,7 @@ export default function AboutCarousel() {
           }}
         />
 
-        {/* Swipe hint (first slide only) */}
+        {/* Swipe hint + Skip button (first slide only) */}
         {currentSlide === 0 && !showThreshold && (
           <div className="mt-4 flex flex-col items-center gap-2">
             <div
@@ -919,6 +919,19 @@ export default function AboutCarousel() {
             >
               or use arrow keys
             </span>
+          </div>
+        )}
+
+        {/* Skip button - visible on all slides except threshold */}
+        {!showThreshold && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => setShowThreshold(true)}
+              className="text-xs px-4 py-2 rounded-full transition-colors hover:bg-white/5"
+              style={{ color: "var(--ura-text-muted)" }}
+            >
+              Skip to sign in
+            </button>
           </div>
         )}
 
