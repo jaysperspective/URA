@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
-  { href: "/calendar", label: "Calendar", icon: CalendarIcon },
+  { href: "/sun", label: "Sun", icon: SunIcon },
   { href: "/moon", label: "Moon", icon: MoonIcon },
   { href: "/profile", label: "Profile", icon: ProfileIcon },
   { href: "/lunation", label: "Lunation", icon: LunationIcon },
@@ -14,14 +14,19 @@ const NAV_ITEMS = [
   { href: "/about", label: "About", icon: AboutIcon },
 ] as const;
 
-function CalendarIcon({ active }: { active: boolean }) {
+// Sun icon: dot-in-circle representing center/orientation (0° Aries anchor)
+function SunIcon({ active }: { active: boolean }) {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      {active && <circle cx="12" cy="16" r="2" fill="currentColor" />}
+      <circle cx="12" cy="12" r="5" fill={active ? "currentColor" : "none"} />
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
     </svg>
   );
 }
@@ -90,12 +95,22 @@ export default function BottomNav() {
   return (
     <nav
       aria-label="Primary navigation"
-      className="fixed bottom-0 left-0 right-0 z-50 pb-safe"
+      className="z-50"
       style={{
-        background: "linear-gradient(180deg, var(--ura-bg-secondary) 0%, rgba(46,74,65,0.98) 100%)",
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        // Solid background to prevent visual glitches during scroll
+        background: "linear-gradient(180deg, #2E4A41 0%, #243E36 100%)",
         borderTop: "1px solid var(--ura-border-subtle)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
+        // Safe area padding for notched devices
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        // Ensure proper stacking and rendering
+        transform: "translateZ(0)",
+        willChange: "transform",
       }}
     >
       <div className="mx-auto max-w-screen-lg px-2">

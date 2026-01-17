@@ -198,6 +198,14 @@ type NatalPlanets = {
   southNode: number | null;
 };
 
+// Handoff data from /sun page
+type HandoffData = {
+  from?: string;
+  ts?: string;
+  focus?: string;
+  dominant?: "solar" | "lunar" | "transitional";
+} | null;
+
 type Props = {
   name: string;
   locationLine: string;
@@ -226,6 +234,9 @@ type Props = {
   ascYearSeason: string | null;
   ascYearModality: string | null;
   ascYearDegreesIntoModality: number | null;
+
+  // Handoff from /sun page
+  handoffFromSun?: HandoffData;
 };
 
 function phaseIdFromCyclePos45(cyclePosDeg: number): PhaseId {
@@ -382,9 +393,12 @@ export default function ProfileClient(props: Props) {
     ascYearSeason,
     ascYearModality,
     ascYearDegreesIntoModality,
+
+    handoffFromSun,
   } = props;
 
   const [showAllPlacements, setShowAllPlacements] = useState(false);
+  const [showHandoffBanner, setShowHandoffBanner] = useState(!!handoffFromSun);
 
   // Daily Brief (LLM)
   const [briefLoading, setBriefLoading] = useState(false);
@@ -648,6 +662,52 @@ export default function ProfileClient(props: Props) {
 
   return (
     <div className="mt-8">
+      {/* HANDOFF BANNER - shown when arriving from /sun */}
+      {showHandoffBanner && handoffFromSun && (
+        <div className="mx-auto max-w-5xl mb-4">
+          <div
+            className="rounded-2xl border px-5 py-4 relative"
+            style={{
+              background: "linear-gradient(135deg, rgba(200,178,106,0.15) 0%, rgba(127,168,161,0.10) 100%)",
+              borderColor: "rgba(200,178,106,0.35)",
+            }}
+          >
+            {/* Dismiss button */}
+            <button
+              type="button"
+              onClick={() => setShowHandoffBanner(false)}
+              className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full text-xs hover:bg-white/10 transition"
+              style={{ color: "var(--ura-text-muted)" }}
+              aria-label="Dismiss banner"
+            >
+              ×
+            </button>
+
+            <div className="flex items-start gap-3">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
+                style={{ background: "rgba(200,178,106,0.25)", color: "var(--ura-text-primary)" }}
+              >
+                ☉
+              </div>
+              <div>
+                <div className="text-sm font-semibold" style={{ color: "var(--ura-text-primary)" }}>
+                  Personal view loaded
+                </div>
+                <div className="mt-1 text-xs" style={{ color: "var(--ura-text-secondary)" }}>
+                  Personal Frame · Ascendant Anchor
+                </div>
+                {handoffFromSun.dominant && (
+                  <div className="mt-2 text-xs" style={{ color: "var(--ura-text-muted)" }}>
+                    From /sun: {handoffFromSun.dominant} layer emphasized
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOP STRIP */}
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -948,10 +1008,10 @@ export default function ProfileClient(props: Props) {
                 Go to /seasons
               </Link>
               <Link
-                href="/calendar"
+                href="/sun"
                 className="rounded-2xl bg-[#F4EFE6] text-[#151515] px-4 py-2 text-sm border border-black/15 hover:bg-[#EFE7DB]"
               >
-                Go to /calendar
+                Go to /sun
               </Link>
             </div>
 

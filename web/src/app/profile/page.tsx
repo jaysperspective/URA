@@ -9,6 +9,14 @@ import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 import ProfileClient from "./ui/ProfileClient";
 import { logoutAction } from "./actions";
 
+// Handoff params from /sun
+type HandoffParams = {
+  from?: string;
+  ts?: string;
+  focus?: string;
+  dominant?: "solar" | "lunar" | "transitional";
+};
+
 function ActionPill({ children }: { children: React.ReactNode }) {
   return (
     <span className="ura-btn-secondary text-sm">
@@ -165,8 +173,24 @@ function localDayKey(timezone: string, d = new Date()) {
   }
 }
 
-export default async function ProfilePage() {
+type PageProps = {
+  searchParams: Promise<HandoffParams>;
+};
+
+export default async function ProfilePage({ searchParams }: PageProps) {
+  const params = await searchParams;
   const user = await requireUser();
+
+  // Check if this is a handoff from /sun
+  const isHandoff = params.from === "sun";
+  const handoffData = isHandoff
+    ? {
+        from: params.from,
+        ts: params.ts,
+        focus: params.focus,
+        dominant: params.dominant,
+      }
+    : null;
 
   // 1) load profile
   let profile = await prisma.profile.findUnique({ where: { userId: user.id } });
@@ -326,6 +350,7 @@ export default async function ProfilePage() {
           ascYearSeason={ascYearSeason}
           ascYearModality={ascYearModality}
           ascYearDegreesIntoModality={ascYearDegreesIntoModality}
+          handoffFromSun={handoffData}
         />
       </div>
     </div>

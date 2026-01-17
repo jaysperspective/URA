@@ -19,6 +19,7 @@ export async function loginAction(
 ): Promise<LoginState> {
   const email = clean(formData.get("email")).toLowerCase();
   const password = clean(formData.get("password"));
+  const returnToRaw = clean(formData.get("returnTo"));
 
   if (!email || !email.includes("@")) return { ok: false, error: "Enter a valid email." };
   if (!password) return { ok: false, error: "Enter your password." };
@@ -35,5 +36,15 @@ export async function loginAction(
 
   await createSession(user.id);
 
-  redirect(user.profile?.setupDone ? "/profile" : "/profile/setup");
+  // Determine redirect target
+  if (!user.profile?.setupDone) {
+    redirect("/profile/setup");
+  }
+
+  // If returnTo is provided and is a valid relative path, use it
+  if (returnToRaw && returnToRaw.startsWith("/")) {
+    redirect(returnToRaw);
+  }
+
+  redirect("/profile");
 }

@@ -6,7 +6,11 @@ import { loginAction, type LoginState } from "./actions";
 
 const initialState: LoginState = { ok: false };
 
-export default function LoginForm() {
+type Props = {
+  returnTo?: string;
+};
+
+export default function LoginForm({ returnTo }: Props) {
   const [state, action, pending] = useActionState(loginAction, initialState);
 
   return (
@@ -19,6 +23,8 @@ export default function LoginForm() {
           </div>
 
           <form action={action} className="space-y-4">
+            {/* Hidden field for returnTo */}
+            {returnTo && <input type="hidden" name="returnTo" value={returnTo} />}
             <div>
               <label className="block text-white/70 text-xs mb-1">Email</label>
               <input
