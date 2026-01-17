@@ -7,7 +7,7 @@ export type Phase6Aspect = "oya" | "ogun";
 
 export type PhaseMicrocopy = {
   id: PhaseId;
-  season: "SPRG" | "SUMR" | "FALL" | "WNTR";
+  season: "Spring" | "Summer" | "Fall" | "Winter";
   orisha: string;
 
   header: string;
@@ -28,9 +28,9 @@ export type PhaseMicrocopy = {
 const PHASES: Record<PhaseId, PhaseMicrocopy> = {
   1: {
     id: 1,
-    season: "SPRG",
+    season: "Spring",
     orisha: "Eshu",
-    header: "SPRG · Phase 1 — Emergence (Eshu)",
+    header: "Spring · Phase 1 — Emergence (Eshu)",
     oneLine: "Energy rises from dormancy. Motion returns before clarity.",
     description:
       "0°–45°. This is personal spring. Something starts moving again, even if nothing outside has changed yet. Don’t wait for certainty—begin the smallest true action and let direction sharpen through movement.",
@@ -42,9 +42,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 
   2: {
     id: 2,
-    season: "SPRG",
+    season: "Spring",
     orisha: "Obatala",
-    header: "SPRG · Phase 2 — Establishment (Obatala)",
+    header: "Spring · Phase 2 — Establishment (Obatala)",
     oneLine: "Structure forms so the beginning can hold.",
     description:
       "45°–90°. Energy strengthens and structure forms. This is the season of establishment: commitment, orientation, and testing your direction against reality. Posture, habits, boundaries, and pace take shape so what has begun can actually last.",
@@ -56,9 +56,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 
   3: {
     id: 3,
-    season: "SUMR",
+    season: "Summer",
     orisha: "Oshun",
-    header: "SUMR · Phase 3 — Assertion (Oshun)",
+    header: "Summer · Phase 3 — Assertion (Oshun)",
     oneLine: "Momentum becomes visible. Participation replaces hesitation.",
     description:
       "90°–135°. Early summer heat. You’re actively engaging the world and meeting resistance. Decisions carry weight. This phase is not about perfect timing—it’s about showing up, making moves, and letting the work take up space.",
@@ -70,9 +70,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 
   4: {
     id: 4,
-    season: "SUMR",
+    season: "Summer",
     orisha: "Yemoja",
-    header: "SUMR · Phase 4 — Illumination (Yemoja)",
+    header: "Summer · Phase 4 — Illumination (Yemoja)",
     oneLine: "Peak visibility. Results surface and truth becomes obvious.",
     description:
       "135°–180°. The cycle reaches maximum visibility. You can see what your movement has produced—clearly. This phase brings recognition and confrontation: what’s working, what isn’t, and what needs to be faced without denial.",
@@ -84,9 +84,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 
   5: {
     id: 5,
-    season: "FALL",
+    season: "Fall",
     orisha: "Shango",
-    header: "FALL · Phase 5 — Integration (Shango)",
+    header: "Fall · Phase 5 — Integration (Shango)",
     oneLine: "Meaning becomes more important than momentum.",
     description:
       "180°–225°. Autumn begins. Energy redistributes after the peak. You integrate experience, reassess direction, and release what no longer fits. This is a phase of synthesis: turn what happened into usable understanding.",
@@ -98,9 +98,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 
   6: {
     id: 6,
-    season: "FALL",
+    season: "Fall",
     orisha: "Oya ⇄ Ogun",
-    header: "FALL · Phase 6 — Reorientation (Oya ⇄ Ogun)",
+    header: "Fall · Phase 6 — Reorientation (Oya ⇄ Ogun)",
     oneLine: "Refine. Correct. Rebuild what must change.",
     description:
       "225°–270°. Patterns that once worked get questioned. Roles, relationships, and responsibilities are evaluated. Oya clears what’s dead weight; Ogun rebuilds the next structure. The aim is coherence: fewer leaks, stronger form.",
@@ -112,9 +112,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 
   7: {
     id: 7,
-    season: "WNTR",
+    season: "Winter",
     orisha: "Olokun",
-    header: "WNTR · Phase 7 — Withdrawal (Olokun)",
+    header: "Winter · Phase 7 — Withdrawal (Olokun)",
     oneLine: "Energy turns inward. Conservation replaces performance.",
     description:
       "270°–315°. Personal winter threshold. External validation loses gravity. You may feel quieter or less visible. This is not decline—it’s conservation. Attention returns to essentials, away from noise and unnecessary output.",
@@ -126,9 +126,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 
   8: {
     id: 8,
-    season: "WNTR",
+    season: "Winter",
     orisha: "Orunmila",
-    header: "WNTR · Phase 8 — Dissolution (Orunmila)",
+    header: "Winter · Phase 8 — Dissolution (Orunmila)",
     oneLine: "Old identities soften. Rest clears the ground for renewal.",
     description:
       "315°–360°. Clearing space. Certainties dissolve and the system prepares to reset. Rest is not optional here; it prevents burnout and fragmentation. Let endings complete so the next emergence is clean.",
@@ -143,9 +143,9 @@ const PHASES: Record<PhaseId, PhaseMicrocopy> = {
 const PHASE_6_ASPECTS: Record<Phase6Aspect, PhaseMicrocopy> = {
   oya: {
     id: 6,
-    season: "FALL",
+    season: "Fall",
     orisha: "Oya",
-    header: "FALL · Phase 6 — Reorientation (Oya)",
+    header: "Fall · Phase 6 — Reorientation (Oya)",
     oneLine: "Clean endings. Remove what cannot continue.",
     description:
       "Oya clears stagnation: severance, honesty, completion. The point is not drama—it’s cleanup. End what is over so the system can move without drag.",
@@ -156,9 +156,9 @@ const PHASE_6_ASPECTS: Record<Phase6Aspect, PhaseMicrocopy> = {
   },
   ogun: {
     id: 6,
-    season: "FALL",
+    season: "Fall",
     orisha: "Ogun",
-    header: "FALL · Phase 6 — Reorientation (Ogun)",
+    header: "Fall · Phase 6 — Reorientation (Ogun)",
     oneLine: "Rebuild with tools. New form, real structure.",
     description:
       "Ogun rebuilds through craft: tools, discipline, reps, structure. Don’t wait for mood—construct the next system so it can hold the next season.",
