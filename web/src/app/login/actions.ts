@@ -42,7 +42,8 @@ export async function loginAction(
   }
 
   // If returnTo is provided and is a valid relative path, use it
-  if (returnToRaw && returnToRaw.startsWith("/")) {
+  // Reject protocol-relative URLs (e.g., "//evil.com") to prevent open redirect
+  if (returnToRaw && returnToRaw.startsWith("/") && !returnToRaw.startsWith("//")) {
     redirect(returnToRaw);
   }
 
