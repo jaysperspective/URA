@@ -122,11 +122,9 @@ async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { 
 // ============================================
 function SectionCard({
   title,
-  icon,
   children,
 }: {
   title: string;
-  icon: string;
   children: React.ReactNode;
 }) {
   return (
@@ -135,10 +133,10 @@ function SectionCard({
       style={{ background: C.surface, borderColor: C.border }}
     >
       <div
-        className="text-xs tracking-widest flex items-center gap-2"
+        className="text-xs tracking-widest"
         style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
       >
-        {title} <span aria-hidden>{icon}</span>
+        {title}
       </div>
       <div className="mt-3">{children}</div>
     </div>
@@ -366,7 +364,7 @@ export default function SunClient() {
             {/* Current Sun Position */}
             <div className="mt-6 text-center">
               <div className="text-4xl font-semibold tracking-tight" style={{ color: C.ink }}>
-                {data.solar.sunSignGlyph} {data.solar.sunSign}
+                {data.solar.sunSign}
               </div>
               <div className="mt-2 text-lg" style={{ color: C.inkMuted }}>
                 {data.solar.sunDegreeInSign}° {data.solar.sunMinuteInSign}'
@@ -406,7 +404,7 @@ export default function SunClient() {
             {/* GRID: Solar + Lunar Context */}
             <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Solar Context */}
-              <SectionCard title="SOLAR CONTEXT" icon="☉">
+              <SectionCard title="SOLAR CONTEXT">
                 <div className="text-sm" style={{ color: C.ink }}>
                   Phase <span className="font-semibold">{data.solar.solarPhase}</span> of 8 · Day{" "}
                   <span className="font-semibold">{data.solar.dayInPhase}</span> of 45
@@ -442,7 +440,7 @@ export default function SunClient() {
               </SectionCard>
 
               {/* Lunar Context (NO visualization) */}
-              <SectionCard title="LUNAR CONTEXT" icon="☾">
+              <SectionCard title="LUNAR CONTEXT">
                 <div className="text-sm" style={{ color: C.ink }}>
                   <span className="font-semibold">{data.lunar.phaseName}</span> · Day{" "}
                   {data.lunar.lunarDay}
@@ -473,7 +471,7 @@ export default function SunClient() {
                     className="text-xs tracking-widest"
                     style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
                   >
-                    SOLAR SYNTHESIS <span aria-hidden>⟡</span>
+                    SOLAR SYNTHESIS
                   </div>
                   <div className="mt-1 text-xs" style={{ color: C.inkSoft }}>
                     LLM-generated collective orientation

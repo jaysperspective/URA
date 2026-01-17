@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withStandardRateLimit } from "@/lib/withRateLimit";
 import { z } from "zod";
+import { getCollectiveData } from "@/lib/sun/collectiveData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -205,25 +206,15 @@ function buildFallbackSynthesis(params: {
 }
 
 // ============================================
-// FETCH COLLECTIVE DATA FROM /api/sun
+// GET COLLECTIVE DATA (direct function call, no HTTP)
 // ============================================
 async function fetchCollectiveData(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const tzOffsetMin = searchParams.get("tzOffsetMin") ?? "0";
-  const lat = searchParams.get("lat") ?? "0";
-  const lon = searchParams.get("lon") ?? "0";
+  const tzOffsetMin = Number(searchParams.get("tzOffsetMin") ?? "0");
+  const lat = Number(searchParams.get("lat") ?? "0");
+  const lon = Number(searchParams.get("lon") ?? "0");
 
-  // Build URL for internal API call
-  const baseUrl = req.nextUrl.origin;
-  const sunUrl = `${baseUrl}/api/sun?tzOffsetMin=${tzOffsetMin}&lat=${lat}&lon=${lon}`;
-
-  const res = await fetch(sunUrl, { cache: "no-store" });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to fetch /api/sun: ${text}`);
-  }
-
-  return res.json();
+  return getCollectiveData({ tzOffsetMin, latitude: lat, longitude: lon });
 }
 
 // ============================================
