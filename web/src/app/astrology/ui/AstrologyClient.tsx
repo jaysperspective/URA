@@ -190,6 +190,12 @@ function readAutoParam(): string | null {
   }
 }
 
+function getOrdinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 export default function AstrologyClient() {
   const [mode, setMode] = useState<Mode>("placement");
   const [natalExpanded, setNatalExpanded] = useState(false);
@@ -297,7 +303,15 @@ export default function AstrologyClient() {
 
       if (data.ok && data.placements) {
         // Store placements and refresh the natal chart section
-        const placementStrings = data.placements.map((p: any) => `${p.planet} ${p.sign}`);
+        // Include house placement if available (e.g., "Sun Capricorn 10th house")
+        const placementStrings = data.placements.map((p: any) => {
+          const base = `${p.planet} ${p.sign}`;
+          if (p.house != null && typeof p.house === "number") {
+            const ordinal = getOrdinal(p.house);
+            return `${base} ${ordinal} house`;
+          }
+          return base;
+        });
         setNatalPlacements(placementStrings);
         setShowBirthInput(false);
         setNatalExpanded(true);

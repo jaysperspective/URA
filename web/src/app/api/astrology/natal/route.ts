@@ -378,9 +378,49 @@ export async function POST(req: NextRequest) {
 
     const chartData = await chartRes.json();
     const planets = chartData?.data?.planets ?? chartData?.planets ?? {};
+    const houses = chartData?.data?.houses ?? chartData?.houses ?? null;
+
+    // Helper to determine house from longitude given house cusps
+    function getHouseFromLon(lon: number, houseCusps: number[] | null): number | null {
+      if (!houseCusps || houseCusps.length !== 12) return null;
+      const normalizedLon = norm360(lon);
+
+      for (let i = 0; i < 12; i++) {
+        const cusp = norm360(houseCusps[i]);
+        const nextCusp = norm360(houseCusps[(i + 1) % 12]);
+
+        // Handle wrap-around (e.g., house spans 350° to 20°)
+        if (cusp > nextCusp) {
+          if (normalizedLon >= cusp || normalizedLon < nextCusp) {
+            return i + 1;
+          }
+        } else {
+          if (normalizedLon >= cusp && normalizedLon < nextCusp) {
+            return i + 1;
+          }
+        }
+      }
+      return null;
+    }
+
+    // Extract house cusps array if available
+    let houseCusps: number[] | null = null;
+    if (Array.isArray(houses)) {
+      houseCusps = houses.map((h: any) => typeof h === "number" ? h : h?.lon ?? h?.cusp ?? null).filter((x: any) => typeof x === "number");
+      if (houseCusps.length !== 12) houseCusps = null;
+    } else if (houses && typeof houses === "object") {
+      // Try numbered keys (house1, house2, etc.)
+      const cusps: number[] = [];
+      for (let i = 1; i <= 12; i++) {
+        const val = houses[`house${i}`] ?? houses[i] ?? houses[`h${i}`];
+        const lon = typeof val === "number" ? val : val?.lon ?? val?.cusp ?? null;
+        if (typeof lon === "number") cusps.push(lon);
+      }
+      if (cusps.length === 12) houseCusps = cusps;
+    }
 
     // Extract placements
-    const placements: { planet: string; sign: string; degree: number }[] = [];
+    const placements: { planet: string; sign: string; degree: number; house: number | null }[] = [];
 
     const planetKeys = [
       { key: "sun", label: "Sun" },
@@ -409,31 +449,40 @@ export async function POST(req: NextRequest) {
       const plon = typeof p === "number" ? p : p?.lon;
       if (typeof plon !== "number" || !Number.isFinite(plon)) continue;
 
+      // Try to get house from planet data first, then calculate from cusps
+      let house: number | null = typeof p?.house === "number" ? p.house : null;
+      if (house === null) {
+        house = getHouseFromLon(plon, houseCusps);
+      }
+
       seenPlanets.add(label);
       placements.push({
         planet: label,
         sign: signNameFromLon(plon),
         degree: degInSign(plon),
+        house,
       });
     }
 
-    // Also try to get ASC
+    // Also try to get ASC (always 1st house)
     const asc = chartData?.data?.ascendant ?? chartData?.data?.angles?.asc ?? chartData?.ascendant;
     if (typeof asc === "number" && Number.isFinite(asc)) {
       placements.push({
         planet: "ASC",
         sign: signNameFromLon(asc),
         degree: degInSign(asc),
+        house: 1,
       });
     }
 
-    // Also try to get MC
+    // Also try to get MC (always 10th house)
     const mc = chartData?.data?.mc ?? chartData?.data?.angles?.mc ?? chartData?.mc;
     if (typeof mc === "number" && Number.isFinite(mc)) {
       placements.push({
         planet: "MC",
         sign: signNameFromLon(mc),
         degree: degInSign(mc),
+        house: 10,
       });
     }
 
