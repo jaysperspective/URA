@@ -192,6 +192,7 @@ function readAutoParam(): string | null {
 
 export default function AstrologyClient() {
   const [mode, setMode] = useState<Mode>("placement");
+  const [natalExpanded, setNatalExpanded] = useState(false);
 
   // Single
   const [q, setQ] = useState("Mars Virgo");
@@ -538,75 +539,128 @@ export default function AstrologyClient() {
 
   return (
     <section className="space-y-4">
-      {/* Natal placements quick panel */}
-      <Panel>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {/* Natal Chart - Collapsible */}
+      <div
+        className="rounded-2xl border overflow-hidden"
+        style={{
+          borderColor: TOKENS.panelBorder,
+          background: TOKENS.panelBg,
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        {/* Collapsed header - always visible */}
+        <button
+          type="button"
+          onClick={() => setNatalExpanded((v) => !v)}
+          className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-white/[0.02] transition"
+        >
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: TOKENS.textSoft }}>
-              Natal placements
+              Natal Chart
             </div>
             <div className="mt-1 text-sm" style={{ color: TOKENS.textSoft }}>
-              Click a placement to auto-fill and run lookup. (ASC/MC can be displayed but doctrine may not include them.)
+              {natalPlacements.length > 0
+                ? `${natalPlacements.length} placements loaded`
+                : "No placements loaded yet"}
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setResp(null);
-              setPairCards(null);
-              setMiniCards(null);
-              resetSynthesis();
-              // re-read session storage in case profile was updated
-              try {
-                const raw = sessionStorage.getItem("ura:natalPlacements");
-                if (raw) {
-                  const parsed = JSON.parse(raw);
-                  const arr = Array.isArray(parsed?.placements) ? parsed.placements : [];
-                  const cleaned = arr
-                    .map((x: any) => String(x || ""))
-                    .map((x: string) => x.trim())
-                    .filter(Boolean);
-                  setNatalPlacements(cleaned);
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setResp(null);
+                setPairCards(null);
+                setMiniCards(null);
+                resetSynthesis();
+                try {
+                  const raw = sessionStorage.getItem("ura:natalPlacements");
+                  if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const arr = Array.isArray(parsed?.placements) ? parsed.placements : [];
+                    const cleaned = arr
+                      .map((x: any) => String(x || ""))
+                      .map((x: string) => x.trim())
+                      .filter(Boolean);
+                    setNatalPlacements(cleaned);
+                  }
+                } catch {
+                  // ignore
                 }
-              } catch {
-                // ignore
-              }
-            }}
-            className="rounded-xl px-4 py-2 text-sm font-semibold transition"
-            style={{ background: TOKENS.buttonBg, color: TOKENS.buttonText }}
-          >
-            Refresh natal
-          </button>
-        </div>
+              }}
+              className="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
+              style={{ background: TOKENS.buttonBg, color: TOKENS.buttonText }}
+            >
+              Refresh
+            </button>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {natalPlacements.length === 0 ? (
-            <div className="text-sm" style={{ color: TOKENS.textSoft }}>
-              No natal placements loaded yet.
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center"
+              style={{ background: TOKENS.pillBg, border: `1px solid ${TOKENS.pillBorder}` }}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ color: TOKENS.text, transition: "transform 150ms", transform: natalExpanded ? "rotate(180deg)" : "" }}
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </div>
-          ) : (
-            natalPlacements.map((raw) => {
-              const normalized = canonicalizeQuery(raw);
-              return (
-                <button
-                  key={raw}
-                  type="button"
-                  onClick={() => {
-                    setMode("placement");
-                    setQ(normalized);
-                    resetSynthesis();
-                    runLookup(normalized);
-                  }}
-                  title={`Lookup: ${normalized}`}
-                >
-                  <Pill>{raw}</Pill>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </Panel>
+          </div>
+        </button>
+
+        {/* Expanded content */}
+        {natalExpanded && (
+          <div className="px-5 pb-5 pt-1" style={{ borderTop: `1px solid ${TOKENS.panelBorder}` }}>
+            {natalPlacements.length === 0 ? (
+              <div className="py-4 text-sm text-center" style={{ color: TOKENS.textSoft }}>
+                No natal placements loaded. Visit your profile to load natal data.
+              </div>
+            ) : (
+              <>
+                <div className="text-xs mb-3" style={{ color: TOKENS.textSoft }}>
+                  Click a placement to look it up in the doctrine.
+                </div>
+
+                {/* Two-column list */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {natalPlacements.map((raw) => {
+                    const normalized = canonicalizeQuery(raw);
+                    return (
+                      <button
+                        key={raw}
+                        type="button"
+                        onClick={() => {
+                          setMode("placement");
+                          setQ(normalized);
+                          resetSynthesis();
+                          runLookup(normalized);
+                        }}
+                        className="rounded-xl px-4 py-2.5 text-left text-sm font-medium transition hover:bg-white/[0.04]"
+                        style={{
+                          background: TOKENS.pillBg,
+                          border: `1px solid ${TOKENS.pillBorder}`,
+                          color: TOKENS.text,
+                        }}
+                        title={`Lookup: ${normalized}`}
+                      >
+                        {raw}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Mode + Lens + Optional Question */}
       <Panel>

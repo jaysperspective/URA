@@ -99,85 +99,211 @@ function Chip({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function AscYearFigure8({ cyclePosDeg }: { cyclePosDeg: number }) {
-  const size = 760;
-  const H = 260;
-  const cx = size / 2;
-  const cy = H / 2;
+function PersonalLunationCard({
+  phase,
+  subPhase,
+  subWithinDeg,
+  separationDeg,
+  progressedSun,
+  progressedMoon,
+  directive,
+}: {
+  phase: string | null;
+  subPhase: string | null;
+  subWithinDeg: number | null;
+  separationDeg: number | null;
+  progressedSun: string;
+  progressedMoon: string;
+  directive: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
 
-  const pos = norm360(cyclePosDeg);
-  const t = (pos / 360) * Math.PI * 2;
+  const phaseLabel = phase?.trim() || "—";
+  const subPhaseLabel = subPhase?.trim() || "";
+  const combinedLabel = subPhaseLabel ? `${phaseLabel} / ${subPhaseLabel}` : phaseLabel;
 
-  const a = 290;
-  const b = 95;
+  const subProgress01 = typeof subWithinDeg === "number" ? clamp01(subWithinDeg / 15) : 0;
+  const separationNorm = typeof separationDeg === "number" ? norm360(separationDeg) : null;
 
-  const X = (tt: number) => cx + a * Math.sin(tt);
-  const Y = (tt: number) => cy - b * Math.sin(2 * tt);
-
-  const pathD = useMemo(() => {
-    const step = 0.02;
-    let d = `M ${X(0).toFixed(2)} ${Y(0).toFixed(2)}`;
-    for (let tt = step; tt <= Math.PI * 2 + step; tt += step) {
-      d += ` L ${X(tt).toFixed(2)} ${Y(tt).toFixed(2)}`;
-    }
-    return d;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const px = X(t);
-  const py = Y(t);
-
-  const labelStyle: React.CSSProperties = {
-    fill: "rgba(64,58,50,0.65)",
-    fontSize: 11,
-    letterSpacing: "0.14em",
-    fontWeight: 700,
-  };
-
-  const labelFixed = [
-    { txt: "WNTR", x: cx - a - 34, y: cy + 4, anchor: "start" as const },
-    { txt: "SUMR", x: cx + a + 34, y: cy + 4, anchor: "end" as const },
-    { txt: "SPRG", x: cx, y: cy - b - 22, anchor: "middle" as const },
-    { txt: "FALL", x: cx, y: cy + b + 34, anchor: "middle" as const },
-  ];
+  // Dial rendering
+  const cx = 60;
+  const cy = 60;
+  const r = 42;
+  const sep = separationNorm ?? 0;
+  const angle = -90 + sep;
+  const rad = (Math.PI / 180) * angle;
+  const x2 = cx + r * Math.cos(rad);
+  const y2 = cy + r * Math.sin(rad);
 
   return (
-    <div className="mx-auto w-full max-w-[820px]">
-      <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-6">
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Cycle Waveform</div>
-          <div className="text-xs text-[#403A32]/70">{pos.toFixed(2)}°</div>
+    <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] overflow-hidden">
+      {/* Collapsed header - always visible */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-6 py-5 flex items-center justify-between text-left hover:bg-black/[0.02] transition"
+      >
+        <div className="flex-1">
+          <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+            Personal Lunation
+          </div>
+          <div className="mt-2 text-lg font-semibold text-[#1F1B16]">
+            {combinedLabel}
+          </div>
+          <div className="mt-1 text-sm text-[#403A32]/75">{directive}</div>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
-          <svg width={size} height={H} className="block">
-            <line x1={0} y1={cy} x2={size} y2={cy} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
-            <line x1={cx} y1={0} x2={cx} y2={H} stroke="rgba(0,0,0,0.10)" strokeWidth="1" />
+        <div className="flex items-center gap-4">
+          {/* Mini dial indicator */}
+          <svg width="48" height="48" viewBox="0 0 120 120" className="opacity-70">
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(0,0,0,0.12)" strokeWidth="8" />
+            {typeof separationNorm === "number" && (
+              <>
+                <circle cx={cx} cy={cy} r="3" fill="rgba(140,131,119,0.9)" />
+                <line
+                  x1={cx}
+                  y1={cy}
+                  x2={x2}
+                  y2={y2}
+                  stroke="rgba(140,131,119,0.9)"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                />
+              </>
+            )}
+          </svg>
 
-            <path
-              d={pathD}
+          <div
+            className="w-8 h-8 rounded-full border border-black/15 flex items-center justify-center text-[#403A32]/60"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
               fill="none"
-              stroke="rgba(0,0,0,0.58)"
-              strokeWidth="2.6"
+              stroke="currentColor"
+              strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-            />
-
-            <circle cx={px} cy={py} r="6" fill="rgba(140,131,119,0.95)" />
-            <circle cx={px} cy={py} r="12" fill="rgba(140,131,119,0.16)" />
-
-            {labelFixed.map((l) => (
-              <text key={l.txt} x={l.x} y={l.y} textAnchor={l.anchor} style={labelStyle}>
-                {l.txt}
-              </text>
-            ))}
-          </svg>
+              className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
         </div>
+      </button>
 
-        <div className="mt-3 text-center text-sm text-[#403A32]/75">
-          Sideways ∞ map. Marker = current cycle position (0–360°).
+      {/* Expanded content */}
+      {expanded && (
+        <div className="px-6 pb-6 pt-2 border-t border-black/5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Left: Details */}
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-3">
+                <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                  Progressed Positions
+                </div>
+                <div className="mt-2 text-sm text-[#1F1B16]">
+                  <div className="flex justify-between py-1">
+                    <span className="text-[#403A32]/70">Sun</span>
+                    <span className="font-medium">{progressedSun}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-[#403A32]/70">Moon</span>
+                    <span className="font-medium">{progressedMoon}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-3">
+                <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                  Sub-phase progress (0-15)
+                </div>
+                <div className="mt-2">
+                  <div className="flex items-center justify-between text-xs text-[#403A32]/70 mb-1">
+                    <span>0</span>
+                    <span>15</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-black/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-[#8C8377]"
+                      style={{ width: `${subProgress01 * 100}%` }}
+                    />
+                  </div>
+                  {typeof subWithinDeg === "number" && (
+                    <div className="mt-1 text-xs text-[#403A32]/60">
+                      {subWithinDeg.toFixed(1)} / 15
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Larger dial */}
+            <div className="flex flex-col items-center justify-center">
+              <svg width="140" height="140" viewBox="0 0 200 200">
+                <circle cx="100" cy="100" r="70" fill="none" stroke="rgba(0,0,0,0.10)" strokeWidth="12" />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="70"
+                  fill="none"
+                  stroke="rgba(0,0,0,0.05)"
+                  strokeWidth="12"
+                  strokeDasharray="3 12"
+                />
+
+                {/* Cardinal markers */}
+                <line x1="100" y1="20" x2="100" y2="35" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" />
+                <line x1="180" y1="100" x2="165" y2="100" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" />
+                <line x1="100" y1="180" x2="100" y2="165" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" />
+                <line x1="20" y1="100" x2="35" y2="100" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" />
+
+                {/* Labels */}
+                <text x="100" y="12" textAnchor="middle" fontSize="8" fill="rgba(64,58,50,0.5)" letterSpacing="1">NEW</text>
+                <text x="188" y="103" textAnchor="middle" fontSize="8" fill="rgba(64,58,50,0.5)" letterSpacing="1">1Q</text>
+                <text x="100" y="195" textAnchor="middle" fontSize="8" fill="rgba(64,58,50,0.5)" letterSpacing="1">FULL</text>
+                <text x="12" y="103" textAnchor="middle" fontSize="8" fill="rgba(64,58,50,0.5)" letterSpacing="1">3Q</text>
+
+                {/* Hand */}
+                {typeof separationNorm === "number" && (
+                  <>
+                    <circle cx="100" cy="100" r="5" fill="rgba(140,131,119,0.95)" />
+                    <line
+                      x1="100"
+                      y1="100"
+                      x2={100 + 70 * Math.cos((Math.PI / 180) * (-90 + separationNorm))}
+                      y2={100 + 70 * Math.sin((Math.PI / 180) * (-90 + separationNorm))}
+                      stroke="rgba(140,131,119,0.95)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                    <circle
+                      cx={100 + 70 * Math.cos((Math.PI / 180) * (-90 + separationNorm))}
+                      cy={100 + 70 * Math.sin((Math.PI / 180) * (-90 + separationNorm))}
+                      r="5"
+                      fill="rgba(140,131,119,0.95)"
+                    />
+                  </>
+                )}
+              </svg>
+              <div className="mt-2 text-sm text-[#403A32]/70">
+                {typeof separationNorm === "number" ? `${separationNorm.toFixed(1)} separation` : "—"}
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Link
+              href="/lunation"
+              className="rounded-2xl bg-[#151515] text-[#F4EFE6] px-4 py-2 text-sm border border-[#E2D9CC]/25 hover:bg-[#1E1E1E]"
+            >
+              Open /lunation
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -490,6 +616,17 @@ export default function ProfileClient(props: Props) {
   }, [cyclePosTruth, ascYearSeason, ascYearModality, ascYearDegreesIntoModality]);
 
   const phaseCopy = useMemo(() => microcopyForPhase(orientation.uraPhaseId), [orientation.uraPhaseId]);
+
+  // Lunation-specific phase ID (derived from progressed sun-moon separation)
+  const lunationPhaseId = useMemo((): PhaseId => {
+    if (typeof lunationSeparationDeg !== "number") return 1 as PhaseId;
+    const sep = norm360(lunationSeparationDeg);
+    // Map 0-360 separation to 8 phases (45° each)
+    const idx = Math.floor((sep + 22.5) / 45) % 8;
+    return (idx + 1) as PhaseId;
+  }, [lunationSeparationDeg]);
+
+  const lunationCopy = useMemo(() => microcopyForPhase(lunationPhaseId), [lunationPhaseId]);
 
   const sunTextForFoundation = useMemo(() => {
     if (typeof currentSunLon === "number") return fmtSignPos(currentSunLon);
@@ -960,15 +1097,17 @@ export default function ProfileClient(props: Props) {
               </div>
             </div>
 
-            {/* FIGURE-8 */}
+            {/* PERSONAL LUNATION */}
             <div className="mt-8">
-              {typeof orientation.cyclePos === "number" ? (
-                <AscYearFigure8 cyclePosDeg={orientation.cyclePos} />
-              ) : (
-                <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] px-6 py-10 text-center text-sm text-[#403A32]/70">
-                  Cycle position unavailable.
-                </div>
-              )}
+              <PersonalLunationCard
+                phase={lunationPhase ?? null}
+                subPhase={lunationSubPhase ?? null}
+                subWithinDeg={lunationSubWithinDeg ?? null}
+                separationDeg={lunationSeparationDeg ?? null}
+                progressedSun={progressedSun}
+                progressedMoon={progressedMoon}
+                directive={lunationCopy.oneLine}
+              />
             </div>
 
             {/* TOP ROW */}

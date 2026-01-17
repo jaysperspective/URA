@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import AstroInputForm, { type AstroPayloadText } from "@/components/astro/AstroInputForm";
 
 const LS_PAYLOAD_KEY = "ura:lastPayloadText";
 
@@ -81,53 +80,6 @@ async function postText(endpoint: string, text: string) {
   return { res, data };
 }
 
-type AstroFormInitial = {
-  birthDate?: string;
-  birthTime?: string;
-  timeZone?: string;
-  birthCityState?: string;
-  lat?: number;
-  lon?: number;
-  asOfDate?: string;
-  resolvedLabel?: string;
-};
-
-function safeParsePayloadTextToInitial(payloadText: string): Partial<AstroFormInitial> {
-  const get = (k: string) => {
-    const re = new RegExp(`^\\s*${k}\\s*:\\s*(.+?)\\s*$`, "mi");
-    const m = payloadText.match(re);
-    return m?.[1]?.trim() ?? null;
-  };
-
-  const birthDT = get("birth_datetime");
-  const asOf = get("as_of_date");
-  const latRaw = get("lat");
-  const lonRaw = get("lon");
-
-  let birthDate: string | undefined;
-  let birthTime: string | undefined;
-
-  if (birthDT) {
-    const m = birthDT.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/);
-    if (m) {
-      birthDate = m[1];
-      birthTime = m[2];
-    }
-  }
-
-  const lat = latRaw ? Number(latRaw) : undefined;
-  const lon = lonRaw ? Number(lonRaw) : undefined;
-
-  return {
-    birthDate,
-    birthTime,
-    timeZone: "America/New_York",
-    birthCityState: "",
-    lat: Number.isFinite(lat as number) ? (lat as number) : undefined,
-    lon: Number.isFinite(lon as number) ? (lon as number) : undefined,
-    asOfDate: asOf ?? undefined,
-  };
-}
 
 // -----------------------------
 // Zodiac formatting
@@ -250,39 +202,23 @@ function DataRow({ label, value }: { label: string; value: string }) {
 
 export default function LunationPage() {
   const [payloadText, setPayloadText] = useState<string>("");
-  const [savedPayload, setSavedPayload] = useState<string>("");
   const [api, setApi] = useState<LunationResponse | null>(null);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
+  // Load saved natal payload from localStorage (previously saved from profile)
   useEffect(() => {
     try {
       const x = window.localStorage.getItem(LS_PAYLOAD_KEY) || "";
-      setSavedPayload(x);
       if (x) setPayloadText(x);
     } catch {
       // ignore
     }
   }, []);
 
-  const initialFromSaved = useMemo<AstroFormInitial>(() => {
-    if (!savedPayload) return {};
-    return safeParsePayloadTextToInitial(savedPayload);
-  }, [savedPayload]);
-
-  function handleFormGenerate(text: AstroPayloadText) {
-    setPayloadText(text);
-    try {
-      window.localStorage.setItem(LS_PAYLOAD_KEY, text);
-      setSavedPayload(text);
-    } catch {
-      // ignore
-    }
-  }
-
   async function generateLunation() {
     if (!payloadText.trim()) {
-      setError("Please enter your natal data first and click Generate in the input form.");
+      setError("No natal data found. Please set up your profile first to calculate your lunation.");
       return;
     }
 
@@ -336,40 +272,7 @@ export default function LunationPage() {
           <div className="ura-page-title mt-1">Lunation</div>
         </div>
 
-        {/* Section 1: Natal Data Input */}
-        <Card className="mb-4">
-          <div className="ura-section-label">Natal Data</div>
-          <p className="mt-2 text-sm ura-text-secondary">
-            Enter your birth information to calculate your progressed lunation cycle.
-          </p>
-
-          <div className="mt-5">
-            <AstroInputForm
-              title="Birth Information"
-              defaultAsOfToToday
-              initial={{
-                birthDate: initialFromSaved.birthDate ?? "1990-01-24",
-                birthTime: initialFromSaved.birthTime ?? "01:39",
-                timeZone: initialFromSaved.timeZone ?? "America/New_York",
-                birthCityState: initialFromSaved.birthCityState ?? "Danville, VA",
-                lat: typeof initialFromSaved.lat === "number" ? initialFromSaved.lat : 36.585,
-                lon: typeof initialFromSaved.lon === "number" ? initialFromSaved.lon : -79.395,
-                asOfDate: initialFromSaved.asOfDate,
-                resolvedLabel: initialFromSaved.resolvedLabel,
-              }}
-              onGenerate={handleFormGenerate}
-            />
-          </div>
-
-          {hasNatalData && (
-            <div className="mt-4 flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full" style={{ background: "var(--ura-accent-secondary)" }} />
-              <span className="text-xs ura-text-muted">Natal data saved</span>
-            </div>
-          )}
-        </Card>
-
-        {/* Section 2: Secondary Lunation */}
+        {/* Section: Secondary Lunation */}
         <Card>
           <div className="ura-section-label">The Progressed Lunation Cycle</div>
 
@@ -428,8 +331,8 @@ export default function LunationPage() {
                 </div>
                 <div className="text-xs mt-1 ura-text-muted">
                   {hasNatalData
-                    ? "Ready to calculate based on your natal data."
-                    : "Enter natal data above first."}
+                    ? "Ready to calculate based on your saved profile data."
+                    : "No natal data found. Set up your profile first."}
                 </div>
               </div>
 
