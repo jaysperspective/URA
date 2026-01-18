@@ -1,7 +1,8 @@
 // src/app/api/seen/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionUserIdFromRequest } from "@/lib/auth";
+import { withStandardRateLimit } from "@/lib/withRateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ function dayKeyInTZ(d: Date, tz: string) {
   return `${y}-${m}-${day}`;
 }
 
-export async function POST(req: Request) {
+async function handlePost(req: NextRequest) {
   // Only logged-in users update lastSeen.
   const userId = await getSessionUserIdFromRequest(req);
   if (!userId) return NextResponse.json({ ok: true, skipped: "no-session" });
@@ -67,3 +68,5 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true, updated: true, lastSeenDayKey });
 }
+
+export const POST = withStandardRateLimit(handlePost);

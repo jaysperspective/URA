@@ -30,8 +30,12 @@ export async function signupAction(
   }
 
   try {
+    // SECURITY: Use generic error message to prevent user enumeration
+    // Don't reveal whether an email already exists in the system
     const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return { ok: false, error: "Email already in use." };
+    if (existing) {
+      return { ok: false, error: "Unable to create account. Please try again or use a different email." };
+    }
 
     const passwordHash = await hashPassword(password);
 
@@ -46,8 +50,11 @@ export async function signupAction(
 
     await createSession(user.id);
   } catch (e: any) {
-    // Prisma unique constraint (race condition)
-    if (e?.code === "P2002") return { ok: false, error: "Email already in use." };
+    // Prisma unique constraint (race condition) - use same generic message
+    // SECURITY: Don't reveal that the email already exists
+    if (e?.code === "P2002") {
+      return { ok: false, error: "Unable to create account. Please try again or use a different email." };
+    }
     return { ok: false, error: "Signup failed. Please try again." };
   }
 

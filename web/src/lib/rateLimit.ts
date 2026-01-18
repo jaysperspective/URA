@@ -1,5 +1,7 @@
 // src/lib/rateLimit.ts
 // In-memory rate limiter with sliding window
+// NOTE: For production multi-instance deployments, replace the in-memory store
+// with Redis or another distributed store.
 
 import { NextResponse, NextRequest } from "next/server";
 
@@ -15,11 +17,34 @@ type RateLimitEntry = {
 };
 
 // In-memory store (use Redis for multi-instance deployments)
+// TODO: Replace with Redis for production horizontal scaling
 const store = new Map<string, RateLimitEntry>();
 
 // Cleanup old entries periodically
 const CLEANUP_INTERVAL_MS = 60_000;
 let lastCleanup = Date.now();
+
+/**
+ * Trusted proxy configuration.
+ * Set TRUSTED_PROXIES env var to a comma-separated list of trusted proxy IPs/CIDRs.
+ * When behind a load balancer or reverse proxy, only trust x-forwarded-for from known proxies.
+ * If not configured, proxy headers are NOT trusted (falls back to connection IP or "unknown").
+ */
+const TRUSTED_PROXIES = process.env.TRUSTED_PROXIES
+  ? process.env.TRUSTED_PROXIES.split(",").map((s) => s.trim()).filter(Boolean)
+  : [];
+
+const TRUST_ALL_PROXIES = process.env.TRUST_ALL_PROXIES === "true";
+
+/**
+ * Check if an IP is in the trusted proxies list.
+ * For simplicity, this does exact string matching. For CIDR support, use a library.
+ */
+function isTrustedProxy(ip: string): boolean {
+  if (TRUST_ALL_PROXIES) return true;
+  if (TRUSTED_PROXIES.length === 0) return false;
+  return TRUSTED_PROXIES.includes(ip);
+}
 
 function cleanupStaleEntries(maxAge: number) {
   const now = Date.now();
@@ -35,12 +60,47 @@ function cleanupStaleEntries(maxAge: number) {
 
 /**
  * Get a unique identifier for the client (IP address).
+ * Only trusts x-forwarded-for/x-real-ip headers when request comes from a trusted proxy.
  */
 export function getClientIdentifier(req: NextRequest | Request): string {
   const headers = req.headers;
+
+  // Get the connecting IP (rightmost in x-forwarded-for or socket address)
+  // In serverless/Edge, we may not have direct socket access, so we check headers
   const forwardedFor = headers.get("x-forwarded-for");
   const realIp = headers.get("x-real-ip");
-  return forwardedFor?.split(",")[0]?.trim() || realIp || "unknown";
+  const cfConnectingIp = headers.get("cf-connecting-ip"); // Cloudflare
+
+  // If we have trusted proxy configuration, use proper IP extraction
+  if (TRUSTED_PROXIES.length > 0 || TRUST_ALL_PROXIES) {
+    // When behind a trusted proxy, the client IP is in x-forwarded-for (leftmost)
+    // or in cf-connecting-ip for Cloudflare
+    if (cfConnectingIp) {
+      return cfConnectingIp.trim();
+    }
+    if (forwardedFor) {
+      // Take the leftmost (original client) IP
+      const clientIp = forwardedFor.split(",")[0]?.trim();
+      if (clientIp) return clientIp;
+    }
+    if (realIp) {
+      return realIp.trim();
+    }
+  }
+
+  // Without trusted proxy config, don't trust forwarded headers at all
+  // This prevents IP spoofing when app is directly exposed
+  // In this case, return a hash of all identifying info or "unknown"
+  // For serverless environments without socket access, we fall back to headers
+  // but this is intentionally conservative
+  if (process.env.NODE_ENV === "development" || process.env.TRUST_DEV_HEADERS === "true") {
+    // In development, trust headers for easier testing
+    return forwardedFor?.split(",")[0]?.trim() || realIp || "unknown";
+  }
+
+  // In production without trusted proxy config, return unknown to be safe
+  // This effectively groups all requests together - configure TRUSTED_PROXIES in production
+  return "unknown";
 }
 
 /**

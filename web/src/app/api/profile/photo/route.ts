@@ -11,11 +11,25 @@ export const runtime = "nodejs";
 const MAX_SIZE = 400; // Max width/height in pixels
 const QUALITY = 80; // JPEG quality (1-100)
 
+// SECURITY: Explicitly define the upload directory to prevent path traversal
+const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "profile");
+
 function safeExt(mime: string) {
   if (mime === "image/png") return "png";
   if (mime === "image/jpeg") return "jpg";
   if (mime === "image/webp") return "webp";
   return null;
+}
+
+/**
+ * SECURITY: Sanitize filename to prevent path traversal attacks.
+ * Only allows alphanumeric, dash, underscore, and dot characters.
+ */
+function sanitizeFilename(filename: string): string {
+  // Remove any path components and only keep the basename
+  const basename = path.basename(filename);
+  // Replace any potentially dangerous characters
+  return basename.replace(/[^a-zA-Z0-9._-]/g, "");
 }
 
 export async function POST(req: Request) {
@@ -55,12 +69,20 @@ export async function POST(req: Request) {
       .jpeg({ quality: QUALITY, progressive: true })
       .toBuffer();
 
-    const dir = path.join(process.cwd(), "public", "uploads", "profile");
-    await fs.mkdir(dir, { recursive: true });
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
 
-    // Always save as .jpg since we convert to JPEG
-    const fname = `${user.id}-${Date.now()}.jpg`;
-    const full = path.join(dir, fname);
+    // SECURITY: Generate safe filename using only user ID and timestamp
+    // User ID is a database integer, timestamp is a number - both are safe
+    const fname = sanitizeFilename(`${user.id}-${Date.now()}.jpg`);
+    const full = path.join(UPLOAD_DIR, fname);
+
+    // SECURITY: Verify the final path is within the upload directory
+    // This prevents any path traversal even if sanitization is bypassed
+    const resolvedPath = path.resolve(full);
+    const resolvedUploadDir = path.resolve(UPLOAD_DIR);
+    if (!resolvedPath.startsWith(resolvedUploadDir + path.sep)) {
+      return NextResponse.json({ ok: false, error: "Invalid file path" }, { status: 400 });
+    }
 
     await fs.writeFile(full, compressed);
 

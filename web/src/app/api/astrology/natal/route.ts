@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/requireUser";
+import { withComputeRateLimit } from "@/lib/withRateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -285,7 +286,7 @@ function degInSign(lon: number): number {
   return Math.floor(norm360(lon) % 30);
 }
 
-export async function POST(req: NextRequest) {
+async function handlePost(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
 
@@ -499,3 +500,6 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+// Apply compute rate limiting (20 req/min) as this is a compute-heavy endpoint
+export const POST = withComputeRateLimit(handlePost);
