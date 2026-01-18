@@ -33,7 +33,11 @@ const MAX_META_SIZE_BYTES = 10_000; // 10KB max for meta field
 const MAX_META_STRING_LENGTH = 1000;
 const MAX_META_DEPTH = 5;
 
-function sanitizeMeta(meta: unknown, depth = 0): Record<string, unknown> | undefined {
+// Prisma JSON-compatible type
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+type JsonObject = { [key: string]: JsonValue };
+
+function sanitizeMeta(meta: unknown, depth = 0): JsonObject | undefined {
   if (meta === undefined || meta === null) return undefined;
   if (typeof meta !== "object" || Array.isArray(meta)) return undefined;
   if (depth > MAX_META_DEPTH) return undefined;
@@ -44,8 +48,8 @@ function sanitizeMeta(meta: unknown, depth = 0): Record<string, unknown> | undef
     return { _truncated: true, _reason: "meta too large" };
   }
 
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(meta)) {
+  const sanitized: JsonObject = {};
+  for (const [key, value] of Object.entries(meta as Record<string, unknown>)) {
     // Sanitize key
     const cleanKey = String(key).slice(0, 100);
 
@@ -57,7 +61,7 @@ function sanitizeMeta(meta: unknown, depth = 0): Record<string, unknown> | undef
       sanitized[cleanKey] = null;
     } else if (Array.isArray(value)) {
       // Allow arrays but limit size
-      sanitized[cleanKey] = value.slice(0, 50).map(v =>
+      sanitized[cleanKey] = value.slice(0, 50).map((v): JsonValue =>
         typeof v === "string" ? v.slice(0, MAX_META_STRING_LENGTH) :
         typeof v === "number" || typeof v === "boolean" || v === null ? v :
         "[filtered]"
