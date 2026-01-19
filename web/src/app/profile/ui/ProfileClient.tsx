@@ -1269,12 +1269,6 @@ export default function ProfileClient(props: Props) {
 
             <div className="mt-7 flex flex-wrap gap-2 justify-center">
               <Link
-                href="/seasons"
-                className="rounded-2xl bg-[#151515] text-[#F4EFE6] px-4 py-2 text-sm border border-[#E2D9CC]/40 hover:bg-[#1E1E1E]"
-              >
-                Go to /seasons
-              </Link>
-              <Link
                 href="/sun"
                 className="rounded-2xl bg-[#F4EFE6] text-[#151515] px-4 py-2 text-sm border border-black/15 hover:bg-[#EFE7DB]"
               >
