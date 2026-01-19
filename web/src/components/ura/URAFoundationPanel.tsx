@@ -62,7 +62,7 @@ export default function URAFoundationPanel({
         </div>
 
         <div className="rounded-full border border-black/10 bg-[#F4EFE6] px-3 py-1 text-xs text-[#403A32]/80">
-          {mc ? `Phase ${mc.id} — ${mc.orisha}` : "—"}
+          {mc ? `Phase ${mc.id} — ${mc.header}` : "—"}
         </div>
       </div>
 

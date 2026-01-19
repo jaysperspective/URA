@@ -11,7 +11,6 @@ type Phase = {
   id: number;
   name: string;
   range: string;
-  orisha: string;
   gist: string;
   functionLine: string;
   ecology: string;
@@ -25,7 +24,6 @@ const PHASES: Phase[] = [
     id: 1,
     name: "Emergence",
     range: "0°–45°",
-    orisha: "Eshu",
     gist: "Energy rises from dormancy. Direction returns before clarity. Movement precedes certainty.",
     functionLine: "Initiation",
     ecology: "Threshold crossing, first motion",
@@ -37,7 +35,6 @@ const PHASES: Phase[] = [
     id: 2,
     name: "Establishment",
     range: "45°–90°",
-    orisha: "Obatala",
     gist: "Structure forms. Boundaries are set. Ethics emerge. This phase determines whether the cycle can endure.",
     functionLine: "Stabilization",
     ecology: "Grounding, skeletal order, soil formation",
@@ -49,7 +46,6 @@ const PHASES: Phase[] = [
     id: 3,
     name: "Differentiation",
     range: "90°–135°",
-    orisha: "Oshun",
     gist: "Life is refined through subtle care. Attention matters. This phase sustains systems through invisible labor.",
     functionLine: "Tending",
     ecology: "Micro-life, medicinal systems",
@@ -61,7 +57,6 @@ const PHASES: Phase[] = [
     id: 4,
     name: "Bonding",
     range: "135°–180°",
-    orisha: "Yemọja",
     gist: "Containment precedes independence. Safety enables growth.",
     functionLine: "Belonging",
     ecology: "Nurseries, water systems",
@@ -73,7 +68,6 @@ const PHASES: Phase[] = [
     id: 5,
     name: "Assertion",
     range: "180°–225°",
-    orisha: "Ṣàngó",
     gist: "Presence becomes visible. Authority carries consequence.",
     functionLine: "Execution",
     ecology: "Apex regulation",
@@ -85,7 +79,6 @@ const PHASES: Phase[] = [
     id: 6,
     name: "Transformation",
     range: "225°–270°",
-    orisha: "Oya — Ogun",
     gist: "Decay renews systems. Endings are necessary.",
     functionLine: "Release",
     ecology: "Compost, storms, scavenging",
@@ -97,7 +90,6 @@ const PHASES: Phase[] = [
     id: 7,
     name: "Dissolution",
     range: "270°–315°",
-    orisha: "Olokun",
     gist: "Individual edges soften. Context expands.",
     functionLine: "Return to scale",
     ecology: "Deep ocean cycles",
@@ -109,7 +101,6 @@ const PHASES: Phase[] = [
     id: 8,
     name: "Witnessing",
     range: "315°–360°",
-    orisha: "Ọ̀rúnmìlà",
     gist: "Experience converts into guidance. Wisdom emerges.",
     functionLine: "Integration",
     ecology: "Migration, pattern recognition",
@@ -279,7 +270,7 @@ function PhaseAccordion({
                 Phase {phase.id} — {phase.name}
               </div>
               <div className="text-xs mt-0.5" style={{ color: "var(--ura-text-muted)" }}>
-                {phase.range} · {phase.orisha}
+                {phase.range} · {phase.functionLine}
               </div>
             </div>
             <div

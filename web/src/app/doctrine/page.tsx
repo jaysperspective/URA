@@ -33,7 +33,6 @@ type Phase = {
   id: number;
   name: string;
   range: string;
-  orisha: string;
   gist: string;
   functionLine: string;
   ecology: string;
@@ -47,7 +46,6 @@ const PHASES: Phase[] = [
     id: 1,
     name: "Emergence",
     range: "0°–45°",
-    orisha: "Eshu",
     gist: "Energy rises from dormancy. Direction returns before clarity. Movement precedes certainty.",
     functionLine: "Function: Initiation",
     ecology: "Ecological Role: Threshold crossing, first motion",
@@ -59,7 +57,6 @@ const PHASES: Phase[] = [
     id: 2,
     name: "Establishment",
     range: "45°–90°",
-    orisha: "Obatala",
     gist: "Structure forms. Boundaries are set. Ethics emerge. This phase determines whether the cycle can endure.",
     functionLine: "Function: Stabilization",
     ecology: "Ecological Role: Grounding, skeletal order, soil formation",
@@ -71,7 +68,6 @@ const PHASES: Phase[] = [
     id: 3,
     name: "Differentiation",
     range: "90°–135°",
-    orisha: "Oshun",
     gist: "Life is refined through subtle care. Attention matters. This phase sustains systems through invisible labor.",
     functionLine: "Function: Tending",
     ecology: "Ecological Role: Micro-life, medicinal systems",
@@ -83,7 +79,6 @@ const PHASES: Phase[] = [
     id: 4,
     name: "Bonding",
     range: "135°–180°",
-    orisha: "Yemọja",
     gist: "Containment precedes independence. Safety enables growth.",
     functionLine: "Function: Belonging",
     ecology: "Ecological Role: Nurseries, water systems",
@@ -95,7 +90,6 @@ const PHASES: Phase[] = [
     id: 5,
     name: "Assertion",
     range: "180°–225°",
-    orisha: "Ṣàngó",
     gist: "Presence becomes visible. Authority carries consequence.",
     functionLine: "Function: Execution",
     ecology: "Ecological Role: Apex regulation",
@@ -107,7 +101,6 @@ const PHASES: Phase[] = [
     id: 6,
     name: "Transformation",
     range: "225°–270°",
-    orisha: "Oya — Ogun",
     gist: "Decay renews systems. Endings are necessary.",
     functionLine: "Function: Release",
     ecology: "Ecological Role: Compost, storms, scavenging",
@@ -119,7 +112,6 @@ const PHASES: Phase[] = [
     id: 7,
     name: "Dissolution",
     range: "270°–315°",
-    orisha: "Olokun",
     gist: "Individual edges soften. Context expands.",
     functionLine: "Function: Return to scale",
     ecology: "Ecological Role: Deep ocean cycles",
@@ -131,7 +123,6 @@ const PHASES: Phase[] = [
     id: 8,
     name: "Witnessing",
     range: "315°–360°",
-    orisha: "Ọ̀rúnmìlà",
     gist: "Experience converts into guidance. Wisdom emerges.",
     functionLine: "Function: Integration",
     ecology: "Ecological Role: Migration, pattern recognition",
@@ -251,8 +242,8 @@ export default function DoctrinePage() {
                 Animals and natural processes serve as perceptual anchors. Symbols are tools for
                 recognition, not objects of belief.
               </Panel>
-              <Panel title="Layer 5 — Modality (Orisha)">
-                Orisha represent modes of life intelligence. They describe how energy moves, not who a
+              <Panel title="Layer 5 — Modality">
+                Modal intelligences represent modes of life energy. They describe how energy moves, not who a
                 person is.
               </Panel>
             </div>
@@ -305,10 +296,6 @@ export default function DoctrinePage() {
                           <div className="text-sm font-semibold ura-text-primary">
                             Phase {p.id} — {p.name}{" "}
                             <span className="ura-text-muted">({p.range})</span>
-                          </div>
-                          <div className="mt-1 text-xs ura-text-muted">
-                            Modal Intelligence:{" "}
-                            <span className="font-semibold ura-text-accent">{p.orisha}</span>
                           </div>
                         </div>
 
@@ -381,7 +368,7 @@ export default function DoctrinePage() {
               <div className="ura-panel px-5 py-4">
                 <div className="ura-section-label">Operative sequence</div>
                 <div className="mt-2 text-sm ura-text-primary">
-                  Planet (force) → Orisha (motion) → Phase (timing)
+                  Planet (force) → Modality (motion) → Phase (timing)
                 </div>
               </div>
 

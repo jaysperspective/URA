@@ -502,7 +502,7 @@ export default function MoonClient() {
                 <div className="text-sm mb-3" style={{ color: M.inkMuted }}>
                   Generate your personalized daily guidance using the URA system:
                   <br />
-                  <span style={{ color: M.ink, fontWeight: 500 }}>Planet (force) → Orisha (motion) → Phase (timing)</span>
+                  <span style={{ color: M.ink, fontWeight: 500 }}>Planet (force) → Modality (motion) → Phase (timing)</span>
                 </div>
                 <button
                   onClick={loadSynthesis}
@@ -638,7 +638,7 @@ export default function MoonClient() {
                       background: isCurrent ? "rgba(255,255,255,0.70)" : "rgba(255,255,255,0.50)",
                       boxShadow: isCurrent ? "0 14px 40px rgba(0,0,0,0.12)" : undefined,
                     }}
-                    title={`${p.name} • URA Phase ${p.id} • ${copy.orisha}`}
+                    title={`${p.name} • URA Phase ${p.id}`}
                   >
                     <div style={{ color: M.ink }} className="text-2xl opacity-90">
                       {p.glyph}
@@ -649,7 +649,7 @@ export default function MoonClient() {
                     </div>
 
                     <div className="mt-2 text-sm font-semibold" style={{ color: M.ink }}>
-                      Phase {p.id} · {copy.orisha}
+                      Phase {p.id} · {copy.header}
                     </div>
 
                     <div className="mt-2 text-xs" style={{ color: M.inkMuted }}>
@@ -662,7 +662,7 @@ export default function MoonClient() {
 
             <div className="mt-4 text-sm text-center" style={{ color: M.inkMuted }}>
               Lunar URA lens:{" "}
-              <span style={{ color: M.ink, fontWeight: 700 }}>{lunarCopy.orisha}</span> — {lunarCopy.oneLine}
+              <span style={{ color: M.ink, fontWeight: 700 }}>{lunarCopy.header}</span> — {lunarCopy.oneLine}
             </div>
           </div>
         </div>
