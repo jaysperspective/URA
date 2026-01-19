@@ -62,7 +62,7 @@ export default function URAFoundationPanel({
         </div>
 
         <div className="rounded-full border border-black/10 bg-[#F4EFE6] px-3 py-1 text-xs text-[#403A32]/80">
-          {mc ? `Phase ${mc.id} — ${mc.header}` : "—"}
+          {mc ? `${mc.season} · Phase ${mc.id}` : "—"}
         </div>
       </div>
 
@@ -81,7 +81,7 @@ export default function URAFoundationPanel({
             </div>
 
             <div className="mt-2 text-sm text-[#1F1B16]/90">
-              <span className="font-semibold">{mc.header}</span>
+              <span className="font-semibold">{mc.season} · Phase {mc.id}</span>
             </div>
 
             <div className="mt-2 text-sm text-[#403A32]/85">{mc.oneLine}</div>

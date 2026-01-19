@@ -383,7 +383,7 @@ export default function SunClient() {
                   borderColor: C.border,
                   color: C.ink,
                 }}
-                title={solarPhaseCopy.header}
+                title={`${solarPhaseCopy.season} · Phase ${data.solar.solarPhase}`}
               >
                 Solar URA: <span className="font-semibold">Phase {data.solar.solarPhase}</span>
               </div>
@@ -395,7 +395,7 @@ export default function SunClient() {
                   borderColor: C.border,
                   color: C.ink,
                 }}
-                title={lunarPhaseCopy.header}
+                title={`${lunarPhaseCopy.season} · Phase ${data.lunar.lunarPhaseId}`}
               >
                 Lunar URA: <span className="font-semibold">Phase {data.lunar.lunarPhaseId}</span>
               </div>

@@ -852,7 +852,7 @@ export default function ProfileClient(props: Props) {
           degIntoPhase: typeof orientation.uraDegIntoPhase === "number" ? orientation.uraDegIntoPhase : null,
           phaseProgress01: typeof orientation.uraProgress01 === "number" ? orientation.uraProgress01 : null,
 
-          phaseHeader: phaseCopy.header,
+          phaseHeader: `${phaseCopy.season} · Phase ${orientation.uraPhaseId}`,
           phaseOneLine: phaseCopy.oneLine,
           phaseDescription: phaseCopy.description,
           phaseActionHint: phaseCopy.actionHint ?? null,

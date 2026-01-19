@@ -343,7 +343,7 @@ export default function CalendarClient() {
           <div
             className="rounded-full border px-3 py-1 text-xs"
             style={{ background: "rgba(244,235,221,0.70)", borderColor: C.border, color: C.ink }}
-            title={solarPhaseCopy.header}
+            title={`${solarPhaseCopy.season} · Phase ${solarPhaseId ?? "—"}`}
           >
             Solar URA: <span className="font-semibold">Phase {solarPhaseId ?? "—"}</span>
           </div>
@@ -351,7 +351,7 @@ export default function CalendarClient() {
           <div
             className="rounded-full border px-3 py-1 text-xs"
             style={{ background: "rgba(244,235,221,0.70)", borderColor: C.border, color: C.ink }}
-            title={lunarPhaseCopy.header}
+            title={`${lunarPhaseCopy.season} · Phase ${lunarPhaseId}`}
           >
             Lunar URA: <span className="font-semibold">Phase {lunarPhaseId}</span>
           </div>

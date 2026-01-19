@@ -414,7 +414,7 @@ export default function MoonClient() {
               borderColor: "rgba(18,22,32,0.16)",
               color: M.ink,
             }}
-            title={`${lunarCopy.header} • ${currentMoonPhaseName}`}
+            title={`Phase ${lunarPhaseId} • ${currentMoonPhaseName}`}
           >
             Lunar URA: <span className="font-semibold">Phase {lunarPhaseId}</span>
           </div>
@@ -649,7 +649,7 @@ export default function MoonClient() {
                     </div>
 
                     <div className="mt-2 text-sm font-semibold" style={{ color: M.ink }}>
-                      Phase {p.id} · {copy.header}
+                      Phase {p.id}
                     </div>
 
                     <div className="mt-2 text-xs" style={{ color: M.inkMuted }}>
@@ -661,8 +661,8 @@ export default function MoonClient() {
             </div>
 
             <div className="mt-4 text-sm text-center" style={{ color: M.inkMuted }}>
-              Lunar URA lens:{" "}
-              <span style={{ color: M.ink, fontWeight: 700 }}>{lunarCopy.header}</span> — {lunarCopy.oneLine}
+              Current phase:{" "}
+              <span style={{ color: M.ink, fontWeight: 700 }}>Phase {lunarPhaseId}</span> — {lunarCopy.oneLine}
             </div>
           </div>
         </div>

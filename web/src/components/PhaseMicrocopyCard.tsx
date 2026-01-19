@@ -106,7 +106,7 @@ export default function PhaseMicrocopyCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-sm font-semibold tracking-tight" style={{ color: text.title }}>
-              {copy.header}
+              {copy.season} · Phase {phaseId}
             </div>
 
             {showPhaseChip && (
