@@ -186,3 +186,18 @@ model HealthCheck {
   @@index([checkedAt])
   @@index([serviceKey])
 }
+
+// ------------------------------------------------------------------
+// DAILY BRIEF CACHE (one per user per local day)
+// ------------------------------------------------------------------
+model DailyBriefCache {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  ymdLocal    String   // YYYY-MM-DD in user's timezone
+  payloadJson Json     // Full brief response including element + story
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, ymdLocal])
+  @@index([userId])
+  @@index([ymdLocal])
+}

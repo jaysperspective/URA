@@ -196,11 +196,27 @@ function getOrdinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+// Constants for dials
+const SIGNS = [
+  "None", "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+  "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+];
+
+const HOUSES = ["None", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+
+const PLANETS = [
+  "None", "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter",
+  "Saturn", "Uranus", "Neptune", "Pluto", "Chiron", "North Node", "South Node",
+];
+
+type HeroTab = "chart" | "how";
+
 export default function AstrologyClient() {
   const [mode, setMode] = useState<Mode>("placement");
   const [natalExpanded, setNatalExpanded] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showBirthInput, setShowBirthInput] = useState(false);
+  const [heroTab, setHeroTab] = useState<HeroTab | null>(null);
 
   // Birth data input for non-members
   const [birthDate, setBirthDate] = useState("");
@@ -208,6 +224,13 @@ export default function AstrologyClient() {
   const [birthPlace, setBirthPlace] = useState("");
   const [chartLoading, setChartLoading] = useState(false);
   const [chartError, setChartError] = useState<string | null>(null);
+
+  // Dial selectors for lookup
+  const [dialSign, setDialSign] = useState("None");
+  const [dialHouse, setDialHouse] = useState("None");
+  const [dialPlanet, setDialPlanet] = useState("None");
+  const [dialLoading, setDialLoading] = useState(false);
+  const [dialError, setDialError] = useState<string | null>(null);
 
   // Single
   const [q, setQ] = useState("Mars Virgo");
@@ -453,6 +476,51 @@ export default function AstrologyClient() {
       setSx({ ok: false, error: e?.message || "Synthesis failed." });
     } finally {
       setSxLoading(false);
+    }
+  }
+
+  // Build query from dial selections
+  function buildDialQuery(): string {
+    const parts: string[] = [];
+    if (dialPlanet !== "None") parts.push(dialPlanet);
+    if (dialSign !== "None") parts.push(dialSign);
+    if (dialHouse !== "None") parts.push(`${dialHouse}${getOrdinal(parseInt(dialHouse))} house`.replace(/^\d+/, ""));
+
+    // Handle house suffix properly
+    if (dialHouse !== "None") {
+      const houseNum = parseInt(dialHouse);
+      const suffix = houseNum === 1 ? "st" : houseNum === 2 ? "nd" : houseNum === 3 ? "rd" : "th";
+      const houseStr = `${houseNum}${suffix} house`;
+      // If we have planet + sign, append house
+      if (parts.length > 0) {
+        return parts.join(" ") + " " + houseStr;
+      }
+      return houseStr;
+    }
+
+    return parts.join(" ");
+  }
+
+  async function runDialLookup() {
+    const query = buildDialQuery();
+    if (!query) {
+      setDialError("Please select at least one option (sign, house, or planet).");
+      return;
+    }
+
+    setDialLoading(true);
+    setDialError(null);
+    setResp(null);
+    resetSynthesis();
+
+    try {
+      const out = await lookupOne(query);
+      setResp({ ok: true, key: out.key, card: out.card });
+      setMode("placement");
+    } catch (e: any) {
+      setDialError(e?.message || "Lookup failed.");
+    } finally {
+      setDialLoading(false);
     }
   }
 
@@ -706,18 +774,34 @@ export default function AstrologyClient() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => setShowWelcome(true)}
+              onClick={() => {
+                setHeroTab("how");
+                setShowWelcome(true);
+                setShowBirthInput(false);
+              }}
               className="rounded-xl px-4 py-2 text-xs font-semibold transition border"
-              style={{ borderColor: TOKENS.pillBorder, color: TOKENS.text }}
+              style={{
+                borderColor: TOKENS.pillBorder,
+                background: heroTab === "how" ? TOKENS.buttonBg : "transparent",
+                color: heroTab === "how" ? TOKENS.buttonText : TOKENS.text,
+              }}
             >
-              How it works
+              HOW IT WORKS
             </button>
             <button
-              onClick={() => setShowBirthInput(!showBirthInput)}
-              className="rounded-xl px-4 py-2 text-xs font-semibold transition"
-              style={{ background: TOKENS.buttonBg, color: TOKENS.buttonText }}
+              onClick={() => {
+                setHeroTab("chart");
+                setShowBirthInput(!showBirthInput);
+                setShowWelcome(false);
+              }}
+              className="rounded-xl px-4 py-2 text-xs font-semibold transition border"
+              style={{
+                borderColor: TOKENS.pillBorder,
+                background: heroTab === "chart" ? TOKENS.buttonBg : "transparent",
+                color: heroTab === "chart" ? TOKENS.buttonText : TOKENS.text,
+              }}
             >
-              {showBirthInput ? "Hide" : "Free Birth Chart"}
+              {showBirthInput ? "HIDE CHART" : "FREE BIRTH CHART"}
             </button>
           </div>
         </div>
@@ -914,6 +998,125 @@ export default function AstrologyClient() {
                 </div>
               </>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Lookup Section - 3 Dial Selectors */}
+      <div
+        className="rounded-2xl border p-5"
+        style={{
+          borderColor: TOKENS.panelBorder,
+          background: TOKENS.panelBgSoft,
+          backdropFilter: "blur(10px)",
+        }}
+      >
+        <div className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: TOKENS.textSoft }}>
+          Lookup by Selection
+        </div>
+        <div className="text-sm mb-4" style={{ color: TOKENS.textSoft }}>
+          Select any combination of sign, house, or planet to look up in the doctrine.
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Sign Dial */}
+          <div>
+            <label className="text-xs mb-2 block" style={{ color: TOKENS.textSoft }}>Sign</label>
+            <select
+              value={dialSign}
+              onChange={(e) => setDialSign(e.target.value)}
+              className="w-full rounded-xl px-4 py-3 text-sm outline-none appearance-none cursor-pointer"
+              style={{
+                background: TOKENS.inputBg,
+                border: `1px solid ${TOKENS.inputBorder}`,
+                color: TOKENS.text,
+              }}
+            >
+              {SIGNS.map((sign) => (
+                <option key={sign} value={sign}>{sign}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* House Dial */}
+          <div>
+            <label className="text-xs mb-2 block" style={{ color: TOKENS.textSoft }}>House</label>
+            <select
+              value={dialHouse}
+              onChange={(e) => setDialHouse(e.target.value)}
+              className="w-full rounded-xl px-4 py-3 text-sm outline-none appearance-none cursor-pointer"
+              style={{
+                background: TOKENS.inputBg,
+                border: `1px solid ${TOKENS.inputBorder}`,
+                color: TOKENS.text,
+              }}
+            >
+              {HOUSES.map((house) => (
+                <option key={house} value={house}>{house === "None" ? "None" : `${house}${house === "1" ? "st" : house === "2" ? "nd" : house === "3" ? "rd" : "th"} House`}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Planet Dial */}
+          <div>
+            <label className="text-xs mb-2 block" style={{ color: TOKENS.textSoft }}>Planet</label>
+            <select
+              value={dialPlanet}
+              onChange={(e) => setDialPlanet(e.target.value)}
+              className="w-full rounded-xl px-4 py-3 text-sm outline-none appearance-none cursor-pointer"
+              style={{
+                background: TOKENS.inputBg,
+                border: `1px solid ${TOKENS.inputBorder}`,
+                color: TOKENS.text,
+              }}
+            >
+              {PLANETS.map((planet) => (
+                <option key={planet} value={planet}>{planet}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={runDialLookup}
+            disabled={dialLoading || (dialSign === "None" && dialHouse === "None" && dialPlanet === "None")}
+            className="rounded-xl px-5 py-3 text-sm font-semibold transition"
+            style={{
+              background: dialLoading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
+              color: TOKENS.buttonText,
+              opacity: dialLoading || (dialSign === "None" && dialHouse === "None" && dialPlanet === "None") ? 0.6 : 1,
+            }}
+          >
+            {dialLoading ? "Looking up…" : "Lookup"}
+          </button>
+
+          {(dialSign !== "None" || dialHouse !== "None" || dialPlanet !== "None") && (
+            <button
+              onClick={() => {
+                setDialSign("None");
+                setDialHouse("None");
+                setDialPlanet("None");
+                setDialError(null);
+              }}
+              className="rounded-xl px-4 py-2 text-xs border transition"
+              style={{ borderColor: TOKENS.pillBorder, color: TOKENS.text }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {dialError && (
+          <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
+            {dialError}
+          </p>
+        )}
+
+        {/* Show current selection preview */}
+        {(dialSign !== "None" || dialHouse !== "None" || dialPlanet !== "None") && (
+          <div className="mt-3 text-xs" style={{ color: TOKENS.textSoft }}>
+            Looking up: <span style={{ color: TOKENS.text }}>{buildDialQuery()}</span>
           </div>
         )}
       </div>

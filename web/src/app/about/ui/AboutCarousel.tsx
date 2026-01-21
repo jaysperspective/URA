@@ -915,13 +915,24 @@ export default function AboutCarousel() {
 
         {/* Skip button - visible on all slides except threshold */}
         {!showThreshold && (
-          <div className="mt-4 flex justify-center">
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <Link
+              href="/sun"
+              className="px-5 py-2.5 rounded-xl text-sm font-medium transition-colors"
+              style={{
+                background: "rgba(200, 178, 106, 0.2)",
+                border: "1px solid rgba(200, 178, 106, 0.4)",
+                color: "var(--ura-accent-primary)",
+              }}
+            >
+              Skip this orientation →
+            </Link>
             <button
               onClick={() => setShowThreshold(true)}
               className="text-xs px-4 py-2 rounded-full transition-colors hover:bg-white/5"
               style={{ color: "var(--ura-text-muted)" }}
             >
-              Skip to sign in
+              or continue to sign in
             </button>
           </div>
         )}

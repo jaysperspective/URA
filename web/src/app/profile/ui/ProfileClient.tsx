@@ -549,14 +549,20 @@ function planetLabel(k: keyof NatalPlanets) {
 type BriefOk = {
   ok: true;
   version: "1.0";
+  cached?: boolean;
   output: {
     headline: string;
     meaning: string;
+    story: string;
     do_now: string[];
     avoid: string[];
     journal: string;
     confidence: "low" | "medium" | "high";
     usedFields?: string[];
+    element?: {
+      name: string;
+      meaning: string;
+    };
   };
   meta?: { model?: string };
 };
@@ -845,6 +851,7 @@ export default function ProfileClient(props: Props) {
       const payload = {
         version: "1.0" as const,
         dayKey,
+        timezone,
         context: {
           season: orientation.ok ? orientation.seasonText : (ascYearSeason || "—"),
           phaseId: orientation.uraPhaseId,
@@ -1140,12 +1147,27 @@ export default function ProfileClient(props: Props) {
                   <div>
                     <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Headline</div>
                     <div className="mt-1 text-base font-semibold text-[#1F1B16]">{brief.output.headline}</div>
+                    {brief.cached && (
+                      <div className="mt-1 text-xs text-[#403A32]/50">(cached for today)</div>
+                    )}
                   </div>
 
                   <div>
                     <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Meaning</div>
                     <div className="mt-1 text-sm text-[#403A32]/85 leading-relaxed">{brief.output.meaning}</div>
+                    {brief.output.element && (
+                      <div className="mt-2 text-xs text-[#403A32]/60">
+                        Element: {brief.output.element.name} — {brief.output.element.meaning}
+                      </div>
+                    )}
                   </div>
+
+                  {brief.output.story && (
+                    <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
+                      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">Story</div>
+                      <div className="mt-2 text-sm text-[#403A32]/85 leading-relaxed italic">{brief.output.story}</div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-2xl border border-black/10 bg-[#F4EFE6] px-4 py-3">
@@ -1228,46 +1250,7 @@ export default function ProfileClient(props: Props) {
               />
             </div>
 
-            {/* TOP ROW */}
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <SubCard title="Current Zodiac (As-of Sun)">
-                <div className="text-sm font-semibold text-[#1F1B16]">{currentZodiac}</div>
-              </SubCard>
-
-              <SubCard title="Progressed Sun / Moon">
-                <div className="text-sm font-semibold text-[#1F1B16]">
-                  {progressedSun} • {progressedMoon}
-                </div>
-                <div className="mt-2 text-sm text-[#403A32]/75">
-                  Lunation: <span className="font-semibold text-[#1F1B16]">{lunationLine}</span>
-                  {typeof lunationSeparationDeg === "number" ? (
-                    <span className="ml-2 text-xs text-[#403A32]/70">
-                      (sep {norm360(lunationSeparationDeg).toFixed(2)}°)
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="mt-3">
-                  <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/55">
-                    Sub-phase progress (0–15°)
-                  </div>
-                  <ProgressBar
-                    value={subPhaseProgress01}
-                    labelLeft="0°"
-                    labelRight="15°"
-                    meta={typeof lunationSubWithinDeg === "number" ? `${lunationSubWithinDeg.toFixed(2)}° / 15°` : "—"}
-                  />
-                </div>
-              </SubCard>
-
-              <SubCard title="Modality (30° lens)">
-                <div className="text-sm font-semibold text-[#1F1B16]">
-                  {orientation.ok ? orientation.modalityText : "—"}
-                </div>
-              </SubCard>
-            </div>
-
-            <div className="mt-7 flex flex-wrap gap-2 justify-center">
+            <div className="mt-6 flex flex-wrap gap-2 justify-center">
               <Link
                 href="/sun"
                 className="rounded-2xl bg-[#F4EFE6] text-[#151515] px-4 py-2 text-sm border border-black/15 hover:bg-[#EFE7DB]"

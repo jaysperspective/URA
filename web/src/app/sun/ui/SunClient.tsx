@@ -11,6 +11,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
+import { elementHeaderLabel, ELEMENT_REFERENCE } from "@/lib/calendar/element";
 
 // ============================================
 // TYPES
@@ -309,6 +310,12 @@ export default function SunClient() {
     return `${sunDegreeInSign}° ${sunSignShort} ${String(sunMinuteInSign).padStart(2, "0")}'`;
   }, [data?.solar]);
 
+  // Compute current element label from sun sign
+  const currentElementLabel = useMemo(() => {
+    if (!data?.solar?.sunSign) return "Air • Communication"; // Default during Aquarius season
+    return elementHeaderLabel(data.solar.sunSign);
+  }, [data?.solar?.sunSign]);
+
   // ============================================
   // CARD STYLE
   // ============================================
@@ -331,8 +338,12 @@ export default function SunClient() {
           <div className="text-sm tracking-widest" style={{ color: C.inkSoft }}>
             COLLECTIVE ORIENTATION
           </div>
-          <div className="mt-1 text-xs" style={{ color: C.inkMuted }}>
-            Anchored to 0° Aries · Tropical Zodiac
+          <div className="mt-1 text-sm font-medium" style={{ color: C.ink }}>
+            {currentElementLabel}
+          </div>
+          {/* Element reference (static) */}
+          <div className="mt-2 text-xs" style={{ color: C.inkMuted }}>
+            {Object.values(ELEMENT_REFERENCE).join(" · ")}
           </div>
         </div>
 

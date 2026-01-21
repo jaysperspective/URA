@@ -202,3 +202,32 @@ export async function getSessionUserIdFromRequest(req: Request): Promise<number 
 
   return user.id;
 }
+
+/**
+ * App-route helper: returns user object if request carries a valid Session token.
+ * Used by API routes that need full user context.
+ */
+export async function getSessionUser(req: Request): Promise<{ id: number; email: string; displayName: string | null } | null> {
+  const token = getTokenFromRequest(req);
+  if (!token) return null;
+
+  const now = new Date();
+
+  const session = await prisma.session.findUnique({
+    where: { token },
+    select: { userId: true, expiresAt: true },
+  });
+
+  if (!session) return null;
+  if (session.expiresAt <= now) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true, email: true, displayName: true, status: true },
+  });
+
+  if (!user) return null;
+  if (user.status !== "ACTIVE") return null;
+
+  return { id: user.id, email: user.email, displayName: user.displayName };
+}
