@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
+import { elementForSunSign } from "@/lib/calendar/element";
 
 // In-memory cache for daily synthesis (userId-date -> synthesis)
-// In production, this should be stored in the database
 const synthesisCache = new Map<string, { synthesis: SynthesisResult; expiresAt: number }>();
 
 type SynthesisResult = {
@@ -13,6 +13,7 @@ type SynthesisResult = {
   guidance: string;
   actionHint: string;
   journalPrompt: string;
+  story?: string;
   generatedAt: string;
   expiresAt: string;
 };
@@ -39,21 +40,20 @@ function getLocalDayKey(tz: string, date: Date = new Date()): string {
 function getEndOfDayMs(tz: string): number {
   const now = new Date();
   const todayKey = getLocalDayKey(tz, now);
-  // Parse the key and get midnight tomorrow
   const [y, m, d] = todayKey.split("-").map(Number);
   const tomorrow = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
   return tomorrow.getTime();
 }
 
 function getCacheKey(userId: number, dateKey: string): string {
-  return `${userId}:${dateKey}`;
+  return `moon:${userId}:${dateKey}`;
 }
 
 // Cleanup old cache entries periodically
 let lastCleanup = Date.now();
 function cleanupCache() {
   const now = Date.now();
-  if (now - lastCleanup < 60000) return; // Only run every minute
+  if (now - lastCleanup < 60000) return;
   lastCleanup = now;
 
   for (const [key, entry] of synthesisCache.entries()) {
@@ -61,6 +61,41 @@ function cleanupCache() {
       synthesisCache.delete(key);
     }
   }
+}
+
+// Map moon sign to element
+function getMoonElement(moonSign: string): string {
+  const info = elementForSunSign(moonSign);
+  return info.element;
+}
+
+// Element meanings (fixed)
+const ELEMENT_MEANINGS: Record<string, string> = {
+  Fire: "initiating, separating, igniting movement",
+  Earth: "stabilizing, grounding, making tangible",
+  Air: "clarifying, communicating, organizing thought",
+  Water: "sensing, connecting, emotional integration",
+};
+
+// Phase name from angle
+function phaseNameFromAngle(angle: number): string {
+  const normalized = ((angle % 360) + 360) % 360;
+  if (normalized < 22.5) return "New Moon";
+  if (normalized < 67.5) return "Waxing Crescent";
+  if (normalized < 112.5) return "First Quarter";
+  if (normalized < 157.5) return "Waxing Gibbous";
+  if (normalized < 202.5) return "Full Moon";
+  if (normalized < 247.5) return "Waning Gibbous";
+  if (normalized < 292.5) return "Last Quarter";
+  if (normalized < 337.5) return "Waning Crescent";
+  return "New Moon";
+}
+
+// Phase ID from angle (1-8)
+function phaseIdFromAngle(angle: number): PhaseId {
+  const normalized = ((angle % 360) + 360) % 360;
+  const idx = Math.floor((normalized + 22.5) / 45) % 8;
+  return ((idx + 1) as PhaseId) || 1;
 }
 
 async function callLLM(prompt: string): Promise<{ content: string; model: string; latencyMs: number }> {
@@ -78,19 +113,21 @@ async function callLLM(prompt: string): Promise<{ content: string; model: string
     },
     body: JSON.stringify({
       model,
-      temperature: 0.6,
-      max_tokens: 600,
+      temperature: 0.5,
+      max_tokens: 700,
       messages: [
         {
           role: "system",
-          content: [
-            "You are a grounded synthesis voice for the URA astrology system.",
-            "Rules:",
-            "- Use ONLY the provided phase/orisha information. Do not add external astrology.",
-            "- No predictions. No fate statements. No emojis. No fluff.",
-            "- Keep tone calm, practical, and oriented toward action.",
-            "- Output valid JSON only.",
-          ].join("\n"),
+          content: `You are generating the Moon Page Daily Synthesis for the URA system.
+This is not a horoscope and not freeform astrology writing. It is a grounded orientation brief that must strictly reflect the current lunar state.
+
+CRITICAL RULES:
+- You will receive exact values for moonPhaseName, moonSign, moonElement. These are canonical truth.
+- You MUST use these exact values. Do not substitute, infer, or change them.
+- If your output mentions a different sign than provided, you have failed.
+- No predictions. No fate statements. No emojis. No fluff.
+- Keep tone calm, practical, and oriented toward action.
+- Output valid JSON only.`,
         },
         { role: "user", content: prompt },
       ],
@@ -123,16 +160,18 @@ function safeJsonParse(s: string): any {
   }
 }
 
-function buildMockSynthesis(lunarPhase: PhaseId, solarPhase: number | null, moonSign: string | null): SynthesisResult {
-  const lunar = microcopyForPhase(lunarPhase);
+function buildMockSynthesis(
+  moonPhaseName: string,
+  lunarPhaseId: PhaseId,
+  moonSign: string,
+  moonElement: string
+): SynthesisResult {
+  const lunar = microcopyForPhase(lunarPhaseId);
   const now = new Date();
 
-  // Phase-first synthesis (mock version)
-  const signColor = moonSign ? ` The Moon in ${moonSign} colors how this unfolds.` : "";
-
   return {
-    headline: `${lunar.season} · Phase ${lunarPhase} — ${lunar.orisha}`,
-    guidance: `${lunar.oneLine}${signColor} ${lunar.description.split(".")[0]}.`,
+    headline: `${moonPhaseName} in ${moonSign}`,
+    guidance: `${lunar.oneLine} The Moon in ${moonSign} brings ${ELEMENT_MEANINGS[moonElement] || "grounded energy"} to this phase.`,
     actionHint: lunar.actionHint || "Start with one clear action.",
     journalPrompt: lunar.journalPrompt,
     generatedAt: now.toISOString(),
@@ -141,67 +180,122 @@ function buildMockSynthesis(lunarPhase: PhaseId, solarPhase: number | null, moon
 }
 
 async function generateSynthesis(
+  moonPhaseName: string,
   lunarPhaseId: PhaseId,
-  solarPhase: number | null,
-  moonSign: string | null
+  moonSign: string,
+  moonElement: string,
+  lunarDay: number | null
 ): Promise<SynthesisResult> {
   const lunar = microcopyForPhase(lunarPhaseId);
   const now = new Date();
+  const elementMeaning = ELEMENT_MEANINGS[moonElement] || "grounded energy";
 
   // If no API key, return mock
   if (!process.env.OPENAI_API_KEY) {
-    return buildMockSynthesis(lunarPhaseId, solarPhase, moonSign);
+    return buildMockSynthesis(moonPhaseName, lunarPhaseId, moonSign, moonElement);
   }
 
   const prompt = `
-Generate a daily synthesis using the URA system.
+AUTHORITATIVE INPUTS (DO NOT INFER OR SUBSTITUTE - these are canonical truth):
+- moonPhaseName: "${moonPhaseName}"
+- lunarPhaseNumber: Phase ${lunarPhaseId}
+- moonSign: "${moonSign}"
+- moonElement: "${moonElement}"
+${lunarDay ? `- lunarDayNumber: ${lunarDay}` : ""}
 
-CRITICAL HIERARCHY (follow this strictly):
-1. PHASE is the FOUNDATION — The phase determines WHAT energy we are in (timing, rhythm)
-2. MOON SIGN is the MODALITY — The sign determines HOW that phase energy expresses itself
+ELEMENT MEANING FOR ${moonElement.toUpperCase()}:
+${elementMeaning}
 
-DO NOT let the moon sign override the phase meaning. The phase is primary.
-
-CURRENT PHASE (This is the foundation - synthesize FROM this):
+PHASE GUIDANCE (URA System):
 - Phase ${lunarPhaseId}: ${lunar.orisha}
-- Phase Meaning: ${lunar.oneLine}
-- Phase Description: ${lunar.description}
-- Season: ${lunar.season}
+- Meaning: ${lunar.oneLine}
+- Description: ${lunar.description}
 
-${moonSign ? `MOON SIGN (This colors HOW the phase expresses - not WHAT it is):
-- Moon in ${moonSign}
-- Key question: "In Phase ${lunarPhaseId} (${lunar.orisha}), how does ${moonSign} express this phase's energy?"
-- For example: If Phase 8 is about rest/dissolution and Moon is in Capricorn, the synthesis should be about DISCIPLINED rest, STRUCTURED completion, METHODICAL letting go — NOT about building or establishing (that would be Phase 2).` : ""}
-
-${solarPhase ? `Solar URA Phase: ${solarPhase} (secondary context)` : ""}
-
-PHASE-APPROPRIATE ACTION:
-- ${lunar.actionHint || "None specified"}
-
-OUTPUT: Return JSON with this exact structure:
+REQUIRED OUTPUT (JSON):
 {
-  "headline": "5-10 words capturing the PHASE energy, colored by the sign",
-  "guidance": "2-3 sentences. Start with the PHASE meaning, then show how the moon sign flavors that expression. No predictions.",
-  "actionHint": "One action aligned with the PHASE (not the sign's typical domain)",
-  "journalPrompt": "One reflective question rooted in the phase"
+  "headline": "${moonPhaseName} in ${moonSign}",
+  "guidance": "3-4 sentences max. Sentence 1 anchors the Moon phase (${moonPhaseName}). Sentence 2 anchors the Moon sign (${moonSign}). Sentence 3 anchors the element (${moonElement} = ${elementMeaning}). Optional sentence integrates them. CRITICAL: You MUST mention ${moonSign}, not any other sign.",
+  "actionHint": "1 sentence imperative. Must reflect phase + element. Must be realistic for today. No vague self-help language.",
+  "journalPrompt": "One reflective question",
+  "story": "Optional: 2-3 sentences of human texture illustrating this energy in lived experience. No new signs or planets."
 }
 
-EXAMPLE (Phase 8 + Capricorn):
-- WRONG: "Focus on building structure" (this is Capricorn overriding Phase 8)
-- RIGHT: "Rest with Capricorn's discipline" (Phase 8 rest, colored by Capricorn's style)
+FORBIDDEN:
+- Do NOT mention any zodiac sign other than ${moonSign}
+- Do NOT default to Capricorn/Saturn language
+- Do NOT add signs, planets, or archetypes not in the inputs
+- Do NOT make predictions
+
+SELF-CHECK: Before responding, verify the sign mentioned is "${moonSign}" (not Capricorn or any other sign).
+
+OUTPUT JSON ONLY:
 `.trim();
 
   const { content } = await callLLM(prompt);
   const parsed = safeJsonParse(content);
 
+  // Validate that the response mentions the correct sign
+  const headline = parsed.headline || `${moonPhaseName} in ${moonSign}`;
+  let guidance = parsed.guidance || lunar.description;
+
+  // Force correct sign in headline if LLM got it wrong
+  if (!headline.includes(moonSign)) {
+    console.warn(`LLM returned wrong sign in headline. Expected ${moonSign}, got: ${headline}`);
+  }
+
   return {
-    headline: parsed.headline || `${lunar.orisha} guides today`,
-    guidance: parsed.guidance || lunar.description,
+    headline: `${moonPhaseName} in ${moonSign}`, // Always force correct title
+    guidance,
     actionHint: parsed.actionHint || lunar.actionHint || "Start with one clear action.",
     journalPrompt: parsed.journalPrompt || lunar.journalPrompt,
+    story: parsed.story,
     generatedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
   };
+}
+
+// Fetch current moon data from the same source as Moon page
+async function getCurrentMoonData(origin: string): Promise<{
+  moonSign: string;
+  moonElement: string;
+  phaseAngleDeg: number;
+  phaseName: string;
+  lunarDay: number | null;
+} | null> {
+  try {
+    const res = await fetch(`${origin}/api/calendar`, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    if (!json?.ok) return null;
+
+    const astro = json?.astro;
+    const lunar = json?.lunar;
+
+    const moonSign = astro?.moonSign;
+    if (!moonSign) return null;
+
+    const moonElement = getMoonElement(moonSign);
+    const phaseAngleDeg = lunar?.phaseAngle ?? lunar?.separation ?? 0;
+    const phaseName = phaseNameFromAngle(phaseAngleDeg);
+    const lunarDay = lunar?.lunarDay ?? null;
+
+    return { moonSign, moonElement, phaseAngleDeg, phaseName, lunarDay };
+  } catch (err) {
+    console.error("Failed to fetch current moon data:", err);
+    return null;
+  }
+}
+
+function buildOrigin(req: Request): string {
+  const url = new URL(req.url);
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || url.host;
+  const proto = req.headers.get("x-forwarded-proto") || url.protocol.replace(":", "") || "http";
+  return `${proto}://${host}`;
 }
 
 export async function GET(req: Request) {
@@ -217,75 +311,78 @@ export async function GET(req: Request) {
   // 2. Get user profile for timezone
   const profile = await prisma.profile.findUnique({
     where: { userId },
-    select: { timezone: true, lunationJson: true },
+    select: { timezone: true },
   });
 
   const tz = profile?.timezone || "America/New_York";
   const todayKey = getLocalDayKey(tz);
   const cacheKey = getCacheKey(userId, todayKey);
 
-  // 3. Check cache
-  const cached = synthesisCache.get(cacheKey);
+  // 3. Fetch CURRENT moon data from the same source as Moon page
+  const origin = buildOrigin(req);
+  const moonData = await getCurrentMoonData(origin);
+
+  if (!moonData) {
+    return NextResponse.json({
+      ok: false,
+      error: "Could not fetch current moon data",
+    }, { status: 500 });
+  }
+
+  const { moonSign, moonElement, phaseAngleDeg, phaseName, lunarDay } = moonData;
+  const lunarPhaseId = phaseIdFromAngle(phaseAngleDeg);
+
+  // 4. Check cache (include moonSign in key to bust cache if sign changed)
+  const fullCacheKey = `${cacheKey}:${moonSign}`;
+  const cached = synthesisCache.get(fullCacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json({
       ok: true,
       cached: true,
       synthesis: cached.synthesis,
+      moonSign,
+      moonElement,
+      lunarPhaseId,
+      phaseName,
     });
   }
 
-  // 4. Extract lunar phase from profile's lunationJson
-  const lunation = profile?.lunationJson as any;
-  let lunarPhaseId: PhaseId = 1;
-  let solarPhase: number | null = null;
-  let moonSign: string | null = null;
-
-  // Try to extract phase info from lunation data
-  if (lunation) {
-    const lun = lunation?.lunation || lunation?.data?.lunation || lunation;
-    const phaseAngle = lun?.phaseAngle ?? lun?.separation ?? null;
-
-    if (typeof phaseAngle === "number") {
-      // Convert phase angle to phase ID (0-360 degrees -> 1-8 phases)
-      const normalized = ((phaseAngle % 360) + 360) % 360;
-      const idx = Math.floor((normalized + 22.5) / 45) % 8;
-      lunarPhaseId = ((idx + 1) as PhaseId) || 1;
-    }
-
-    // Try to get moon sign
-    moonSign = lun?.moonSign || lunation?.astro?.moonSign || null;
-
-    // Try to get solar phase from calendar data
-    solarPhase = lunation?.solar?.phase ?? null;
-  }
-
-  // 5. Generate synthesis
+  // 5. Generate synthesis with correct moon data
   try {
-    const synthesis = await generateSynthesis(lunarPhaseId, solarPhase, moonSign);
+    const synthesis = await generateSynthesis(
+      phaseName,
+      lunarPhaseId,
+      moonSign,
+      moonElement,
+      lunarDay
+    );
 
     // 6. Cache it until end of day
     const expiresAt = getEndOfDayMs(tz);
-    synthesisCache.set(cacheKey, { synthesis, expiresAt });
+    synthesisCache.set(fullCacheKey, { synthesis, expiresAt });
 
     return NextResponse.json({
       ok: true,
       cached: false,
       synthesis,
+      moonSign,
+      moonElement,
       lunarPhaseId,
-      solarPhase,
+      phaseName,
     });
   } catch (err: any) {
     // On error, return mock synthesis so user still gets something
-    const mockSynthesis = buildMockSynthesis(lunarPhaseId, solarPhase, moonSign);
+    const mockSynthesis = buildMockSynthesis(phaseName, lunarPhaseId, moonSign, moonElement);
 
     return NextResponse.json({
       ok: true,
       cached: false,
       error: err?.message,
       synthesis: mockSynthesis,
-      lunarPhaseId,
-      solarPhase,
       moonSign,
+      moonElement,
+      lunarPhaseId,
+      phaseName,
       isFallback: true,
     });
   }
