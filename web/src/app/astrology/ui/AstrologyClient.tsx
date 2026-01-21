@@ -1,7 +1,7 @@
 // src/app/astrology/ui/AstrologyClient.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 
 type LookupOk = { ok: true; key: string; card: any };
 type LookupErr = { ok: false; error: string };
@@ -479,23 +479,24 @@ export default function AstrologyClient() {
     }
   }
 
+  // Reference for auto-scroll to results
+  const resultsRef = useRef<HTMLDivElement>(null);
+
   // Build query from dial selections
   function buildDialQuery(): string {
     const parts: string[] = [];
-    if (dialPlanet !== "None") parts.push(dialPlanet);
-    if (dialSign !== "None") parts.push(dialSign);
-    if (dialHouse !== "None") parts.push(`${dialHouse}${getOrdinal(parseInt(dialHouse))} house`.replace(/^\d+/, ""));
 
-    // Handle house suffix properly
+    // Planet first
+    if (dialPlanet !== "None") parts.push(dialPlanet);
+
+    // Sign second
+    if (dialSign !== "None") parts.push(dialSign);
+
+    // House third (with ordinal suffix)
     if (dialHouse !== "None") {
       const houseNum = parseInt(dialHouse);
       const suffix = houseNum === 1 ? "st" : houseNum === 2 ? "nd" : houseNum === 3 ? "rd" : "th";
-      const houseStr = `${houseNum}${suffix} house`;
-      // If we have planet + sign, append house
-      if (parts.length > 0) {
-        return parts.join(" ") + " " + houseStr;
-      }
-      return houseStr;
+      parts.push(`${houseNum}${suffix} house`);
     }
 
     return parts.join(" ");
@@ -517,6 +518,11 @@ export default function AstrologyClient() {
       const out = await lookupOne(query);
       setResp({ ok: true, key: out.key, card: out.card });
       setMode("placement");
+
+      // Auto-scroll to results after a short delay
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
     } catch (e: any) {
       setDialError(e?.message || "Lookup failed.");
     } finally {
@@ -1211,47 +1217,10 @@ export default function AstrologyClient() {
         </div>
       </Panel>
 
-      {/* SINGLE */}
-      {mode === "placement" && (
-        <>
-          <Panel>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") runLookup();
-                }}
-                className="w-full rounded-xl border px-4 py-3 text-sm outline-none"
-                style={{
-                  borderColor: TOKENS.inputBorder,
-                  background: TOKENS.inputBg,
-                  color: TOKENS.text,
-                }}
-              />
-              <button
-                onClick={() => runLookup()}
-                disabled={loading}
-                className="rounded-xl px-5 py-3 text-sm font-semibold transition"
-                style={{
-                  background: loading ? "rgba(244,235,221,0.18)" : TOKENS.buttonBg,
-                  color: TOKENS.buttonText,
-                  opacity: loading ? 0.75 : 1,
-                }}
-              >
-                {loading ? "Running…" : "Lookup"}
-              </button>
-            </div>
-
-            {resp && !resp.ok && (
-              <p className="mt-3 text-sm" style={{ color: "rgba(255,180,180,0.95)" }}>
-                {resp.error}
-              </p>
-            )}
-          </Panel>
-
-          {resp && resp.ok && (
-            <CardShell>
+      {/* SINGLE - Results only (lookup via dial section above) */}
+      {mode === "placement" && resp && resp.ok && (
+        <div ref={resultsRef}>
+          <CardShell>
               <h2 className="text-lg font-semibold" style={{ color: "rgba(244,235,221,0.92)" }}>
                 {resp.card.labels?.placement ?? "Placement"}
               </h2>
@@ -1275,8 +1244,7 @@ export default function AstrologyClient() {
 
               {renderSynthesis()}
             </CardShell>
-          )}
-        </>
+        </div>
       )}
 
       {/* PAIR */}

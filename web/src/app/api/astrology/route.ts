@@ -1,6 +1,7 @@
 // src/app/api/astrology/route.ts
 import { NextResponse } from "next/server";
 import doctrine from "@/lib/doctrine/doctrine.generated.json";
+import { getStandaloneCard, type StandaloneCard } from "@/lib/doctrine/standalone";
 
 type DoctrineCard = any;
 const CARDS: DoctrineCard[] = (doctrine as any).cards ?? [];
@@ -145,10 +146,74 @@ function fallbackHouse1IfNeeded(key: string) {
   return null;
 }
 
+/**
+ * Check if query is a standalone lookup (just sign, house, or planet)
+ */
+function tryStandaloneLookup(q: string): StandaloneCard | null {
+  const s = q.trim().toLowerCase();
+
+  // Check for sign-only
+  const signs = ["aries", "taurus", "gemini", "cancer", "leo", "virgo", "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces"];
+  if (signs.includes(s)) {
+    return getStandaloneCard("sign", s);
+  }
+
+  // Check for house-only (e.g., "1st house", "5th house", "house 3", "3")
+  const houseMatch = s.match(/^(?:(\d{1,2})(?:st|nd|rd|th)?\s*house|house\s*(\d{1,2})|(\d{1,2}))$/i);
+  if (houseMatch) {
+    const num = houseMatch[1] || houseMatch[2] || houseMatch[3];
+    return getStandaloneCard("house", num);
+  }
+
+  // Check for planet-only
+  const planetNames = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "chiron", "north node", "south node", "northnode", "southnode"];
+  if (planetNames.includes(s)) {
+    return getStandaloneCard("planet", s);
+  }
+
+  return null;
+}
+
+/**
+ * Convert standalone card to doctrine card format for consistent API response
+ */
+function standaloneToDoctrineFormat(card: StandaloneCard): DoctrineCard {
+  return {
+    key: card.key,
+    placement: {
+      [card.type]: card.labels.name,
+    },
+    labels: {
+      placement: card.labels.name,
+      category: card.labels.category,
+    },
+    function: {
+      core: card.core,
+    },
+    synthesis: card.description,
+    strengths: card.strengths,
+    shadows: card.shadows,
+    directives: card.directives,
+    tags: card.tags,
+  };
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const q = url.searchParams.get("q") || "";
 
+  if (!q.trim()) {
+    return NextResponse.json({ ok: false, error: "Missing or invalid query." }, { status: 400 });
+  }
+
+  // First, try standalone lookup (sign, house, or planet only)
+  const standalone = tryStandaloneLookup(q);
+  if (standalone) {
+    const formattedCard = standaloneToDoctrineFormat(standalone);
+    return NextResponse.json({ ok: true, key: standalone.key, card: formattedCard });
+  }
+
+  // Otherwise, try combined lookup (planet + sign, etc.)
   const key = queryToDoctrineKey(q);
   if (!key) {
     return NextResponse.json({ ok: false, error: "Missing or invalid query." }, { status: 400 });
@@ -157,8 +222,8 @@ export async function GET(req: Request) {
   // Try requested key first (house-aware)
   let card = resolveCardFromKey(key);
 
-  // If user did NOT specify a house and we didn’t find planet|sign,
-  // fall back to planet|sign|1 (keeps current “default” behavior).
+  // If user did NOT specify a house and we didn't find planet|sign,
+  // fall back to planet|sign|1 (keeps current "default" behavior).
   if (!card) {
     const fallback = fallbackHouse1IfNeeded(key);
     if (fallback) card = resolveCardFromKey(fallback);
