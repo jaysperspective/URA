@@ -26,7 +26,24 @@ function getCustomRssUrls(): string[] {
 
 // ---------------------------------------------------------------------------
 // Category Keywords (deterministic classification)
+// Priority order matters: first match wins
 // ---------------------------------------------------------------------------
+
+// Priority order: higher priority categories should be checked first
+const CATEGORY_PRIORITY: NewsCategoryKey[] = [
+  "markets",      // Financial-specific terms first
+  "economy",      // Economic policy/indicators
+  "geopolitics",  // International relations, conflicts
+  "security",     // Domestic security issues
+  "technology",   // Tech/AI
+  "climate",      // Weather/environment
+  "public_health",
+  "labor",
+  "justice",
+  "science",
+  "culture",
+  "other",
+];
 
 const CATEGORY_KEYWORDS: Record<NewsCategoryKey, string[]> = {
   geopolitics: [
@@ -34,60 +51,65 @@ const CATEGORY_KEYWORDS: Record<NewsCategoryKey, string[]> = {
     "nato", "missile", "sanctions", "diplomat", "embassy", "treaty", "invasion",
     "military", "troops", "border", "conflict", "territory", "regime", "summit",
     "alliance", "korea", "taiwan", "syria", "lebanon", "yemen", "africa",
+    "palestine", "hamas", "hezbollah", "kremlin", "beijing", "tehran",
   ],
   economy: [
-    "fed", "federal reserve", "inflation", "jobs", "recession", "unemployment",
-    "gdp", "interest rate", "central bank", "economy", "economic", "deficit",
-    "debt", "tariff", "trade war", "import", "export", "manufacturing",
-    "consumer spending", "retail sales", "housing market",
+    "fed", "federal reserve", "inflation", "jobs report", "recession", "unemployment",
+    "gdp", "interest rate", "central bank", "economic", "deficit",
+    "debt ceiling", "tariff", "trade war", "import", "export", "manufacturing",
+    "consumer spending", "retail sales", "housing market", "cpi", "ppi",
+    "monetary policy", "fiscal", "treasury secretary",
   ],
   markets: [
     "stock", "stocks", "dow", "s&p", "nasdaq", "market", "rally", "crash",
     "earnings", "bond", "yield", "treasury", "ipo", "merger", "acquisition",
     "crypto", "bitcoin", "etf", "hedge fund", "wall street", "investor",
-    "trading", "volatility", "vix", "correction", "bull", "bear",
+    "trading", "volatility", "vix", "correction", "bull market", "bear market",
+    "shares", "equity", "futures", "commodities", "gold price", "oil price",
   ],
   technology: [
     "ai", "artificial intelligence", "chip", "semiconductor", "openai", "google",
     "microsoft", "apple", "amazon", "meta", "tiktok", "regulation", "antitrust",
     "tech", "software", "data", "privacy", "cyber", "hack", "breach", "startup",
-    "nvidia", "tesla", "spacex", "robot", "automation",
+    "nvidia", "tesla", "spacex", "robot", "automation", "chatgpt", "machine learning",
   ],
   climate: [
-    "storm", "hurricane", "wildfire", "drought", "flood", "heat", "climate",
+    "storm", "hurricane", "wildfire", "drought", "flood", "heat wave", "climate",
     "weather", "tornado", "earthquake", "tsunami", "carbon", "emissions",
-    "renewable", "solar", "wind", "energy", "oil", "gas", "pipeline",
-    "environment", "pollution", "arctic", "glacier",
+    "renewable", "solar energy", "wind energy", "energy", "oil", "gas", "pipeline",
+    "environment", "pollution", "arctic", "glacier", "sea level",
   ],
   public_health: [
     "covid", "pandemic", "vaccine", "outbreak", "virus", "disease", "health",
     "hospital", "cdc", "who", "fda", "drug", "pharmaceutical", "treatment",
-    "epidemic", "infection", "mental health", "overdose", "opioid",
+    "epidemic", "infection", "mental health", "overdose", "opioid", "fentanyl",
   ],
   labor: [
     "strike", "union", "worker", "wage", "layoff", "hiring", "job cut",
-    "unemployment", "workforce", "labor", "employment", "minimum wage",
-    "gig economy", "remote work", "resignation",
+    "workforce", "labor", "employment", "minimum wage",
+    "gig economy", "remote work", "resignation", "walkout",
   ],
   justice: [
     "court", "judge", "verdict", "trial", "lawsuit", "supreme court", "ruling",
     "prosecution", "indictment", "arrest", "crime", "police", "prison",
     "sentence", "appeal", "constitutional", "rights", "civil", "attorney",
+    "doj", "fbi investigation",
   ],
   culture: [
     "movie", "film", "music", "album", "concert", "award", "oscar", "grammy",
     "celebrity", "sport", "game", "team", "olympics", "championship", "nfl",
     "nba", "soccer", "fashion", "art", "museum", "book", "streaming",
+    "super bowl", "world cup",
   ],
   science: [
-    "nasa", "space", "mars", "moon", "satellite", "rocket", "discovery",
+    "nasa", "space", "mars", "moon landing", "satellite", "rocket", "discovery",
     "research", "study", "scientists", "breakthrough", "experiment", "physics",
-    "biology", "astronomy", "genetics", "quantum",
+    "biology", "astronomy", "genetics", "quantum", "nobel",
   ],
   security: [
     "terror", "attack", "shooting", "explosion", "threat", "fbi", "cia",
     "intelligence", "surveillance", "defense", "homeland", "emergency",
-    "evacuate", "hostage", "extremist",
+    "evacuate", "hostage", "extremist", "bomb",
   ],
   other: [], // Catch-all
 };
@@ -123,6 +145,33 @@ function extractRssItems(xmlText: string): NewsItem[] {
   }
 
   return items;
+}
+
+// ---------------------------------------------------------------------------
+// Title Normalization (deduplication + source suffix removal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize title for deduplication:
+ * - Trim whitespace
+ * - Collapse multiple spaces
+ * - Remove common source suffixes like " - CNN", " | Reuters", etc.
+ * - Lowercase for comparison
+ */
+function normalizeTitle(title: string): string {
+  let normalized = title.trim();
+
+  // Collapse multiple spaces
+  normalized = normalized.replace(/\s+/g, " ");
+
+  // Remove common source suffixes
+  // Patterns: " - Source", " | Source", " — Source", " – Source"
+  normalized = normalized.replace(/\s*[-–—|]\s*[A-Z][A-Za-z0-9\s&'.]+$/i, "");
+
+  // Remove trailing source in parentheses like "(CNN)"
+  normalized = normalized.replace(/\s*\([A-Z][A-Za-z0-9\s&'.]+\)\s*$/i, "");
+
+  return normalized.toLowerCase().trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -241,13 +290,14 @@ export async function fetchNewsHeadlines(): Promise<{
       break;
   }
 
-  // Deduplicate by title (case-insensitive)
+  // Deduplicate by normalized title
   const seen = new Set<string>();
   const unique: NewsItem[] = [];
   for (const item of items) {
-    const key = item.title.toLowerCase().trim();
-    if (!seen.has(key) && item.title.length > 10) {
-      seen.add(key);
+    const normalizedKey = normalizeTitle(item.title);
+    // Skip very short titles and duplicates
+    if (normalizedKey.length >= 15 && !seen.has(normalizedKey)) {
+      seen.add(normalizedKey);
       unique.push(item);
     }
   }
@@ -261,21 +311,26 @@ export async function fetchNewsHeadlines(): Promise<{
 }
 
 // ---------------------------------------------------------------------------
-// Categorization (deterministic, no LLM)
+// Categorization (deterministic, priority-based, no LLM)
 // ---------------------------------------------------------------------------
 
+/**
+ * Categorize headline using priority-based matching.
+ * First matching category wins (based on CATEGORY_PRIORITY order).
+ */
 function categorizeHeadline(title: string): NewsCategoryKey {
   const lower = title.toLowerCase();
 
-  // Check each category's keywords
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+  // Check categories in priority order
+  for (const category of CATEGORY_PRIORITY) {
     if (category === "other") continue;
 
+    const keywords = CATEGORY_KEYWORDS[category];
     for (const keyword of keywords) {
       // Word boundary matching to avoid partial matches
       const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
       if (regex.test(lower)) {
-        return category as NewsCategoryKey;
+        return category;
       }
     }
   }
@@ -303,14 +358,24 @@ export function categorizeNews(items: NewsItem[]): NewsThemes {
   for (const item of items) {
     const cat = categorizeHeadline(item.title);
     counts[cat].count++;
+    // Max 2 sample titles per category
     if (counts[cat].titles.length < 2) {
       counts[cat].titles.push(item.title);
     }
   }
 
+  // Log "other" count for keyword refinement
+  if (counts.other.count > 0) {
+    console.log(`${LOG_PREFIX} Unclassified headlines (other): ${counts.other.count}`);
+    if (counts.other.titles.length > 0) {
+      console.log(`${LOG_PREFIX} Sample unclassified: "${counts.other.titles[0]}"`);
+    }
+  }
+
   // Build categories array, sorted by count descending
+  // Exclude "other" from the main list
   const categories = Object.entries(counts)
-    .filter(([_, v]) => v.count > 0)
+    .filter(([key, v]) => v.count > 0 && key !== "other")
     .map(([key, v]) => ({
       key: key as NewsCategoryKey,
       count: v.count,
@@ -320,11 +385,13 @@ export function categorizeNews(items: NewsItem[]): NewsThemes {
 
   // Compute tempo based on variety and volume
   const totalHeadlines = items.length;
-  const categoryCount = categories.filter((c) => c.key !== "other").length;
+  const categoryCount = categories.length;
+  const otherCount = counts.other.count;
 
   let tempoLevel: "low" | "medium" | "high";
   let tempoRationale: string;
 
+  // Force low if too few headlines or too few distinct categories
   if (totalHeadlines < 5 || categoryCount < 2) {
     tempoLevel = "low";
     tempoRationale = "Limited news activity";
@@ -337,7 +404,7 @@ export function categorizeNews(items: NewsItem[]): NewsThemes {
   }
 
   console.log(
-    `${LOG_PREFIX} Categorized ${totalHeadlines} headlines into ${categoryCount} categories, tempo=${tempoLevel}`
+    `${LOG_PREFIX} Categorized ${totalHeadlines} headlines: ${categoryCount} categories, ${otherCount} other, tempo=${tempoLevel}`
   );
 
   return {

@@ -252,24 +252,37 @@ function buildFallbackSynthesis(params: {
 
 // ============================================
 // SIGNALS HASH (for cache key differentiation)
+// Uses stable, minimal fields only - no raw titles
 // ============================================
 function computeSignalsHash(signals: CollectiveSignalsResponse | undefined): string {
   if (!signals) return "none";
 
-  // Create a simple hash based on key signal characteristics
+  // Create a stable hash from derived/categorical fields only
   const parts: string[] = [];
 
+  // Tempo level
   if (signals.tempo?.level) {
     parts.push(`t:${signals.tempo.level}`);
   }
 
-  if (signals.markets?.riskTone) {
+  // Market state (categorical values, not raw numbers)
+  if (signals.markets) {
     parts.push(`r:${signals.markets.riskTone}`);
+    parts.push(`v:${signals.markets.volatility}`);
+    parts.push(`b:${signals.markets.breadth}`);
+    // Round snapshot to 1 decimal for stability
+    if (typeof signals.markets.snapshot.sp500ChangePct === "number") {
+      parts.push(`sp:${Math.round(signals.markets.snapshot.sp500ChangePct * 10) / 10}`);
+    }
   }
 
+  // Top 3 news categories with counts (stable, no titles)
   if (signals.newsThemes?.length) {
-    const topCat = signals.newsThemes[0]?.key;
-    if (topCat) parts.push(`n:${topCat}`);
+    const topCats = signals.newsThemes
+      .slice(0, 3)
+      .map((c) => `${c.key}:${c.count}`)
+      .join(",");
+    parts.push(`n:${topCats}`);
   }
 
   return parts.join("|") || "empty";

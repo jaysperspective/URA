@@ -212,8 +212,22 @@ function DominantLayerBadge({ layer }: { layer: SynthesisOutput["dominant_layer"
 // ============================================
 // COLLECTIVE SIGNALS COMPONENT
 // ============================================
-function CollectiveSignalsCard({ signals }: { signals: CollectiveSignalsData }) {
-  const [expanded, setExpanded] = useState(false);
+function CollectiveSignalsCard({
+  signals,
+  autoExpand = false,
+}: {
+  signals: CollectiveSignalsData;
+  autoExpand?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(autoExpand);
+  const [showDetails, setShowDetails] = useState(false);
+
+  // Auto-expand when prop changes
+  useEffect(() => {
+    if (autoExpand) {
+      setExpanded(true);
+    }
+  }, [autoExpand]);
 
   const hasData = (signals.newsThemes?.length ?? 0) > 0 || signals.markets;
 
@@ -245,8 +259,8 @@ function CollectiveSignalsCard({ signals }: { signals: CollectiveSignalsData }) 
     }
   };
 
-  // Get top categories (max 4)
-  const topCategories = signals.newsThemes?.slice(0, 4) ?? [];
+  // Get top categories (max 3 for compact display)
+  const topCategories = signals.newsThemes?.slice(0, 3) ?? [];
 
   // Format category key for display
   const formatCategory = (key: string) => {
@@ -323,8 +337,18 @@ function CollectiveSignalsCard({ signals }: { signals: CollectiveSignalsData }) 
           {/* News Themes */}
           {topCategories.length > 0 && (
             <div>
-              <div className="text-xs font-semibold mb-2" style={{ color: C.inkMuted }}>
-                Dominant Themes
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold" style={{ color: C.inkMuted }}>
+                  Dominant Themes
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowDetails(!showDetails)}
+                  className="text-xs underline"
+                  style={{ color: C.inkSoft }}
+                >
+                  {showDetails ? "hide samples" : "show samples"}
+                </button>
               </div>
               <div className="flex flex-wrap gap-2">
                 {topCategories.map((cat) => (
@@ -344,11 +368,12 @@ function CollectiveSignalsCard({ signals }: { signals: CollectiveSignalsData }) 
                         ({cat.count})
                       </span>
                     </div>
-                    {cat.sampleTitles.length > 0 && (
+                    {/* Sample titles only shown when showDetails is true */}
+                    {showDetails && cat.sampleTitles.length > 0 && (
                       <div
-                        className="mt-1 text-xs line-clamp-1"
-                        style={{ color: C.inkSoft, maxWidth: 200 }}
-                        title={cat.sampleTitles[0]}
+                        className="mt-1 text-xs line-clamp-2"
+                        style={{ color: C.inkSoft, maxWidth: 220 }}
+                        title={cat.sampleTitles.join(" | ")}
                       >
                         {cat.sampleTitles[0]}
                       </div>
@@ -473,6 +498,7 @@ export default function SunClient() {
   const [synthesisError, setSynthesisError] = useState<string | null>(null);
   const [synthesisCached, setSynthesisCached] = useState(false);
   const [collectiveSignals, setCollectiveSignals] = useState<CollectiveSignalsData | null>(null);
+  const [signalsAutoExpand, setSignalsAutoExpand] = useState(false);
 
   // ============================================
   // LOAD COLLECTIVE DATA
@@ -528,6 +554,8 @@ export default function SunClient() {
         setSynthesisCached(resp.cached === true);
         if (resp.collectiveSignals) {
           setCollectiveSignals(resp.collectiveSignals);
+          // Auto-expand signals after generate
+          setSignalsAutoExpand(true);
         }
       } else {
         setSynthesisError("Invalid synthesis response");
@@ -864,10 +892,10 @@ export default function SunClient() {
               )}
             </div>
 
-            {/* COLLECTIVE SIGNALS CARD (expandable) */}
+            {/* COLLECTIVE SIGNALS CARD (expandable, auto-expands after generate) */}
             {collectiveSignals && (
               <div className="mt-4">
-                <CollectiveSignalsCard signals={collectiveSignals} />
+                <CollectiveSignalsCard signals={collectiveSignals} autoExpand={signalsAutoExpand} />
               </div>
             )}
 

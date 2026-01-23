@@ -6,6 +6,12 @@ import type { MarketState } from "./types";
 const LOG_PREFIX = "[collectiveSignals/markets]";
 
 // ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+const FETCH_TIMEOUT_MS = 8000; // 8 second timeout
+const MAX_RETRIES = 1;
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -18,6 +24,67 @@ type QuoteData = {
 };
 
 // ---------------------------------------------------------------------------
+// Fetch with timeout + retry
+// ---------------------------------------------------------------------------
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = MAX_RETRIES
+): Promise<Response | null> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, options, FETCH_TIMEOUT_MS);
+      if (res.ok) return res;
+
+      // Don't retry on 4xx errors (client errors)
+      if (res.status >= 400 && res.status < 500) {
+        console.warn(`${LOG_PREFIX} Client error ${res.status}, not retrying`);
+        return null;
+      }
+
+      // Retry on 5xx errors
+      if (attempt < maxRetries) {
+        console.warn(`${LOG_PREFIX} Server error ${res.status}, retrying (${attempt + 1}/${maxRetries})`);
+        continue;
+      }
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        console.warn(`${LOG_PREFIX} Request timed out (${FETCH_TIMEOUT_MS}ms)`);
+      } else {
+        console.warn(`${LOG_PREFIX} Fetch error: ${err?.message}`);
+      }
+
+      if (attempt < maxRetries) {
+        console.warn(`${LOG_PREFIX} Retrying (${attempt + 1}/${maxRetries})`);
+        continue;
+      }
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Free Market Data Endpoints
 // ---------------------------------------------------------------------------
 
@@ -27,10 +94,10 @@ type QuoteData = {
  */
 async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
   // Yahoo Finance chart API - returns recent price data
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; URA/1.0)",
         Accept: "application/json",
@@ -38,10 +105,7 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
       cache: "no-store",
     });
 
-    if (!res.ok) {
-      console.warn(`${LOG_PREFIX} Yahoo quote for ${symbol} returned ${res.status}`);
-      return null;
-    }
+    if (!res) return null;
 
     const json = await res.json();
     const result = json?.chart?.result?.[0];
@@ -52,6 +116,22 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
     const price = meta?.regularMarketPrice;
     const previousClose = meta?.chartPreviousClose || meta?.previousClose;
 
+    // Get historical closes for VIX change calculation
+    const closes = result?.indicators?.quote?.[0]?.close;
+    const timestamps = result?.timestamp;
+
+    // Find yesterday's close (for VIX day-over-day change)
+    let yesterdayClose: number | undefined;
+    if (Array.isArray(closes) && closes.length >= 2) {
+      // Get the second-to-last valid close (yesterday)
+      for (let i = closes.length - 2; i >= 0; i--) {
+        if (typeof closes[i] === "number") {
+          yesterdayClose = closes[i];
+          break;
+        }
+      }
+    }
+
     if (typeof price !== "number") return null;
 
     const change = typeof previousClose === "number" ? price - previousClose : undefined;
@@ -59,13 +139,23 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
       ? ((price - previousClose) / previousClose) * 100
       : undefined;
 
+    // For VIX, also calculate day-over-day change
+    let dayOverDayChangePct: number | undefined;
+    if (typeof yesterdayClose === "number" && yesterdayClose > 0 && typeof price === "number") {
+      dayOverDayChangePct = ((price - yesterdayClose) / yesterdayClose) * 100;
+    }
+
     return {
       symbol,
       price,
       previousClose,
       change,
       changePct,
-    };
+      // Store day-over-day for VIX specifically
+      ...(symbol === "^VIX" && dayOverDayChangePct !== undefined
+        ? { dayOverDayChangePct }
+        : {}),
+    } as QuoteData & { dayOverDayChangePct?: number };
   } catch (err: any) {
     console.error(`${LOG_PREFIX} Yahoo quote error for ${symbol}:`, err?.message);
     return null;
@@ -77,16 +167,16 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
  * https://stooq.com/q/l/?s=spy.us&f=sd2t2ohlcv&h&e=csv
  */
 async function fetchStooqQuote(symbol: string): Promise<QuoteData | null> {
-  const stooqSymbol = `${symbol.toLowerCase()}.us`;
+  const stooqSymbol = `${symbol.toLowerCase().replace("^", "")}.us`;
   const url = `https://stooq.com/q/l/?s=${stooqSymbol}&f=sd2t2ohlcv&h&e=csv`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; URA/1.0)" },
       cache: "no-store",
     });
 
-    if (!res.ok) return null;
+    if (!res) return null;
 
     const text = await res.text();
     const lines = text.trim().split("\n");
@@ -112,11 +202,12 @@ async function fetchStooqQuote(symbol: string): Promise<QuoteData | null> {
 // Main Market Fetch
 // ---------------------------------------------------------------------------
 
-async function fetchQuote(symbol: string): Promise<QuoteData | null> {
+async function fetchQuote(symbol: string): Promise<(QuoteData & { dayOverDayChangePct?: number }) | null> {
   // Try Yahoo first, then Stooq as fallback
   const yahoo = await fetchYahooQuote(symbol);
   if (yahoo) return yahoo;
 
+  console.warn(`${LOG_PREFIX} Yahoo failed for ${symbol}, trying Stooq fallback`);
   const stooq = await fetchStooqQuote(symbol);
   return stooq;
 }
@@ -134,11 +225,13 @@ export async function getMarketState(): Promise<MarketState> {
   const sp500ChangePct = spyQuote?.changePct;
   const nasdaqChangePct = qqqQuote?.changePct;
   const vixLevel = vixQuote?.price;
+  const vixDayOverDayPct = (vixQuote as any)?.dayOverDayChangePct;
 
   console.log(`${LOG_PREFIX} Market snapshot:`, {
     sp500ChangePct: sp500ChangePct?.toFixed(2),
     nasdaqChangePct: nasdaqChangePct?.toFixed(2),
     vixLevel: vixLevel?.toFixed(2),
+    vixDayOverDayPct: vixDayOverDayPct?.toFixed(2),
   });
 
   // Determine risk tone
@@ -151,14 +244,23 @@ export async function getMarketState(): Promise<MarketState> {
     }
   }
 
-  // Determine volatility from VIX level and change
+  // Determine volatility - prefer day-over-day VIX change, fallback to level
   let volatility: MarketState["volatility"] = "unknown";
-  if (typeof vixLevel === "number") {
-    // VIX interpretation:
-    // < 15: low volatility
-    // 15-20: moderate
-    // 20-25: elevated
-    // > 25: high volatility
+
+  if (typeof vixDayOverDayPct === "number") {
+    // Primary: use VIX day-over-day change
+    if (vixDayOverDayPct > 5) {
+      volatility = "expanding"; // VIX up > 5% today
+    } else if (vixDayOverDayPct < -5) {
+      volatility = "contracting"; // VIX down > 5% today
+    } else {
+      volatility = "flat";
+    }
+  } else if (typeof vixLevel === "number") {
+    // Fallback: use VIX level
+    // VIX < 15: low volatility environment
+    // VIX 15-20: moderate
+    // VIX >= 20: elevated
     if (vixLevel < 15) {
       volatility = "contracting";
     } else if (vixLevel >= 20) {
@@ -193,10 +295,18 @@ export async function getMarketState(): Promise<MarketState> {
     rationales.push("equities retreating");
   }
 
-  if (volatility === "expanding" && typeof vixLevel === "number") {
-    rationales.push(`elevated volatility (VIX ${vixLevel.toFixed(1)})`);
+  if (volatility === "expanding") {
+    if (typeof vixDayOverDayPct === "number" && vixDayOverDayPct > 5) {
+      rationales.push(`VIX rising (${vixDayOverDayPct.toFixed(1)}%)`);
+    } else if (typeof vixLevel === "number") {
+      rationales.push(`elevated volatility (VIX ${vixLevel.toFixed(1)})`);
+    }
   } else if (volatility === "contracting") {
-    rationales.push("low volatility");
+    if (typeof vixDayOverDayPct === "number" && vixDayOverDayPct < -5) {
+      rationales.push(`VIX falling (${vixDayOverDayPct.toFixed(1)}%)`);
+    } else {
+      rationales.push("low volatility");
+    }
   }
 
   if (breadth === "narrow") {
