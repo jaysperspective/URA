@@ -21,6 +21,8 @@ type QuoteData = {
   change?: number;
   changePct?: number;
   previousClose?: number;
+  marketTime?: number; // Unix timestamp of last market update
+  isStale?: boolean;   // True if data is from a previous session (weekend/holiday)
 };
 
 // ---------------------------------------------------------------------------
@@ -92,7 +94,36 @@ async function fetchWithRetry(
  * Fetch quote from Yahoo Finance (unofficial chart endpoint)
  * This is a commonly used free endpoint that doesn't require API keys.
  */
-async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
+/**
+ * Check if market data is stale (weekend, holiday, or after-hours)
+ * Returns true if the market timestamp is not from today (US Eastern time)
+ */
+function isMarketDataStale(marketTimeUnix: number | undefined): boolean {
+  if (typeof marketTimeUnix !== "number") return true;
+
+  const now = new Date();
+  const marketDate = new Date(marketTimeUnix * 1000);
+
+  // Get dates in US Eastern timezone for comparison
+  const nowET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const marketET = new Date(marketDate.toLocaleString("en-US", { timeZone: "America/New_York" }));
+
+  // Compare year, month, day
+  const isSameDay =
+    nowET.getFullYear() === marketET.getFullYear() &&
+    nowET.getMonth() === marketET.getMonth() &&
+    nowET.getDate() === marketET.getDate();
+
+  // Also check if it's weekend (Saturday = 6, Sunday = 0)
+  const dayOfWeek = nowET.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  // If it's weekend, data will be stale
+  // If market timestamp is not from today, data is stale
+  return isWeekend || !isSameDay;
+}
+
+async function fetchYahooQuote(symbol: string): Promise<(QuoteData & { dayOverDayChangePct?: number }) | null> {
   // Yahoo Finance chart API - returns recent price data
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
 
@@ -115,10 +146,13 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
     const meta = result.meta;
     const price = meta?.regularMarketPrice;
     const previousClose = meta?.chartPreviousClose || meta?.previousClose;
+    const marketTime = meta?.regularMarketTime; // Unix timestamp
+
+    // Check if data is stale (weekend/holiday/after-hours)
+    const isStale = isMarketDataStale(marketTime);
 
     // Get historical closes for VIX change calculation
     const closes = result?.indicators?.quote?.[0]?.close;
-    const timestamps = result?.timestamp;
 
     // Find yesterday's close (for VIX day-over-day change)
     let yesterdayClose: number | undefined;
@@ -151,11 +185,13 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData | null> {
       previousClose,
       change,
       changePct,
+      marketTime,
+      isStale,
       // Store day-over-day for VIX specifically
       ...(symbol === "^VIX" && dayOverDayChangePct !== undefined
         ? { dayOverDayChangePct }
         : {}),
-    } as QuoteData & { dayOverDayChangePct?: number };
+    };
   } catch (err: any) {
     console.error(`${LOG_PREFIX} Yahoo quote error for ${symbol}:`, err?.message);
     return null;
@@ -227,12 +263,33 @@ export async function getMarketState(): Promise<MarketState> {
   const vixLevel = vixQuote?.price;
   const vixDayOverDayPct = (vixQuote as any)?.dayOverDayChangePct;
 
+  // Check if market data is stale (weekend/holiday)
+  const isStale = spyQuote?.isStale || qqqQuote?.isStale || false;
+
   console.log(`${LOG_PREFIX} Market snapshot:`, {
     sp500ChangePct: sp500ChangePct?.toFixed(2),
     nasdaqChangePct: nasdaqChangePct?.toFixed(2),
     vixLevel: vixLevel?.toFixed(2),
     vixDayOverDayPct: vixDayOverDayPct?.toFixed(2),
+    isStale,
   });
+
+  // If data is stale (weekend/holiday), return conservative values
+  if (isStale) {
+    console.log(`${LOG_PREFIX} Market data is stale (weekend/holiday), using conservative values`);
+
+    return {
+      riskTone: "mixed",
+      volatility: "unknown",
+      breadth: "unknown",
+      snapshot: {
+        sp500ChangePct: sp500ChangePct !== undefined ? Math.round(sp500ChangePct * 100) / 100 : undefined,
+        nasdaqChangePct: nasdaqChangePct !== undefined ? Math.round(nasdaqChangePct * 100) / 100 : undefined,
+        vixLevel: vixLevel !== undefined ? Math.round(vixLevel * 10) / 10 : undefined,
+      },
+      rationale: "Markets closed; using last close",
+    };
+  }
 
   // Determine risk tone
   let riskTone: MarketState["riskTone"] = "mixed";
