@@ -64,6 +64,34 @@ type SynthesisOutput = {
   recommended_posture: "act" | "stabilize" | "observe" | "release";
   caution_note: string;
   signals: [string, string, string];
+  collective_context?: string;
+};
+
+type NewsCategory = {
+  key: string;
+  count: number;
+  sampleTitles: string[];
+};
+
+type CollectiveSignalsData = {
+  newsThemes?: NewsCategory[];
+  tempo?: {
+    level: "low" | "medium" | "high";
+    rationale: string;
+  };
+  markets?: {
+    riskTone: "risk_on" | "risk_off" | "mixed";
+    volatility: "contracting" | "expanding" | "flat" | "unknown";
+    breadth: "broad" | "narrow" | "mixed" | "unknown";
+    snapshot: {
+      sp500ChangePct?: number;
+      nasdaqChangePct?: number;
+      vixLevel?: number;
+    };
+    rationale: string;
+  };
+  asOfISO: string;
+  notes?: string[];
 };
 
 type SynthesisResponse = {
@@ -76,6 +104,7 @@ type SynthesisResponse = {
     phaseName: string;
     solarPhaseLabel: string;
   };
+  collectiveSignals?: CollectiveSignalsData;
   error?: string;
 };
 
@@ -181,6 +210,255 @@ function DominantLayerBadge({ layer }: { layer: SynthesisOutput["dominant_layer"
 }
 
 // ============================================
+// COLLECTIVE SIGNALS COMPONENT
+// ============================================
+function CollectiveSignalsCard({ signals }: { signals: CollectiveSignalsData }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const hasData = (signals.newsThemes?.length ?? 0) > 0 || signals.markets;
+
+  if (!hasData) return null;
+
+  // Format market tone
+  const formatRiskTone = (tone: string) => {
+    switch (tone) {
+      case "risk_on":
+        return "Risk On";
+      case "risk_off":
+        return "Risk Off";
+      default:
+        return "Mixed";
+    }
+  };
+
+  // Format volatility
+  const formatVolatility = (vol: string) => {
+    switch (vol) {
+      case "expanding":
+        return "Expanding";
+      case "contracting":
+        return "Contracting";
+      case "flat":
+        return "Flat";
+      default:
+        return "—";
+    }
+  };
+
+  // Get top categories (max 4)
+  const topCategories = signals.newsThemes?.slice(0, 4) ?? [];
+
+  // Format category key for display
+  const formatCategory = (key: string) => {
+    return key
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  };
+
+  const tempoColor =
+    signals.tempo?.level === "high"
+      ? "rgba(181,106,77,0.85)"
+      : signals.tempo?.level === "medium"
+      ? C.ink
+      : C.inkMuted;
+
+  return (
+    <div
+      className="rounded-2xl border px-5 py-4"
+      style={{ background: C.surface, borderColor: C.border }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div>
+          <div
+            className="text-xs tracking-widest"
+            style={{ color: C.ink, fontWeight: 800, letterSpacing: "0.16em" }}
+          >
+            COLLECTIVE SIGNALS
+          </div>
+          <div className="mt-1 text-xs" style={{ color: C.inkSoft }}>
+            News themes + market state
+          </div>
+        </div>
+        <span
+          className="text-sm transition-transform"
+          style={{ color: C.inkMuted, transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        >
+          ▼
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-4 space-y-4">
+          {/* Tempo */}
+          {signals.tempo && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold" style={{ color: C.inkMuted }}>
+                Tempo:
+              </span>
+              <span
+                className="rounded-full px-3 py-1 text-xs font-semibold uppercase"
+                style={{
+                  background:
+                    signals.tempo.level === "high"
+                      ? "rgba(181,106,77,0.15)"
+                      : signals.tempo.level === "medium"
+                      ? "rgba(200,178,106,0.20)"
+                      : "rgba(143,158,147,0.15)",
+                  color: tempoColor,
+                }}
+              >
+                {signals.tempo.level}
+              </span>
+              <span className="text-xs" style={{ color: C.inkSoft }}>
+                {signals.tempo.rationale}
+              </span>
+            </div>
+          )}
+
+          {/* News Themes */}
+          {topCategories.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold mb-2" style={{ color: C.inkMuted }}>
+                Dominant Themes
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {topCategories.map((cat) => (
+                  <div
+                    key={cat.key}
+                    className="rounded-xl border px-3 py-2"
+                    style={{
+                      background: "rgba(244,235,221,0.60)",
+                      borderColor: C.border,
+                    }}
+                  >
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-sm font-semibold" style={{ color: C.ink }}>
+                        {formatCategory(cat.key)}
+                      </span>
+                      <span className="text-xs" style={{ color: C.inkMuted }}>
+                        ({cat.count})
+                      </span>
+                    </div>
+                    {cat.sampleTitles.length > 0 && (
+                      <div
+                        className="mt-1 text-xs line-clamp-1"
+                        style={{ color: C.inkSoft, maxWidth: 200 }}
+                        title={cat.sampleTitles[0]}
+                      >
+                        {cat.sampleTitles[0]}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Market State */}
+          {signals.markets && (
+            <div>
+              <div className="text-xs font-semibold mb-2" style={{ color: C.inkMuted }}>
+                Market Tone
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      signals.markets.riskTone === "risk_on"
+                        ? "bg-green-500"
+                        : signals.markets.riskTone === "risk_off"
+                        ? "bg-red-400"
+                        : "bg-yellow-500"
+                    }`}
+                  />
+                  <span className="text-sm" style={{ color: C.ink }}>
+                    {formatRiskTone(signals.markets.riskTone)}
+                  </span>
+                </div>
+
+                {signals.markets.volatility !== "unknown" && (
+                  <div className="text-sm" style={{ color: C.inkMuted }}>
+                    Volatility: {formatVolatility(signals.markets.volatility)}
+                  </div>
+                )}
+
+                {signals.markets.snapshot.vixLevel !== undefined && (
+                  <div className="text-sm" style={{ color: C.inkMuted }}>
+                    VIX: {signals.markets.snapshot.vixLevel.toFixed(1)}
+                  </div>
+                )}
+              </div>
+
+              {/* Market Snapshot */}
+              {(signals.markets.snapshot.sp500ChangePct !== undefined ||
+                signals.markets.snapshot.nasdaqChangePct !== undefined) && (
+                <div className="mt-2 flex gap-4 text-xs" style={{ color: C.inkSoft }}>
+                  {signals.markets.snapshot.sp500ChangePct !== undefined && (
+                    <span>
+                      S&P 500:{" "}
+                      <span
+                        style={{
+                          color:
+                            signals.markets.snapshot.sp500ChangePct >= 0
+                              ? "rgba(80,140,80,0.9)"
+                              : "rgba(180,80,60,0.9)",
+                        }}
+                      >
+                        {signals.markets.snapshot.sp500ChangePct >= 0 ? "+" : ""}
+                        {signals.markets.snapshot.sp500ChangePct.toFixed(2)}%
+                      </span>
+                    </span>
+                  )}
+                  {signals.markets.snapshot.nasdaqChangePct !== undefined && (
+                    <span>
+                      Nasdaq:{" "}
+                      <span
+                        style={{
+                          color:
+                            signals.markets.snapshot.nasdaqChangePct >= 0
+                              ? "rgba(80,140,80,0.9)"
+                              : "rgba(180,80,60,0.9)",
+                        }}
+                      >
+                        {signals.markets.snapshot.nasdaqChangePct >= 0 ? "+" : ""}
+                        {signals.markets.snapshot.nasdaqChangePct.toFixed(2)}%
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {signals.markets.rationale && (
+                <div className="mt-2 text-xs" style={{ color: C.inkSoft }}>
+                  {signals.markets.rationale}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Notes/Warnings */}
+          {signals.notes && signals.notes.length > 0 && (
+            <div className="text-xs" style={{ color: C.inkSoft }}>
+              {signals.notes.join(" · ")}
+            </div>
+          )}
+
+          {/* As Of */}
+          <div className="text-xs" style={{ color: C.inkSoft }}>
+            As of {new Date(signals.asOfISO).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // MAIN CLIENT COMPONENT
 // ============================================
 export default function SunClient() {
@@ -194,6 +472,7 @@ export default function SunClient() {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [synthesisError, setSynthesisError] = useState<string | null>(null);
   const [synthesisCached, setSynthesisCached] = useState(false);
+  const [collectiveSignals, setCollectiveSignals] = useState<CollectiveSignalsData | null>(null);
 
   // ============================================
   // LOAD COLLECTIVE DATA
@@ -247,6 +526,9 @@ export default function SunClient() {
       if (resp.synthesis) {
         setSynthesis(resp.synthesis);
         setSynthesisCached(resp.cached === true);
+        if (resp.collectiveSignals) {
+          setCollectiveSignals(resp.collectiveSignals);
+        }
       } else {
         setSynthesisError("Invalid synthesis response");
       }
@@ -522,6 +804,21 @@ export default function SunClient() {
                     )}
                   </div>
 
+                  {/* Collective Context (NEW) */}
+                  {synthesis.collective_context && (
+                    <div
+                      className="rounded-xl border px-4 py-3"
+                      style={{
+                        background: "rgba(200,178,106,0.08)",
+                        borderColor: "rgba(200,178,106,0.25)",
+                      }}
+                    >
+                      <div className="text-sm" style={{ color: C.ink }}>
+                        {synthesis.collective_context}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Badges */}
                   <div className="flex flex-wrap gap-2">
                     <PostureBadge posture={synthesis.recommended_posture} />
@@ -566,6 +863,13 @@ export default function SunClient() {
                 </div>
               )}
             </div>
+
+            {/* COLLECTIVE SIGNALS CARD (expandable) */}
+            {collectiveSignals && (
+              <div className="mt-4">
+                <CollectiveSignalsCard signals={collectiveSignals} />
+              </div>
+            )}
 
             {/* URA FOUNDATION PANEL */}
             <div className="mt-4">
