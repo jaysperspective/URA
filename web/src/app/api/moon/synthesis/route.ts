@@ -39,6 +39,22 @@ const LUNAR_PHASES = [
   "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"
 ] as const;
 
+/**
+ * Explicit mapping from phase name to phase ID.
+ * This is the canonical source of truth - no fuzzy matching.
+ * Must match exactly what /api/calendar returns in lunar.phaseName.
+ */
+const PHASE_ID_FROM_NAME: Record<string, PhaseId> = {
+  "New Moon": 1,
+  "Waxing Crescent": 2,
+  "First Quarter": 3,
+  "Waxing Gibbous": 4,
+  "Full Moon": 5,
+  "Waning Gibbous": 6,
+  "Last Quarter": 7,
+  "Waning Crescent": 8,
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -424,13 +440,19 @@ async function getCurrentMoonData(origin: string): Promise<MoonData | { error: s
 
     const moonElement = getMoonElement(moonSign);
 
-    // Derive phaseId from angle if available, otherwise from phaseName
+    // Derive phaseId from angle if available, otherwise from phaseName (explicit map)
     let lunarPhaseId: PhaseId;
     if (typeof phaseAngleDeg === "number") {
       lunarPhaseId = phaseIdFromAngle(phaseAngleDeg);
     } else {
-      // Fallback: derive from canonical phaseName
-      lunarPhaseId = phaseIdFromPhaseName(canonicalPhaseName);
+      // Fallback: derive from canonical phaseName using explicit map
+      const mappedId = phaseIdFromPhaseName(canonicalPhaseName);
+      if (mappedId === null) {
+        // phaseName not in our canonical list - this is an error state
+        console.error(`${LOG_PREFIX} CRITICAL: phaseName "${canonicalPhaseName}" not in PHASE_ID_FROM_NAME map`);
+        return { error: `Unknown phase name: ${canonicalPhaseName}` };
+      }
+      lunarPhaseId = mappedId;
     }
 
     const lunarDay = lunar?.lunarDay ?? null;
@@ -460,19 +482,11 @@ async function getCurrentMoonData(origin: string): Promise<MoonData | { error: s
 }
 
 /**
- * Derive phase ID from phase name (fallback when phaseAngleDeg is missing)
+ * Derive phase ID from phase name using explicit map (no fuzzy matching).
+ * Returns null if phaseName is not in the canonical list.
  */
-function phaseIdFromPhaseName(phaseName: string): PhaseId {
-  const lower = phaseName.toLowerCase();
-  if (lower.includes("new moon")) return 1;
-  if (lower.includes("waxing crescent")) return 2;
-  if (lower.includes("first quarter")) return 3;
-  if (lower.includes("waxing gibbous")) return 4;
-  if (lower.includes("full moon")) return 5;
-  if (lower.includes("waning gibbous")) return 6;
-  if (lower.includes("last quarter")) return 7;
-  if (lower.includes("waning crescent")) return 8;
-  return 1; // Default fallback
+function phaseIdFromPhaseName(phaseName: string): PhaseId | null {
+  return PHASE_ID_FROM_NAME[phaseName] ?? null;
 }
 
 function buildOrigin(req: Request): string {
