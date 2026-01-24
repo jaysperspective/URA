@@ -221,7 +221,7 @@ function CollectiveSignalsCard({
   autoExpand?: boolean;
 }) {
   const [expanded, setExpanded] = useState(autoExpand);
-  const [showDetails, setShowDetails] = useState(false);
+  const [expandedThemes, setExpandedThemes] = useState<Set<string>>(new Set());
 
   // Auto-expand when prop changes
   useEffect(() => {
@@ -229,6 +229,19 @@ function CollectiveSignalsCard({
       setExpanded(true);
     }
   }, [autoExpand]);
+
+  // Toggle individual theme expansion
+  const toggleTheme = (key: string) => {
+    setExpandedThemes((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   const hasData = (signals.newsThemes?.length ?? 0) > 0 || signals.markets;
 
@@ -338,49 +351,74 @@ function CollectiveSignalsCard({
           {/* News Themes */}
           {topCategories.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-2">
                 <span className="text-xs font-semibold" style={{ color: C.inkMuted }}>
                   Dominant Themes
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowDetails(!showDetails)}
-                  className="text-xs underline"
-                  style={{ color: C.inkSoft }}
-                >
-                  {showDetails ? "hide samples" : "show samples"}
-                </button>
+                <span className="ml-2 text-xs" style={{ color: C.inkSoft }}>
+                  (tap to expand)
+                </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {topCategories.map((cat) => (
-                  <div
-                    key={cat.key}
-                    className="rounded-xl border px-3 py-2"
-                    style={{
-                      background: "rgba(244,235,221,0.60)",
-                      borderColor: C.border,
-                    }}
-                  >
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-sm font-semibold" style={{ color: C.ink }}>
-                        {formatCategory(cat.key)}
-                      </span>
-                      <span className="text-xs" style={{ color: C.inkMuted }}>
-                        ({cat.count})
-                      </span>
-                    </div>
-                    {/* Sample titles only shown when showDetails is true */}
-                    {showDetails && cat.sampleTitles.length > 0 && (
-                      <div
-                        className="mt-1 text-xs line-clamp-2"
-                        style={{ color: C.inkSoft, maxWidth: 220 }}
-                        title={cat.sampleTitles.join(" | ")}
-                      >
-                        {cat.sampleTitles[0]}
+                {topCategories.map((cat) => {
+                  const isThemeExpanded = expandedThemes.has(cat.key);
+                  const hasSamples = cat.sampleTitles.length > 0;
+
+                  return (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => hasSamples && toggleTheme(cat.key)}
+                      className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                        hasSamples ? "cursor-pointer hover:border-opacity-40" : "cursor-default"
+                      }`}
+                      style={{
+                        background: isThemeExpanded
+                          ? "rgba(244,235,221,0.85)"
+                          : "rgba(244,235,221,0.60)",
+                        borderColor: isThemeExpanded
+                          ? "rgba(18,22,32,0.22)"
+                          : C.border,
+                        maxWidth: isThemeExpanded ? 320 : undefined,
+                      }}
+                    >
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-sm font-semibold" style={{ color: C.ink }}>
+                          {formatCategory(cat.key)}
+                        </span>
+                        <span className="text-xs" style={{ color: C.inkMuted }}>
+                          ({cat.count})
+                        </span>
+                        {hasSamples && (
+                          <span
+                            className="ml-1 text-xs transition-transform"
+                            style={{
+                              color: C.inkSoft,
+                              transform: isThemeExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                              display: "inline-block",
+                            }}
+                          >
+                            ▾
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {/* Sample titles shown when this theme is expanded */}
+                      {isThemeExpanded && hasSamples && (
+                        <div className="mt-2 space-y-1">
+                          {cat.sampleTitles.map((title, idx) => (
+                            <div
+                              key={idx}
+                              className="text-xs leading-relaxed"
+                              style={{ color: C.inkMuted }}
+                            >
+                              • {title}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
