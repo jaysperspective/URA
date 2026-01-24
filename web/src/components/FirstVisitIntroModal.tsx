@@ -3,6 +3,16 @@
 
 import { useEffect, useState } from "react";
 
+// URA color palette (matches site aesthetic)
+const C = {
+  moonstone: "#F8F4EE",
+  ink: "rgba(18,22,32,0.92)",
+  inkMuted: "rgba(18,22,32,0.70)",
+  inkSoft: "rgba(18,22,32,0.52)",
+  border: "rgba(18,22,32,0.14)",
+  shadow: "0 26px 90px rgba(0,0,0,0.35)",
+};
+
 type FirstVisitIntroModalProps = {
   storageKey: string;
   title: string;
@@ -57,15 +67,15 @@ export default function FirstVisitIntroModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0, 0, 0, 0.60)" }}
+      style={{ background: "rgba(18, 22, 32, 0.55)" }}
       onClick={handleBackdropClick}
     >
       <div
-        className="w-full max-w-xl rounded-2xl border p-6"
+        className="w-full max-w-md rounded-3xl border px-6 py-7"
         style={{
-          background: "rgba(18, 22, 32, 0.96)",
-          borderColor: "rgba(255, 255, 255, 0.10)",
-          boxShadow: "0 25px 80px rgba(0, 0, 0, 0.50)",
+          background: "linear-gradient(180deg, rgba(248,244,238,0.98) 0%, rgba(239,231,221,0.96) 55%, rgba(231,221,209,0.94) 100%)",
+          borderColor: C.border,
+          boxShadow: C.shadow,
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -73,15 +83,15 @@ export default function FirstVisitIntroModal({
         <div className="flex items-start justify-between">
           <h2
             className="text-2xl font-semibold tracking-tight"
-            style={{ color: "rgba(248, 244, 238, 0.95)" }}
+            style={{ color: C.ink }}
           >
             {title}
           </h2>
           <button
             type="button"
             onClick={handleDismiss}
-            className="ml-4 text-xl leading-none transition-opacity hover:opacity-70"
-            style={{ color: "rgba(248, 244, 238, 0.60)" }}
+            className="ml-4 text-xl leading-none transition-opacity hover:opacity-60"
+            style={{ color: C.inkSoft }}
             aria-label="Close"
           >
             ×
@@ -92,7 +102,7 @@ export default function FirstVisitIntroModal({
         <div
           className="mt-5 text-base leading-relaxed"
           style={{
-            color: "rgba(248, 244, 238, 0.85)",
+            color: C.inkMuted,
             whiteSpace: "pre-wrap",
           }}
         >
@@ -103,11 +113,11 @@ export default function FirstVisitIntroModal({
         <button
           type="button"
           onClick={handleDismiss}
-          className="mt-6 w-full rounded-full py-3 text-sm font-semibold tracking-wide transition-all hover:opacity-90"
+          className="mt-6 w-full rounded-full py-3 text-sm font-semibold tracking-wide transition-all hover:opacity-80"
           style={{
-            background: "rgba(248, 244, 238, 0.12)",
-            color: "rgba(248, 244, 238, 0.95)",
-            border: "1px solid rgba(255, 255, 255, 0.15)",
+            background: "rgba(18,22,32,0.08)",
+            color: C.ink,
+            border: `1px solid ${C.border}`,
           }}
         >
           Got it
