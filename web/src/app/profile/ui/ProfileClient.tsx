@@ -1364,9 +1364,6 @@ export default function ProfileClient(props: Props) {
                 <div className="flex justify-center">
                   <div>{orientation.ok ? orientation.seasonText : "—"}</div>
                 </div>
-                <div className="flex justify-center">
-                  <div>{orientation.ok ? `Phase ${orientation.uraPhaseId}` : "—"}</div>
-                </div>
               </div>
 
               <div className="mt-2 text-sm text-[#403A32]/75">
