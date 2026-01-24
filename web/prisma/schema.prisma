@@ -68,11 +68,17 @@ model Profile {
   natalChartJson Json?
   natalUpdatedAt DateTime?
 
-  // --- Daily “as-of” caches (Asc Year + Lunation) ---
+  // --- Daily "as-of" caches (Asc Year + Lunation) ---
   asOfDate       DateTime?
   ascYearJson    Json?
   lunationJson   Json?
   dailyUpdatedAt DateTime?
+
+  // --- Human Design cache ---
+  humanDesignJson      Json?
+  humanDesignUpdatedAt DateTime?
+  humanDesignVersion   Int?
+  humanDesignBirthHash String?
 
   updatedAt DateTime @updatedAt
 

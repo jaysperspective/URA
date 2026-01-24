@@ -2,10 +2,11 @@
 "use client";
 
 import Link from "next/link";
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
+import type { HumanDesignProfile } from "@/lib/humandesign/types";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 import { sabianFromLon } from "@/lib/sabian";
 
@@ -417,6 +418,289 @@ function PersonalLunationCard({
             >
               Open /lunation
             </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// HUMAN DESIGN CARD
+// ============================================================================
+
+function HumanDesignCard() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hd, setHd] = useState<HumanDesignProfile | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchHD() {
+      try {
+        const res = await fetch("/api/human-design", { cache: "no-store" });
+        const data = await res.json();
+
+        if (!mounted) return;
+
+        if (data.ok && data.humanDesign) {
+          setHd(data.humanDesign);
+          setError(null);
+        } else {
+          setError(data.error || "Failed to load Human Design");
+        }
+      } catch (err) {
+        if (!mounted) return;
+        setError("Failed to load Human Design");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    fetchHD();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] overflow-hidden">
+        <div className="px-6 py-5">
+          <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+            Human Design
+          </div>
+          <div className="mt-2 text-sm text-[#403A32]/70 animate-pulse">
+            Computing your design...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !hd) {
+    return (
+      <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] overflow-hidden">
+        <div className="px-6 py-5">
+          <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+            Human Design
+          </div>
+          <div className="mt-2 text-sm text-[#8B6F47]">
+            {error || "Unable to compute Human Design"}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Format defined centers for display
+  const definedCentersText = hd.defined.centers
+    .filter((c) => c.defined)
+    .map((c) => c.name)
+    .join(", ") || "None";
+
+  // Format channels for display
+  const channelsDisplay = hd.defined.channels.slice(0, 5);
+
+  // Anchor activations (Personality & Design Sun/Earth)
+  const anchors = [
+    { label: "Personality Sun", gate: hd.personality.Sun.gate, line: hd.personality.Sun.line },
+    { label: "Personality Earth", gate: hd.personality.Earth.gate, line: hd.personality.Earth.line },
+    { label: "Design Sun", gate: hd.designActivations.Sun.gate, line: hd.designActivations.Sun.line },
+    { label: "Design Earth", gate: hd.designActivations.Earth.gate, line: hd.designActivations.Earth.line },
+  ];
+
+  return (
+    <div className="rounded-3xl border border-black/10 bg-[#F8F2E8] overflow-hidden">
+      {/* Collapsed header - always visible */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-6 py-5 flex items-center justify-between text-left hover:bg-black/[0.02] transition"
+      >
+        <div className="flex-1">
+          <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+            Human Design
+          </div>
+          <div className="mt-2 text-lg font-semibold text-[#1F1B16]">
+            {hd.type}
+          </div>
+          <div className="mt-1 text-sm text-[#403A32]/75">
+            {hd.profile} • {hd.authority} Authority
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {/* Type indicator */}
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl"
+            style={{
+              background:
+                hd.type === "Generator" || hd.type === "Manifesting Generator"
+                  ? "rgba(139,111,71,0.15)"
+                  : hd.type === "Projector"
+                  ? "rgba(64,58,50,0.12)"
+                  : hd.type === "Manifestor"
+                  ? "rgba(100,80,60,0.15)"
+                  : "rgba(140,131,119,0.12)",
+            }}
+          >
+            {hd.type === "Generator"
+              ? "⚡"
+              : hd.type === "Manifesting Generator"
+              ? "⚡"
+              : hd.type === "Projector"
+              ? "◎"
+              : hd.type === "Manifestor"
+              ? "▶"
+              : "◯"}
+          </div>
+
+          <div
+            className="w-8 h-8 rounded-full border border-black/15 flex items-center justify-center text-[#403A32]/60"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 0.2s",
+              }}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        </div>
+      </button>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div className="px-6 pb-6 pt-2 border-t border-black/5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Left: Core Info */}
+            <div className="space-y-4">
+              {/* Type, Strategy, Authority */}
+              <div className="rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-3">
+                <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                  Core Identity
+                </div>
+                <div className="mt-2 text-sm text-[#1F1B16] space-y-2">
+                  <div className="flex justify-between py-1">
+                    <span className="text-[#403A32]/70">Type</span>
+                    <span className="font-medium">{hd.type}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-[#403A32]/70">Strategy</span>
+                    <span className="font-medium">{hd.strategy}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-[#403A32]/70">Authority</span>
+                    <span className="font-medium">{hd.authority}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-[#403A32]/70">Profile</span>
+                    <span className="font-medium">{hd.profile}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-[#403A32]/70">Definition</span>
+                    <span className="font-medium capitalize">{hd.defined.definitionType}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Defined Centers */}
+              <div className="rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-3">
+                <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                  Defined Centers
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {hd.defined.centers.map((c) => (
+                    <span
+                      key={c.name}
+                      className={`rounded-full px-2.5 py-1 text-xs ${
+                        c.defined
+                          ? "bg-[#8C8377]/20 text-[#1F1B16]"
+                          : "bg-black/5 text-[#403A32]/40"
+                      }`}
+                    >
+                      {c.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Channels & Anchors */}
+            <div className="space-y-4">
+              {/* Channels */}
+              {hd.defined.channels.length > 0 && (
+                <div className="rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-3">
+                  <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                    Defined Channels ({hd.defined.channels.length})
+                  </div>
+                  <div className="mt-2 space-y-1.5">
+                    {channelsDisplay.map((ch) => (
+                      <div key={ch.name} className="text-sm text-[#1F1B16]">
+                        <span className="font-medium">{ch.name}</span>
+                        {ch.displayName && (
+                          <span className="text-[#403A32]/60 ml-2">{ch.displayName}</span>
+                        )}
+                      </div>
+                    ))}
+                    {hd.defined.channels.length > 5 && (
+                      <div className="text-xs text-[#403A32]/50">
+                        +{hd.defined.channels.length - 5} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Anchor Activations */}
+              <div className="rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-3">
+                <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55">
+                  Anchor Activations
+                </div>
+                <div className="mt-2 text-sm text-[#1F1B16] space-y-1.5">
+                  {anchors.map((a) => (
+                    <div key={a.label} className="flex justify-between">
+                      <span className="text-[#403A32]/70 text-xs">{a.label}</span>
+                      <span className="font-medium">
+                        Gate {a.gate}.{a.line}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Explainer */}
+          <div className="mt-5 rounded-2xl border border-black/8 bg-[#F4EFE6] px-4 py-4">
+            <div className="text-[10px] tracking-[0.18em] uppercase text-[#403A32]/55 mb-2">
+              About Human Design
+            </div>
+            <div className="space-y-2 text-sm text-[#403A32]/80 leading-relaxed">
+              <p>
+                Human Design is a synthesis system that combines elements of astrology, the I Ching,
+                Kabbalah, and the chakra system. It uses your exact birth time and location to calculate
+                activations at both your birth moment (Personality) and approximately 88 days prior (Design).
+              </p>
+              <p>
+                Your Type determines how you're designed to interact with the world. Your Authority
+                indicates your optimal decision-making process. Your Profile describes your life role.
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -1235,6 +1519,11 @@ export default function ProfileClient(props: Props) {
                   }
                 />
               </div>
+            </div>
+
+            {/* HUMAN DESIGN */}
+            <div className="mt-8">
+              <HumanDesignCard />
             </div>
 
             {/* PERSONAL LUNATION */}
