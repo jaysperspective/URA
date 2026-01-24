@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import { elementHeaderLabel } from "@/lib/calendar/element";
+import FirstVisitIntroModal from "@/components/FirstVisitIntroModal";
 
 // ============================================
 // TYPES
@@ -484,6 +485,15 @@ function CollectiveSignalsCard({
 }
 
 // ============================================
+// INTRO COPY
+// ============================================
+const SUN_INTRO = `The Sun — the collective world. The action.
+How society moves when the lights are on.
+It's not just identity—it's direction. The visible currents of will, power, production, and momentum shaping the shared environment.
+The Sun is the force of outward motion: what the world builds, amplifies, performs, and projects.
+It's collective intention made physical—systems in motion, culture in motion, history in motion.`;
+
+// ============================================
 // MAIN CLIENT COMPONENT
 // ============================================
 export default function SunClient() {
@@ -641,6 +651,13 @@ export default function SunClient() {
   // ============================================
   return (
     <div className="space-y-5">
+      {/* First Visit Intro Modal */}
+      <FirstVisitIntroModal
+        storageKey="ura:intro:sun:v1"
+        title="Sun"
+        body={SUN_INTRO}
+      />
+
       {/* MAIN CARD */}
       <div className="rounded-3xl border px-6 py-7" style={cardStyle}>
         {/* Context Label */}

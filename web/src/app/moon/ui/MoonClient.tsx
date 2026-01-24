@@ -6,6 +6,7 @@ import type { CSSProperties } from "react";
 
 import PhaseMicrocopyCard from "@/components/PhaseMicrocopyCard";
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
+import FirstVisitIntroModal from "@/components/FirstVisitIntroModal";
 
 type Synthesis = {
   headline: string;
@@ -270,6 +271,13 @@ async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { 
   return { ok: true, json: parsed };
 }
 
+const MOON_INTRO = `The Moon — the collective world. The reaction.
+Not what society does, but how it absorbs.
+The emotional undercurrent beneath the structures. The reflexive response of the collective nervous system.
+It's memory, mood, and meaning before narrative.
+The Moon is the invisible climate: how communities metabolize change, regulate fear, create safety, and store experience.
+It's the subconscious of civilization—the emotional body that responds to whatever the Sun puts into motion.`;
+
 export default function MoonClient() {
   const [ymd, setYmd] = useState<string | null>(null);
   const [data, setData] = useState<CalendarAPI | null>(null);
@@ -379,6 +387,13 @@ export default function MoonClient() {
 
   return (
     <div className="space-y-5">
+      {/* First Visit Intro Modal */}
+      <FirstVisitIntroModal
+        storageKey="ura:intro:moon:v1"
+        title="Moon"
+        body={MOON_INTRO}
+      />
+
       <div className="rounded-3xl border px-6 py-7 text-center" style={cardStyle}>
         <div className="text-sm tracking-widest" style={{ color: M.inkSoft }}>
           MOON CYCLE
