@@ -87,13 +87,24 @@ export class MemoryStore implements RateLimitStore {
   }
 }
 
+// Generic Redis client interface (subset of ioredis methods we use)
+interface RedisClient {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, px: "PX", ttl: number): Promise<string | null>;
+  eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
+  ping(): Promise<string>;
+  quit(): Promise<string>;
+  connect(): Promise<void>;
+  on(event: string, callback: (...args: unknown[]) => void): void;
+}
+
 /**
  * Redis-based rate limit store.
  * Suitable for production multi-instance deployments.
  * Uses dynamic import so ioredis is only loaded when needed.
  */
 class RedisStore implements RateLimitStore {
-  private client: InstanceType<typeof import("ioredis").default> | null = null;
+  private client: RedisClient | null = null;
   private connected = false;
   private initPromise: Promise<void> | null = null;
 
@@ -114,8 +125,9 @@ class RedisStore implements RateLimitStore {
         this.connected = true;
       });
 
-      this.client.on("error", (err) => {
-        console.error("[RateLimitStore] Redis error:", err.message);
+      this.client.on("error", (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[RateLimitStore] Redis error:", message);
         this.connected = false;
       });
 
@@ -130,7 +142,7 @@ class RedisStore implements RateLimitStore {
     }
   }
 
-  private async ensureClient(): Promise<InstanceType<typeof import("ioredis").default> | null> {
+  private async ensureClient(): Promise<RedisClient | null> {
     if (this.initPromise) {
       await this.initPromise;
       this.initPromise = null;
