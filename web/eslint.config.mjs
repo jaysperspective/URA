@@ -13,6 +13,14 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // Custom rules for code quality
+  {
+    rules: {
+      // Warn on explicit any usage to improve type safety
+      // Goal: convert to "error" once violations are addressed
+      "@typescript-eslint/no-explicit-any": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;

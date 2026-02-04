@@ -1,0 +1,229 @@
+// src/lib/rateLimitStore.ts
+// Rate limit store abstraction supporting both in-memory and Redis backends
+
+import Redis from "ioredis";
+
+export type RateLimitEntry = {
+  count: number;
+  windowStart: number;
+};
+
+/**
+ * Interface for rate limit stores.
+ * Implementations must provide get, set, and increment operations.
+ */
+export interface RateLimitStore {
+  /**
+   * Get the current rate limit entry for a key.
+   */
+  get(key: string): Promise<RateLimitEntry | null>;
+
+  /**
+   * Set a rate limit entry with TTL.
+   */
+  set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void>;
+
+  /**
+   * Increment the count for a key and return the new count.
+   * If the key doesn't exist, this should create it with count=1.
+   */
+  increment(key: string, windowStart: number, ttlMs: number): Promise<number>;
+
+  /**
+   * Check if the store is connected and healthy.
+   */
+  isHealthy(): Promise<boolean>;
+}
+
+/**
+ * In-memory rate limit store.
+ * Suitable for single-instance deployments and development.
+ */
+export class MemoryStore implements RateLimitStore {
+  private store = new Map<string, RateLimitEntry>();
+  private lastCleanup = Date.now();
+  private readonly cleanupIntervalMs = 60_000;
+
+  async get(key: string): Promise<RateLimitEntry | null> {
+    this.maybeCleanup();
+    return this.store.get(key) ?? null;
+  }
+
+  async set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void> {
+    this.maybeCleanup();
+    this.store.set(key, entry);
+  }
+
+  async increment(key: string, windowStart: number, ttlMs: number): Promise<number> {
+    this.maybeCleanup();
+    const existing = this.store.get(key);
+
+    if (existing && existing.windowStart === windowStart) {
+      existing.count++;
+      this.store.set(key, existing);
+      return existing.count;
+    }
+
+    // New window or new key
+    this.store.set(key, { count: 1, windowStart });
+    return 1;
+  }
+
+  async isHealthy(): Promise<boolean> {
+    return true;
+  }
+
+  private maybeCleanup(): void {
+    const now = Date.now();
+    if (now - this.lastCleanup < this.cleanupIntervalMs) return;
+
+    // Clean up entries older than 2 minutes
+    const maxAge = 2 * 60_000;
+    for (const [key, entry] of this.store.entries()) {
+      if (now - entry.windowStart > maxAge) {
+        this.store.delete(key);
+      }
+    }
+    this.lastCleanup = now;
+  }
+}
+
+/**
+ * Redis-based rate limit store.
+ * Suitable for production multi-instance deployments.
+ */
+export class RedisStore implements RateLimitStore {
+  private client: Redis;
+  private connected = false;
+
+  constructor(redisUrl: string) {
+    this.client = new Redis(redisUrl, {
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+      lazyConnect: true,
+    });
+
+    this.client.on("connect", () => {
+      this.connected = true;
+    });
+
+    this.client.on("error", (err) => {
+      console.error("[RateLimitStore] Redis error:", err.message);
+      this.connected = false;
+    });
+
+    this.client.on("close", () => {
+      this.connected = false;
+    });
+
+    // Connect immediately
+    this.client.connect().catch((err) => {
+      console.error("[RateLimitStore] Redis connection failed:", err.message);
+    });
+  }
+
+  async get(key: string): Promise<RateLimitEntry | null> {
+    try {
+      const data = await this.client.get(key);
+      if (!data) return null;
+      return JSON.parse(data) as RateLimitEntry;
+    } catch (err) {
+      console.error("[RateLimitStore] Redis get error:", err);
+      return null;
+    }
+  }
+
+  async set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void> {
+    try {
+      await this.client.set(key, JSON.stringify(entry), "PX", ttlMs);
+    } catch (err) {
+      console.error("[RateLimitStore] Redis set error:", err);
+    }
+  }
+
+  async increment(key: string, windowStart: number, ttlMs: number): Promise<number> {
+    try {
+      // Use Lua script for atomic get-check-increment
+      const script = `
+        local key = KEYS[1]
+        local windowStart = tonumber(ARGV[1])
+        local ttlMs = tonumber(ARGV[2])
+
+        local data = redis.call('GET', key)
+        if data then
+          local entry = cjson.decode(data)
+          if entry.windowStart == windowStart then
+            entry.count = entry.count + 1
+            redis.call('SET', key, cjson.encode(entry), 'PX', ttlMs)
+            return entry.count
+          end
+        end
+
+        -- New window or new key
+        local newEntry = {count = 1, windowStart = windowStart}
+        redis.call('SET', key, cjson.encode(newEntry), 'PX', ttlMs)
+        return 1
+      `;
+
+      const result = await this.client.eval(
+        script,
+        1,
+        key,
+        windowStart.toString(),
+        ttlMs.toString()
+      );
+
+      return Number(result);
+    } catch (err) {
+      console.error("[RateLimitStore] Redis increment error:", err);
+      // Return 1 on error to allow the request (fail open)
+      return 1;
+    }
+  }
+
+  async isHealthy(): Promise<boolean> {
+    if (!this.connected) return false;
+    try {
+      await this.client.ping();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    await this.client.quit();
+  }
+}
+
+// Global store instance
+let storeInstance: RateLimitStore | null = null;
+
+/**
+ * Get or create the rate limit store.
+ * Uses Redis if REDIS_URL is set, otherwise falls back to in-memory.
+ */
+export function getRateLimitStore(): RateLimitStore {
+  if (storeInstance) return storeInstance;
+
+  const redisUrl = process.env.REDIS_URL;
+
+  if (redisUrl) {
+    console.log("[RateLimitStore] Using Redis store");
+    storeInstance = new RedisStore(redisUrl);
+  } else {
+    console.log("[RateLimitStore] Using in-memory store (set REDIS_URL for distributed rate limiting)");
+    storeInstance = new MemoryStore();
+  }
+
+  return storeInstance;
+}
+
+/**
+ * Check if the current store is healthy.
+ * Useful for health checks.
+ */
+export async function isRateLimitStoreHealthy(): Promise<boolean> {
+  const store = getRateLimitStore();
+  return store.isHealthy();
+}

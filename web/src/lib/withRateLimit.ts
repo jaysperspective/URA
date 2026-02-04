@@ -25,7 +25,7 @@ export function withRateLimit(
 ): RouteHandler {
   return async (req: NextRequest, context?) => {
     const identifier = getClientIdentifier(req);
-    const { allowed, remaining, resetIn } = checkRateLimit(identifier, config);
+    const { allowed, remaining, resetIn } = await checkRateLimit(identifier, config);
 
     if (!allowed) {
       return rateLimitedResponse(resetIn);

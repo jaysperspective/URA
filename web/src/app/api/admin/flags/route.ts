@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAdminUnlocked } from "@/lib/adminGate";
 import { auditLog } from "@/lib/audit";
+import { flagInputSchema, type FlagInput } from "@/lib/schemas/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -21,19 +22,24 @@ export async function POST(req: Request) {
   const okAdmin = await isAdminUnlocked();
   if (!okAdmin) return NextResponse.json({ ok: false }, { status: 401 });
 
-  let body: any = {};
+  let rawBody: unknown = null;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const key = typeof body?.key === "string" ? body.key.trim() : "";
-  if (!key) return NextResponse.json({ ok: false, error: "Missing key" }, { status: 400 });
+  const parseResult = flagInputSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    const errors = parseResult.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    return NextResponse.json({ ok: false, error: errors }, { status: 400 });
+  }
 
-  const enabled = Boolean(body?.enabled);
-  const description = typeof body?.description === "string" ? body.description.trim().slice(0, 240) : null;
-  const payload = body?.payload ?? undefined;
+  const body: FlagInput = parseResult.data;
+  const key = body.key;
+  const enabled = body.enabled;
+  const description = body.description?.slice(0, 240) ?? null;
+  const payload = body.payload ?? undefined;
 
   const flag = await prisma.featureFlag.upsert({
     where: { key },

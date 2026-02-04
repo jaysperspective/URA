@@ -2,19 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionUserIdFromRequest } from "@/lib/auth";
 import { withStandardRateLimit } from "@/lib/withRateLimit";
+import { eventInputSchema, type EventInput } from "@/lib/schemas/event";
 
 export const dynamic = "force-dynamic";
-
-type InEvent = {
-  type: string;      // "pageview" | "feature" | "error" | "timing" | ...
-  name?: string;
-  path?: string;
-  severity?: string; // "info" | "warn" | "error"
-  sessionToken?: string;
-  durationMs?: number;
-  statusCode?: number;
-  meta?: any;
-};
 
 function cleanStr(v: unknown, max = 200): string | undefined {
   if (typeof v !== "string") return undefined;
@@ -75,14 +65,20 @@ function sanitizeMeta(meta: unknown, depth = 0): JsonObject | undefined {
 }
 
 async function handlePost(req: NextRequest) {
-  let body: InEvent | null = null;
+  let rawBody: unknown = null;
   try {
-    body = (await req.json()) as InEvent;
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const type = cleanStr(body?.type, 40);
+  const parseResult = eventInputSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    return NextResponse.json({ ok: false, error: "Missing or invalid type" }, { status: 400 });
+  }
+
+  const body: EventInput = parseResult.data;
+  const type = cleanStr(body.type, 40);
   if (!type) return NextResponse.json({ ok: false, error: "Missing type" }, { status: 400 });
 
   // If logged in, attach userId (no hard requirement)

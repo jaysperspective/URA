@@ -1,33 +1,21 @@
 // src/app/api/astrology/synthesize/route.ts
 import { NextResponse } from "next/server";
 import doctrine from "@/lib/doctrine/doctrine.generated.json";
+import { synthesizeInputSchema, type Lens, type Mode, type SynthesizeInput } from "@/lib/schemas/astrology";
 
-type Lens =
-  | "general"
-  | "relationships"
-  | "work"
-  | "health"
-  | "creativity"
-  | "spiritual"
-  | "shadow"
-  | "growth";
-
-type Mode = "placement" | "pair" | "mini_chart";
-
-type ReqBody = {
-  version: "1.0";
-  mode: Mode;
-  keys: string[]; // doctrine keys only: planet|sign|house (but we accept loose casing)
-  lens?: Lens;
-  question?: string;
-  output?: {
-    format?: "short" | "standard" | "deep";
-    maxBullets?: number;
-    includeJournalPrompts?: boolean;
-  };
-};
-
-type DoctrineCard = any;
+// DoctrineCard matches the structure from doctrine.generated.json
+interface DoctrineCard {
+  key: string;
+  labels?: { placement?: string; modality?: string; element?: string };
+  function?: { core?: string };
+  style?: { strategy?: string };
+  arena?: { domain?: string };
+  synthesis?: string;
+  strengths?: string[];
+  shadows?: string[];
+  directives?: string[];
+  [key: string]: unknown;
+}
 
 const CARDS: DoctrineCard[] = (doctrine as any).cards ?? [];
 
@@ -216,26 +204,25 @@ function safeJsonParse(s: string) {
 }
 
 export async function POST(req: Request) {
-  let body: ReqBody | null = null;
+  let rawBody: unknown = null;
 
   try {
-    body = (await req.json()) as ReqBody;
+    rawBody = await req.json();
   } catch {
     return bad("Invalid JSON body.");
   }
 
-  if (!body || body.version !== "1.0") return bad("version must be '1.0'.");
-
-  const mode = body.mode;
-  const keysRaw = Array.isArray(body.keys) ? body.keys.map(String) : [];
-  const lens: Lens = (body.lens as Lens) || "general";
-  const question = (body.question || "").trim();
-
-  if (!mode) return bad("mode is required.");
-  if (keysRaw.length < 1) return bad("keys must be a non-empty array.");
-  if (!validateModeCount(mode, keysRaw.length)) {
-    return bad(`keys length does not match mode. mode=${mode} keys=${keysRaw.length}`);
+  const parseResult = synthesizeInputSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    const errors = parseResult.error.issues.map((i) => i.message).join("; ");
+    return bad(`Validation failed: ${errors}`);
   }
+
+  const body: SynthesizeInput = parseResult.data;
+  const mode = body.mode;
+  const keysRaw = body.keys;
+  const lens: Lens = body.lens ?? "general";
+  const question = (body.question || "").trim();
 
   // ✅ Keep original for usedKeys, but resolve tolerant
   const cards = keysRaw.map((k) => resolveCard(k));

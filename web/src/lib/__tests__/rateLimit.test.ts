@@ -8,55 +8,55 @@ describe("rateLimit", () => {
   });
 
   describe("checkRateLimit", () => {
-    it("allows first request", () => {
-      const result = checkRateLimit("test-ip-1", RATE_LIMITS.standard);
+    it("allows first request", async () => {
+      const result = await checkRateLimit("test-ip-1", RATE_LIMITS.standard);
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(59);
     });
 
-    it("decrements remaining count", () => {
-      checkRateLimit("test-ip-2", RATE_LIMITS.standard);
-      const result = checkRateLimit("test-ip-2", RATE_LIMITS.standard);
+    it("decrements remaining count", async () => {
+      await checkRateLimit("test-ip-2", RATE_LIMITS.standard);
+      const result = await checkRateLimit("test-ip-2", RATE_LIMITS.standard);
       expect(result.remaining).toBe(58);
     });
 
-    it("blocks after max requests", () => {
+    it("blocks after max requests", async () => {
       const config = { windowMs: 60000, maxRequests: 3, keyPrefix: "test" };
 
-      checkRateLimit("test-ip-3", config);
-      checkRateLimit("test-ip-3", config);
-      checkRateLimit("test-ip-3", config);
+      await checkRateLimit("test-ip-3", config);
+      await checkRateLimit("test-ip-3", config);
+      await checkRateLimit("test-ip-3", config);
 
-      const result = checkRateLimit("test-ip-3", config);
+      const result = await checkRateLimit("test-ip-3", config);
       expect(result.allowed).toBe(false);
       expect(result.remaining).toBe(0);
     });
 
-    it("resets after window expires", () => {
+    it("resets after window expires", async () => {
       const config = { windowMs: 1000, maxRequests: 2, keyPrefix: "test" };
 
-      checkRateLimit("test-ip-4", config);
-      checkRateLimit("test-ip-4", config);
+      await checkRateLimit("test-ip-4", config);
+      await checkRateLimit("test-ip-4", config);
 
       // Blocked now
-      let result = checkRateLimit("test-ip-4", config);
+      let result = await checkRateLimit("test-ip-4", config);
       expect(result.allowed).toBe(false);
 
       // Advance time past window
       vi.advanceTimersByTime(1001);
 
       // Should be allowed again
-      result = checkRateLimit("test-ip-4", config);
+      result = await checkRateLimit("test-ip-4", config);
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(1);
     });
 
-    it("uses different keys for different prefixes", () => {
+    it("uses different keys for different prefixes", async () => {
       const config1 = { windowMs: 60000, maxRequests: 1, keyPrefix: "api1" };
       const config2 = { windowMs: 60000, maxRequests: 1, keyPrefix: "api2" };
 
-      checkRateLimit("same-ip", config1);
-      const result = checkRateLimit("same-ip", config2);
+      await checkRateLimit("same-ip", config1);
+      const result = await checkRateLimit("same-ip", config2);
 
       expect(result.allowed).toBe(true);
     });

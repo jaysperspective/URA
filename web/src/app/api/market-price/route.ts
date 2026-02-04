@@ -1,5 +1,6 @@
 // src/app/api/market-price/route.ts
 import { NextResponse } from "next/server";
+import { marketPriceInputSchema, type MarketPriceInput } from "@/lib/schemas/market";
 
 function isCryptoSymbol(symbolRaw: string) {
   return symbolRaw.toUpperCase().trim().includes("-");
@@ -16,11 +17,15 @@ async function safeJson(r: Response) {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const symbolRaw = String(body?.symbol ?? "").trim();
-    if (!symbolRaw) return NextResponse.json({ ok: false, error: "Missing symbol" }, { status: 400 });
+    const rawBody = await req.json().catch(() => ({}));
+    const parseResult = marketPriceInputSchema.safeParse(rawBody);
 
-    const symbol = symbolRaw.toUpperCase();
+    if (!parseResult.success) {
+      return NextResponse.json({ ok: false, error: "Missing or invalid symbol" }, { status: 400 });
+    }
+
+    const body: MarketPriceInput = parseResult.data;
+    const symbol = body.symbol; // Already transformed to uppercase
 
     // --- CRYPTO (Coinbase Exchange) ---
     if (isCryptoSymbol(symbol)) {

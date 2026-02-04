@@ -1,6 +1,7 @@
 // web/src/app/api/geocode/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { withStandardRateLimit } from "@/lib/withRateLimit";
+import { geocodeInputSchema, type GeocodeInput } from "@/lib/schemas/market";
 
 /**
  * Simple Nominatim geocoder proxy with in-memory caching.
@@ -38,15 +39,18 @@ function setCache(key: string, payload: any) {
 
 async function handlePost(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => null)) as any;
-    const q = typeof body?.q === "string" ? body.q.trim() : "";
+    const rawBody = await req.json().catch(() => null);
+    const parseResult = geocodeInputSchema.safeParse(rawBody);
 
-    if (!q) {
+    if (!parseResult.success) {
       return NextResponse.json(
         { ok: false, error: 'Missing q. Example: { "q": "Danville, VA" }' },
         { status: 400 }
       );
     }
+
+    const body: GeocodeInput = parseResult.data;
+    const q = body.q;
 
     const cacheKey = `${GEOCODE_CACHE_VERSION}|${q.toLowerCase()}`;
     const cached = getCache(cacheKey);

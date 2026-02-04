@@ -1,5 +1,6 @@
 // src/app/api/market-candle/route.ts
 import { NextResponse } from "next/server";
+import { marketCandleInputSchema, type MarketCandleInput } from "@/lib/schemas/market";
 
 type Candle = {
   dayKey: string; // YYYY-MM-DD in the candle's timezone context
@@ -162,17 +163,18 @@ async function fetchCoinbase3Day(productId: string, pivotUTCYMD: string) {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const symbolRaw = String(body?.symbol ?? "").trim();
-    const pivotISO = String(body?.pivotISO ?? "").trim();
+    const rawBody = await req.json().catch(() => ({}));
+    const parseResult = marketCandleInputSchema.safeParse(rawBody);
 
-    if (!symbolRaw) return NextResponse.json({ ok: false, error: "Missing symbol" }, { status: 400 });
-    if (!pivotISO) return NextResponse.json({ ok: false, error: "Missing pivotISO" }, { status: 400 });
-
-    const pivotDate = new Date(pivotISO);
-    if (Number.isNaN(pivotDate.getTime())) {
-      return NextResponse.json({ ok: false, error: "Invalid pivotISO datetime" }, { status: 400 });
+    if (!parseResult.success) {
+      const errors = parseResult.error.issues.map((i) => i.message).join("; ");
+      return NextResponse.json({ ok: false, error: errors }, { status: 400 });
     }
+
+    const body: MarketCandleInput = parseResult.data;
+    const symbolRaw = body.symbol;
+    const pivotISO = body.pivotISO;
+    const pivotDate = new Date(pivotISO);
 
     const crypto = isCryptoSymbol(symbolRaw);
 
