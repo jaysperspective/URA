@@ -45,11 +45,13 @@ function ProgressBar({
   labelLeft,
   labelRight,
   meta,
+  slim = false,
 }: {
   value: number;
   labelLeft: string;
   labelRight: string;
   meta?: string;
+  slim?: boolean;
 }) {
   const pct = clamp01(value) * 100;
   return (
@@ -61,8 +63,86 @@ function ProgressBar({
 
       {meta ? <div className="mt-1 text-xs text-[#403A32]/70">{meta}</div> : null}
 
-      <div className="mt-2 h-2 rounded-full bg-black/10 overflow-hidden">
+      <div className={`mt-2 rounded-full bg-black/10 overflow-hidden ${slim ? "h-1.5" : "h-2"}`}>
         <div className="h-full rounded-full bg-[#8C8377]" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * SeasonProgressCard - Combined card showing 90° season arc (primary) and 45° segment (secondary).
+ */
+function SeasonProgressCard({
+  seasonArcDeg,
+  seasonProgress01,
+  ok,
+}: {
+  seasonArcDeg: number | null;
+  seasonProgress01: number;
+  ok: boolean;
+}) {
+  // Derive 45° segment values from the 90° arc
+  const seasonSegDeg = seasonArcDeg != null ? seasonArcDeg % 45 : null;
+  const segmentProgress01 = seasonSegDeg != null ? seasonSegDeg / 45 : 0;
+  const segmentIndex = (seasonArcDeg ?? 0) < 45 ? 1 : 2;
+  const segmentLabel = segmentIndex === 1 ? "0°–45°" : "45°–90°";
+
+  return (
+    <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
+      {/* Header */}
+      <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">
+        Season Progress
+      </div>
+      <div className="mt-2 text-sm text-[#403A32]/75">
+        Progress within the current season.
+      </div>
+
+      {/* Primary: 90° Season Arc */}
+      <div className="mt-4">
+        <div className="flex items-center justify-between text-xs text-[#403A32]/70">
+          <span className="font-medium">90° season arc</span>
+          <span>90°</span>
+        </div>
+        <div className="mt-2 h-2 rounded-full bg-black/10 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-[#8C8377]"
+            style={{ width: `${clamp01(seasonProgress01) * 100}%` }}
+          />
+        </div>
+        <div className="mt-1 flex items-center justify-between text-xs text-[#403A32]/70">
+          <span>
+            {ok && typeof seasonArcDeg === "number"
+              ? `${seasonArcDeg.toFixed(2)}° / 90°`
+              : "—"}
+          </span>
+          <span className="text-[#403A32]/50">Segment: {segmentLabel}</span>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div className="mt-4 border-t border-black/5" />
+
+      {/* Secondary: 45° Season Segment */}
+      <div className="mt-3 pl-3">
+        <div className="flex items-center justify-between text-xs text-[#403A32]/60">
+          <span>45° season segment</span>
+          <span>45°</span>
+        </div>
+        <div className="mt-2 h-1.5 rounded-full bg-black/10 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-[#8C8377]/80"
+            style={{ width: `${clamp01(segmentProgress01) * 100}%` }}
+          />
+        </div>
+        <div className="mt-1 flex items-center justify-between text-xs text-[#403A32]/60">
+          <span>
+            {ok && typeof seasonSegDeg === "number"
+              ? `${seasonSegDeg.toFixed(2)}° / 45°`
+              : "—"}
+          </span>
+          <span>Segment {segmentIndex} of 2</span>
+        </div>
       </div>
     </div>
   );
@@ -1483,39 +1563,13 @@ export default function ProfileClient(props: Props) {
               )}
             </div>
 
-            {/* PROGRESS */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">90° Season Arc</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season (0–90°).</div>
-
-                <ProgressBar
-                  value={orientation.seasonProgress01}
-                  labelLeft="0°"
-                  labelRight="90°"
-                  meta={
-                    orientation.ok && typeof orientation.withinSeason === "number"
-                      ? `${orientation.withinSeason.toFixed(2)}° / 90°`
-                      : "—"
-                  }
-                />
-              </div>
-
-              <div className="rounded-2xl border border-black/10 bg-[#F8F2E8] px-5 py-4">
-                <div className="text-[11px] tracking-[0.18em] uppercase text-[#403A32]/60">45° Season Segment</div>
-                <div className="mt-2 text-sm text-[#403A32]/75">Progress within the current season.</div>
-
-                <ProgressBar
-                  value={orientation.modalityProgress01}
-                  labelLeft="0°"
-                  labelRight="45°"
-                  meta={
-                    orientation.ok && typeof orientation.withinModality === "number"
-                      ? `${orientation.withinModality.toFixed(2)}° / 45°`
-                      : "—"
-                  }
-                />
-              </div>
+            {/* SEASON PROGRESS (combined 90° + 45° nested) */}
+            <div className="mt-4">
+              <SeasonProgressCard
+                seasonArcDeg={orientation.withinSeason}
+                seasonProgress01={orientation.seasonProgress01}
+                ok={orientation.ok}
+              />
             </div>
 
             {/* HUMAN DESIGN */}
