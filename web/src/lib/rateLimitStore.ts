@@ -1,7 +1,6 @@
 // src/lib/rateLimitStore.ts
 // Rate limit store abstraction supporting both in-memory and Redis backends
-
-import Redis from "ioredis";
+// Redis is loaded dynamically only when REDIS_URL is configured
 
 export type RateLimitEntry = {
   count: number;
@@ -91,40 +90,60 @@ export class MemoryStore implements RateLimitStore {
 /**
  * Redis-based rate limit store.
  * Suitable for production multi-instance deployments.
+ * Uses dynamic import so ioredis is only loaded when needed.
  */
-export class RedisStore implements RateLimitStore {
-  private client: Redis;
+class RedisStore implements RateLimitStore {
+  private client: InstanceType<typeof import("ioredis").default> | null = null;
   private connected = false;
+  private initPromise: Promise<void> | null = null;
 
-  constructor(redisUrl: string) {
-    this.client = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      lazyConnect: true,
-    });
+  constructor(private redisUrl: string) {
+    this.initPromise = this.init();
+  }
 
-    this.client.on("connect", () => {
-      this.connected = true;
-    });
+  private async init(): Promise<void> {
+    try {
+      const { default: Redis } = await import("ioredis");
+      this.client = new Redis(this.redisUrl, {
+        maxRetriesPerRequest: 3,
+        enableReadyCheck: true,
+        lazyConnect: true,
+      });
 
-    this.client.on("error", (err) => {
-      console.error("[RateLimitStore] Redis error:", err.message);
-      this.connected = false;
-    });
+      this.client.on("connect", () => {
+        this.connected = true;
+      });
 
-    this.client.on("close", () => {
-      this.connected = false;
-    });
+      this.client.on("error", (err) => {
+        console.error("[RateLimitStore] Redis error:", err.message);
+        this.connected = false;
+      });
 
-    // Connect immediately
-    this.client.connect().catch((err) => {
-      console.error("[RateLimitStore] Redis connection failed:", err.message);
-    });
+      this.client.on("close", () => {
+        this.connected = false;
+      });
+
+      await this.client.connect();
+    } catch (err) {
+      console.error("[RateLimitStore] Redis initialization failed:", err);
+      this.client = null;
+    }
+  }
+
+  private async ensureClient(): Promise<InstanceType<typeof import("ioredis").default> | null> {
+    if (this.initPromise) {
+      await this.initPromise;
+      this.initPromise = null;
+    }
+    return this.client;
   }
 
   async get(key: string): Promise<RateLimitEntry | null> {
+    const client = await this.ensureClient();
+    if (!client) return null;
+
     try {
-      const data = await this.client.get(key);
+      const data = await client.get(key);
       if (!data) return null;
       return JSON.parse(data) as RateLimitEntry;
     } catch (err) {
@@ -134,14 +153,20 @@ export class RedisStore implements RateLimitStore {
   }
 
   async set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void> {
+    const client = await this.ensureClient();
+    if (!client) return;
+
     try {
-      await this.client.set(key, JSON.stringify(entry), "PX", ttlMs);
+      await client.set(key, JSON.stringify(entry), "PX", ttlMs);
     } catch (err) {
       console.error("[RateLimitStore] Redis set error:", err);
     }
   }
 
   async increment(key: string, windowStart: number, ttlMs: number): Promise<number> {
+    const client = await this.ensureClient();
+    if (!client) return 1; // Fail open
+
     try {
       // Use Lua script for atomic get-check-increment
       const script = `
@@ -165,7 +190,7 @@ export class RedisStore implements RateLimitStore {
         return 1
       `;
 
-      const result = await this.client.eval(
+      const result = await client.eval(
         script,
         1,
         key,
@@ -182,9 +207,10 @@ export class RedisStore implements RateLimitStore {
   }
 
   async isHealthy(): Promise<boolean> {
-    if (!this.connected) return false;
+    const client = await this.ensureClient();
+    if (!client || !this.connected) return false;
     try {
-      await this.client.ping();
+      await client.ping();
       return true;
     } catch {
       return false;
@@ -192,7 +218,10 @@ export class RedisStore implements RateLimitStore {
   }
 
   async disconnect(): Promise<void> {
-    await this.client.quit();
+    const client = await this.ensureClient();
+    if (client) {
+      await client.quit();
+    }
   }
 }
 
