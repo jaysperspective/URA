@@ -9,6 +9,7 @@ import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
 import type { HumanDesignProfile } from "@/lib/humandesign/types";
 import URAFoundationPanel from "@/components/ura/URAFoundationPanel";
 import { sabianFromLon } from "@/lib/sabian";
+import HumanDesignReads from "./HumanDesignReads";
 
 function norm360(d: number) {
   let x = d % 360;
@@ -666,6 +667,7 @@ function HumanDesignCard() {
       {/* Expanded content */}
       {expanded && (
         <div className="px-6 pb-6 pt-2 border-t border-black/5">
+          <HumanDesignReads>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Left: Core Info */}
             <div className="space-y-4">
@@ -782,6 +784,7 @@ function HumanDesignCard() {
               </p>
             </div>
           </div>
+          </HumanDesignReads>
         </div>
       )}
     </div>
