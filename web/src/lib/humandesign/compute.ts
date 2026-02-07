@@ -37,7 +37,8 @@ const DESIGN_SEARCH_END_DAYS = -70; // End search ~70 days before birth
 const DESIGN_SEARCH_TOLERANCE_DEG = 0.01; // 0.01° tolerance
 
 // Current version for cache invalidation
-export const HD_VERSION = 1;
+// v2: Fixed mandala offset (1.875°), added missing channels 10-34, 20-57
+export const HD_VERSION = 2;
 
 // ============================================================================
 // TIMEZONE CONVERSION HELPERS

@@ -231,6 +231,7 @@ export const BODYGRAPH_CHANNELS: Channel[] = [
 
   // Throat to Spleen
   { name: "16-48", gates: [16, 48], centers: ["Spleen", "Throat"], displayName: "The Wavelength" },
+  { name: "20-57", gates: [20, 57], centers: ["Throat", "Spleen"], displayName: "The Brain Wave" },
 
   // Throat to Solar Plexus
   { name: "12-22", gates: [12, 22], centers: ["SolarPlexus", "Throat"], displayName: "Openness" },
@@ -243,6 +244,7 @@ export const BODYGRAPH_CHANNELS: Channel[] = [
   { name: "5-15", gates: [5, 15], centers: ["Sacral", "G"], displayName: "Rhythm" },
   { name: "2-14", gates: [2, 14], centers: ["Sacral", "G"], displayName: "The Beat" },
   { name: "29-46", gates: [29, 46], centers: ["Sacral", "G"], displayName: "Discovery" },
+  { name: "10-34", gates: [10, 34], centers: ["G", "Sacral"], displayName: "Exploration" },
 
   // G to Spleen
   { name: "10-57", gates: [10, 57], centers: ["G", "Spleen"], displayName: "Perfected Form" },

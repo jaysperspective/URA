@@ -14,6 +14,14 @@ export const GATE_SPAN = 5.625;
 export const LINE_SPAN = GATE_SPAN / 6; // 0.9375° per line
 
 /**
+ * Canonical Human Design mandala offset.
+ * The HD wheel starts Gate 25 Line 1 at 358°07'30" tropical (1°52'30" before 0° Aries).
+ * This 1.875° offset aligns the gate/line boundaries with the Jovian Archive standard.
+ * Applied by adding this value to the raw tropical longitude before gate lookup.
+ */
+export const MANDALA_OFFSET = 1.875;
+
+/**
  * Complete gate-degree mapping for Human Design
  * Ordered by zodiac position (0° Aries = 0°)
  * Each entry shows: gate number, start degree, end degree
@@ -135,10 +143,11 @@ export function inRange(deg: number, start: number, end: number): boolean {
 }
 
 /**
- * Find the gate for a given zodiac degree
+ * Find the gate for a given zodiac degree.
+ * Applies the canonical HD mandala offset before lookup.
  */
 export function gateForDeg(deg: number): { gate: number; startDeg: number; endDeg: number } | null {
-  const d = normalizeDeg(deg);
+  const d = normalizeDeg(deg + MANDALA_OFFSET);
 
   // Binary search for the gate
   let low = 0;
@@ -170,14 +179,15 @@ export function gateForDeg(deg: number): { gate: number; startDeg: number; endDe
 
 /**
  * Calculate the line (1-6) for a degree within a gate
- * Line 1 starts at the beginning of the gate, Line 6 at the end
+ * Line 1 starts at the beginning of the gate, Line 6 at the end.
+ * Applies the canonical HD mandala offset before calculation.
  */
 export function lineForDegWithinGate(
   deg: number,
   gateStart: number,
   gateEnd: number
 ): number {
-  const d = normalizeDeg(deg);
+  const d = normalizeDeg(deg + MANDALA_OFFSET);
 
   // Calculate offset from gate start (handle wrap-around)
   let offset: number;
@@ -200,7 +210,8 @@ export function lineForDegWithinGate(
 }
 
 /**
- * Get gate and line for a zodiac degree
+ * Get gate and line for a tropical zodiac degree.
+ * The mandala offset is applied internally by gateForDeg and lineForDegWithinGate.
  */
 export function getGateAndLine(deg: number): { gate: number; line: number } | null {
   const range = gateForDeg(deg);
