@@ -40,7 +40,8 @@ const DESIGN_SEARCH_MIN_INTERVAL_MS = 1000; // 1 second minimum interval
 // Current version for cache invalidation
 // v2: Fixed mandala offset (1.875°), added missing channels 10-34, 20-57
 // v3: Fixed design-time solver precision (fractional minutes, tighter tolerance)
-export const HD_VERSION = 3;
+// v4: Fixed MANDALA_OFFSET from 1.875° to 1.75° (Gate 41.1 = 2°00' Aquarius)
+export const HD_VERSION = 4;
 
 // ============================================================================
 // TIMEZONE CONVERSION HELPERS

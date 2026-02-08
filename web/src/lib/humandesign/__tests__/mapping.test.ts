@@ -38,8 +38,8 @@ describe("gate range table", () => {
     expect(result.errors).toEqual([]);
   });
 
-  it("MANDALA_OFFSET is 1.875°", () => {
-    expect(MANDALA_OFFSET).toBe(1.875);
+  it("MANDALA_OFFSET is 1.75°", () => {
+    expect(MANDALA_OFFSET).toBe(1.75);
   });
 });
 
@@ -73,15 +73,16 @@ describe("bodygraph channels", () => {
 
 describe("getGateAndLine", () => {
   it("maps 0° tropical to Gate 25 (mandala offset shifts into Gate 25)", () => {
-    // 0° + 1.875° offset = 1.875°, which is inside Gate 25 (0-5.625)
+    // 0° + 1.75° offset = 1.75°, which is inside Gate 25 (0-5.625)
     const result = getGateAndLine(0);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);
   });
 
   it("maps a degree just before offset boundary to correct gate", () => {
-    // 358.125° tropical + 1.875° = 360° → normalized to 0° → Gate 25
-    const result = getGateAndLine(358.125);
+    // Gate 25 starts at mandala 0°. raw = 0 - 1.75 = -1.75 → 358.25° tropical
+    // 358.25 + 1.75 = 360 → normalized to 0° → Gate 25 line 1
+    const result = getGateAndLine(358.25);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);
     expect(result!.line).toBe(1);
@@ -89,29 +90,26 @@ describe("getGateAndLine", () => {
 
   it("correctly computes lines within a gate", () => {
     // Gate 25 spans 0-5.625 in the table.
-    // For line 3: need shifted deg in [1.875, 2.8125) within gate 25.
-    // So raw deg + 1.875 should be in [1.875, 2.8125).
-    // raw deg = 0 → shifted = 1.875 → degIntoGate = 1.875 → line 3
+    // raw = 0 → shifted = 1.75 → degIntoGate = 1.75 → lineFloat = 1.867 → line 2
     const result = getGateAndLine(0.0);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);
-    expect(result!.line).toBe(3);
+    expect(result!.line).toBe(2);
   });
 
   it("line 1 at the very start of a gate", () => {
     // Gate 25 starts at 0° in table. Need shifted deg right at 0°.
-    // raw deg + 1.875 = 0 (mod 360) → raw deg = 358.125
-    const result = getGateAndLine(358.125);
+    // raw + 1.75 = 0 (mod 360) → raw = 358.25
+    const result = getGateAndLine(358.25);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);
     expect(result!.line).toBe(1);
   });
 
   it("line 6 at the end of a gate", () => {
-    // Gate 25 ends at 5.625° in table. Line 6 = [4.6875, 5.625).
-    // Need shifted deg in [4.6875, 5.625). shifted = raw + 1.875
-    // raw = 4.6875 - 1.875 = 2.8125
-    const result = getGateAndLine(2.8125 + 0.5); // 3.3125 + 1.875 = 5.1875 → line 6
+    // Gate 25 ends at 5.625° in table. Line 6 = degIntoGate in [4.6875, 5.625).
+    // midpoint degIntoGate = 5.15625, shifted = 5.15625, raw = 5.15625 - 1.75 = 3.40625
+    const result = getGateAndLine(3.40625);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);
     expect(result!.line).toBe(6);
@@ -120,8 +118,8 @@ describe("getGateAndLine", () => {
   it("handles wrap-around at 360°", () => {
     const result = getGateAndLine(359.999);
     expect(result).not.toBeNull();
-    // 359.999 + 1.875 = 361.874 → normalized 1.874 → Gate 25
-    // degIntoGate = 1.874, line = floor(1.874/0.9375)+1 = 2+1 = 3? No: floor(1.999)=1, so line 2
+    // 359.999 + 1.75 = 361.749 → normalized 1.749 → Gate 25
+    // degIntoGate = 1.749, lineFloat = 1.866 → line 2
     expect(result!.gate).toBe(25);
     expect(result!.line).toBe(2);
   });
@@ -129,7 +127,7 @@ describe("getGateAndLine", () => {
   it("handles negative degrees", () => {
     const result = getGateAndLine(-1);
     expect(result).not.toBeNull();
-    // -1 + 1.875 = 0.875 → normalized 0.875 → Gate 25 line 1
+    // -1 + 1.75 = 0.75 → Gate 25, degIntoGate = 0.75 → line 1
     expect(result!.gate).toBe(25);
     expect(result!.line).toBe(1);
   });
@@ -137,11 +135,12 @@ describe("getGateAndLine", () => {
   // Specific known gate boundaries
   it("maps early Aquarius degrees to Gate 41", () => {
     // Gate 41 in table: 303.75-309.375
-    // For raw deg to land in gate 41: raw + 1.875 ∈ [303.75, 309.375)
-    // raw = 302 → shifted = 303.875 → in range → gate 41
+    // Gate 41.1 starts at 2°00' Aquarius = 302° tropical
+    // raw = 302 → shifted = 303.75 → at gate start → Gate 41 line 1
     const result = getGateAndLine(302);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(41);
+    expect(result!.line).toBe(1);
   });
 });
 
@@ -151,47 +150,17 @@ describe("getGateAndLine", () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("Asun profile fixture", () => {
-  // We test the mapping + downstream logic with longitudes that produce
-  // the expected gate.line results:
-  //   P Sun:   41.3  →  needs shifted deg in gate 41, line 3
-  //   P Earth: 31.3  →  needs shifted deg in gate 31, line 3
-  //   D Sun:   28.5  →  needs shifted deg in gate 28, line 5
-  //   D Earth: 27.5  →  needs shifted deg in gate 27, line 5
+  // Anchor gate.line expectations (verified at MANDALA_OFFSET=1.75):
+  //   P Sun:   Gate 41, Line 3
+  //   P Earth: Gate 31, Line 3
+  //   D Sun:   Gate 28, Line 5
+  //   D Earth: Gate 27, Line 5
 
-  // Gate 41: table range 303.75-309.375. Line 3 offset: [1.875, 2.8125)
-  // shifted = 303.75 + 2.0 = 305.75. raw = 305.75 - 1.875 = 303.875
   const pSunLon = 303.875;
-  // Earth = Sun + 180
   const pEarthLon = normalizeDeg(pSunLon + 180); // 123.875
 
-  // Gate 31: table range 123.75-129.375. Line 3: shifted in [125.625, 126.5625)
-  // pEarthLon shifted = 123.875 + 1.875 = 125.75 → in gate 31, line 3 ✓
-
-  // Gate 28: table range 213.75-219.375. Line 5: offset [3.75, 4.6875)
-  // shifted = 213.75 + 4.0 = 217.75. raw = 217.75 - 1.875 = 215.875
   const dSunLon = 215.875;
   const dEarthLon = normalizeDeg(dSunLon + 180); // 35.875
-
-  // Gate 27: table range 33.75-39.375. Line 5: offset [3.75, 4.6875)
-  // shifted = 35.875 + 1.875 = 37.75 → 37.75 - 33.75 = 4.0 → line 5 ✓
-
-  // Build planetary longitudes with other planets placed to NOT activate
-  // gates 26 or 44 (which would create the false 26-44 channel).
-  // We set planets to activate gates that form expected channels:
-  //   7-31, 27-50, 32-54, 28-38
-
-  // Required active gates: 7, 31, 27, 50, 32, 54, 28, 38
-  // P Sun=41, P Earth=31, D Sun=28, D Earth=27 already provide: 41, 31, 28, 27
-  // Need to activate: 7, 50, 32, 54, 38
-
-  // For the test we position other planets to provide these gates
-  // without hitting 26 or 44.
-
-  // Gate 7: table 135.0-140.625 → shifted mid = 137.5 → raw = 137.5-1.875 = 135.625
-  // Gate 50: table 208.125-213.75 → shifted mid = 210.9375 → raw = 209.0625
-  // Gate 32: table 202.5-208.125 → shifted mid = 205.3125 → raw = 203.4375
-  // Gate 54: table 286.875-292.5 → shifted mid = 289.6875 → raw = 287.8125
-  // Gate 38: table 281.25-286.875 → shifted mid = 284.0625 → raw = 282.1875
 
   const personalityLongs: PlanetaryLongitudes = {
     sun: pSunLon,
@@ -203,7 +172,7 @@ describe("Asun profile fixture", () => {
     saturn: 290.0,     // → gate 54 (dup, fine)
     uranus: 280.0,     // → gate 58
     neptune: 282.1875, // → gate 38
-    pluto: 240.0,      // → gate 34
+    pluto: 240.0,      // → gate 14 (at offset 1.75)
     northNode: 200.0,  // → gate 57
     southNode: 20.0,   // → gate 51
   };
@@ -285,66 +254,53 @@ describe("Asun profile fixture", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// Moni profile fixture (deterministic — no API calls)
-// Verifies Profile 6/2 with longitudes near a line boundary.
-// This is the regression test for the design-sun-line +1 drift bug.
+// Moni golden fixture (deterministic — no API calls)
+// Uses the ACTUAL longitudes from the debug output (astro service).
+// This is the regression test for the MANDALA_OFFSET / line-drift bug.
 // ═══════════════════════════════════════════════════════════════════
 
-describe("Moni profile fixture (6/2 regression)", () => {
-  // Personality Sun → line 6
-  // Gate 23: table range 50.625–56.25.
-  // Line 6: offset [4.6875, 5.625) → shifted [55.3125, 56.25)
-  // raw = 53.9 → shifted = 55.775 → degIntoGate = 5.15 → lineFloat = 5.493 → line 6
-  const pSunLon = 53.9;
+describe("Moni golden fixture (6/2 regression)", () => {
+  // Real Moni longitudes from astro service debug output
+  const pSunLon = 54.325850;  // → Gate 23 Line 6
+  const dSunLon = 326.325783; // → Gate 30 Line 2
 
-  // Design Sun → line 2 (near the line 2/3 boundary at offset 1.875)
-  // Gate 30: table range 326.25–331.875.
-  // Line 2: offset [0.9375, 1.875) → shifted [327.1875, 328.125)
-  // raw = 325.9 → shifted = 327.775 → degIntoGate = 1.525 → lineFloat = 1.627 → line 2
-  const dSunLon = 325.9;
+  // At MANDALA_OFFSET = 1.75:
+  // P.Sun: shifted=56.07585, Gate 23 [50.625,56.25), degInto=5.45085, lineFloat=5.814 → line 6 ✓
+  // D.Sun: shifted=328.07578, Gate 30 [326.25,331.875), degInto=1.82578, lineFloat=1.948 → line 2 ✓
 
-  const personalityLongs: PlanetaryLongitudes = {
-    sun: pSunLon,
-    moon: 100.0,
-    mercury: 100.0,
-    venus: 100.0,
-    mars: 100.0,
-    jupiter: 100.0,
-    saturn: 100.0,
-    uranus: 100.0,
-    neptune: 100.0,
-    pluto: 100.0,
-    northNode: 100.0,
-    southNode: 280.0,
-  };
-
-  const designLongs: PlanetaryLongitudes = {
-    sun: dSunLon,
-    moon: 100.0,
-    mercury: 100.0,
-    venus: 100.0,
-    mars: 100.0,
-    jupiter: 100.0,
-    saturn: 100.0,
-    uranus: 100.0,
-    neptune: 100.0,
-    pluto: 100.0,
-    northNode: 100.0,
-    southNode: 280.0,
-  };
-
-  const pAct = longitudesToActivations(personalityLongs);
-  const dAct = longitudesToActivations(designLongs);
-
-  it("personality Sun is line 6", () => {
-    expect(pAct.Sun.line).toBe(6);
+  it("personality Sun is Gate 23 Line 6", () => {
+    const result = getGateAndLine(pSunLon);
+    expect(result).not.toBeNull();
+    expect(result!.gate).toBe(23);
+    expect(result!.line).toBe(6);
   });
 
-  it("design Sun is line 2", () => {
-    expect(dAct.Sun.line).toBe(2);
+  it("design Sun is Gate 30 Line 2", () => {
+    const result = getGateAndLine(dSunLon);
+    expect(result).not.toBeNull();
+    expect(result!.gate).toBe(30);
+    expect(result!.line).toBe(2);
+  });
+
+  it("design Earth is Gate 29 Line 2", () => {
+    const dEarthLon = normalizeDeg(dSunLon + 180); // 146.325783
+    const result = getGateAndLine(dEarthLon);
+    expect(result).not.toBeNull();
+    expect(result!.gate).toBe(29);
+    expect(result!.line).toBe(2);
   });
 
   it("computes profile as 6/2", () => {
+    const pAct = longitudesToActivations({
+      sun: pSunLon, moon: 100, mercury: 100, venus: 100, mars: 100,
+      jupiter: 100, saturn: 100, uranus: 100, neptune: 100,
+      pluto: 100, northNode: 100, southNode: 280,
+    });
+    const dAct = longitudesToActivations({
+      sun: dSunLon, moon: 100, mercury: 100, venus: 100, mars: 100,
+      jupiter: 100, saturn: 100, uranus: 100, neptune: 100,
+      pluto: 100, northNode: 100, southNode: 280,
+    });
     const profile = determineProfile(pAct.Sun.line, dAct.Sun.line);
     expect(profile).toBe("6/2");
   });
@@ -361,31 +317,28 @@ describe("line boundary stability", () => {
     expect(LINE_EPS).toBeLessThan(1e-6);
   });
 
-  it("exact line boundary (offset = 0.9375) maps to line 2", () => {
-    // Gate 25 starts at 0° in table. Line 2 starts at offset 0.9375.
-    // shifted = 0.9375 → raw = 0.9375 - 1.875 = -0.9375 → normalize → 359.0625
-    const result = getGateAndLine(359.0625);
+  it("exact line boundary (degIntoGate = 0.9375) maps to line 2", () => {
+    // Gate 25 starts at mandala 0°. Line 2 starts at degIntoGate 0.9375.
+    // shifted = 0.9375 → raw = 0.9375 - MANDALA_OFFSET = 0.9375 - 1.75 = -0.8125 → 359.1875
+    const result = getGateAndLine(359.1875);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);
     expect(result!.line).toBe(2);
   });
 
-  it("exact line boundary (offset = 1.875) maps to line 3", () => {
-    // Gate 25: line 3 starts at offset 1.875.
-    // shifted = 1.875 → raw = 1.875 - 1.875 = 0.0
-    const result = getGateAndLine(0.0);
+  it("exact line boundary (degIntoGate = 1.875) maps to line 3", () => {
+    // Gate 25: line 3 starts at degIntoGate 1.875.
+    // shifted = 1.875 → raw = 1.875 - 1.75 = 0.125
+    const result = getGateAndLine(0.125);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);
     expect(result!.line).toBe(3);
   });
 
   it("value infinitesimally below line boundary stays stable", () => {
-    // offset = 1.875 - 1e-14 (floating-point subtraction artifact)
-    // Without EPS this might flip to line 2; with EPS should stay line 3
-    // shifted = 1.875 - 1e-14 → raw ≈ 0.0 - 1e-14
-    // We test by constructing a degree that after offset+normalization
-    // gives degIntoGate ≈ 1.875 - tiny epsilon
-    const rawDeg = -1e-14; // normalizeDeg → ≈360 - 1e-14
+    // degIntoGate = 1.875 - 1e-14 → should still map to line 3 with EPS guard
+    // shifted = 1.875 - 1e-14 → raw ≈ 0.125 - 1e-14
+    const rawDeg = 0.125 - 1e-14;
     const result = getGateAndLine(rawDeg);
     expect(result).not.toBeNull();
     expect(result!.gate).toBe(25);

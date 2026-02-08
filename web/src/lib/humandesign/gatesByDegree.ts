@@ -23,11 +23,13 @@ export const LINE_EPS = 1e-9;
 
 /**
  * Canonical Human Design mandala offset.
- * The HD wheel starts Gate 25 Line 1 at 358°07'30" tropical (1°52'30" before 0° Aries).
- * This 1.875° offset aligns the gate/line boundaries with the Jovian Archive standard.
+ * Gate 41 Line 1 starts at 2°00'00" Aquarius = 302° tropical.
+ * In the GATE_RANGES table, Gate 41 starts at mandala 303.75°.
+ * Offset = 303.75 - 302 = 1.75°.
+ * Equivalently, Gate 25 Line 1 starts at 358°15' tropical (1°45' before 0° Aries).
  * Applied by adding this value to the raw tropical longitude before gate lookup.
  */
-export const MANDALA_OFFSET = 1.875;
+export const MANDALA_OFFSET = 1.75;
 
 /**
  * Complete gate-degree mapping for Human Design

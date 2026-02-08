@@ -46,18 +46,18 @@ console.log("Human Design Regression Tests");
 console.log(`MANDALA_OFFSET=${MANDALA_OFFSET}  LINE_SPAN=${LINE_SPAN}  LINE_EPS=${LINE_EPS}`);
 console.log("=".repeat(60));
 
-// ── Test 1: Moni profile 6/2 ────────────────────────────────────
+// ── Test 1: Moni profile 6/2 (REAL longitudes from astro service) ─
 console.log("\n[Test 1] Moni profile fixture (Profile 6/2)");
 
 // Personality Sun → Gate 23, Line 6
-// raw=53.9 → shifted=55.775 → gate 23 (50.625–56.25) → degInto=5.15 → line 6
-const moniPAct = longitudesToActivations(makeLongs(53.9));
+// raw=54.325850 → shifted=56.07585 → gate 23 (50.625–56.25) → degInto=5.45085 → line 6
+const moniPAct = longitudesToActivations(makeLongs(54.325850));
 assert("P.Sun gate", moniPAct.Sun.gate, 23);
 assert("P.Sun line (personalitySunLine)", moniPAct.Sun.line, 6);
 
 // Design Sun → Gate 30, Line 2
-// raw=325.9 → shifted=327.775 → gate 30 (326.25–331.875) → degInto=1.525 → line 2
-const moniDAct = longitudesToActivations(makeLongs(325.9));
+// raw=326.325783 → shifted=328.075783 → gate 30 (326.25–331.875) → degInto=1.825783 → line 2
+const moniDAct = longitudesToActivations(makeLongs(326.325783));
 assert("D.Sun gate", moniDAct.Sun.gate, 30);
 assert("D.Sun line (designSunLine)", moniDAct.Sun.line, 2);
 
@@ -81,15 +81,20 @@ assert("Profile string", asunProfile, "3/5");
 // ── Test 3: Line boundary stability ─────────────────────────────
 console.log("\n[Test 3] Line boundary stability");
 
-// Exact boundary between line 2 and line 3 in Gate 25 (offset = 1.875)
-// shifted=1.875 → raw=0.0
-const boundaryResult = getGateAndLine(0.0);
-assert("Exact boundary (offset=1.875) → gate 25", boundaryResult?.gate, 25);
-assert("Exact boundary (offset=1.875) → line 3", boundaryResult?.line, 3);
+// At MANDALA_OFFSET=1.75, raw=0.0 → shifted=1.75 → Gate 25 line 2
+const zeroResult = getGateAndLine(0.0);
+assert("raw=0 → gate 25", zeroResult?.gate, 25);
+assert("raw=0 → line 2 (shifted=1.75, not on boundary)", zeroResult?.line, 2);
+
+// Exact boundary between line 2 and line 3 in Gate 25 (degIntoGate = 1.875)
+// shifted=1.875 → raw = 1.875 - 1.75 = 0.125
+const boundaryResult = getGateAndLine(0.125);
+assert("Exact boundary (degIntoGate=1.875) → gate 25", boundaryResult?.gate, 25);
+assert("Exact boundary (degIntoGate=1.875) → line 3", boundaryResult?.line, 3);
 
 // Value infinitesimally below boundary due to floating-point
-const nearBoundary = getGateAndLine(-1e-14);
-assert("Near-boundary (offset≈1.875-eps) → gate 25", nearBoundary?.gate, 25);
+const nearBoundary = getGateAndLine(0.125 - 1e-14);
+assert("Near-boundary (degIntoGate≈1.875-eps) → gate 25", nearBoundary?.gate, 25);
 assert("Near-boundary with EPS → line 3 (stable)", nearBoundary?.line, 3);
 
 // All 6 lines reachable in Gate 25
@@ -103,15 +108,22 @@ for (let line = 1; line <= 6; line++) {
 // ── Test 4: Near-boundary design sun line (simulating solver drift) ─
 console.log("\n[Test 4] Near-boundary design sun (simulating old solver drift)");
 
-// Design Sun at offset 1.87 into Gate 30 (should be solidly line 2)
-// Gate 30: 326.25–331.875. offset=1.87 → shifted=328.12 → raw=326.245
-const solidLine2 = getGateAndLine(326.245);
-assert("offset=1.87 → line 2", solidLine2?.line, 2);
+// Design Sun at degIntoGate=1.87 in Gate 30 (should be solidly line 2)
+// Gate 30: 326.25–331.875. shifted = 326.25 + 1.87 = 328.12, raw = 328.12 - 1.75 = 326.37
+const solidLine2 = getGateAndLine(326.37);
+assert("degIntoGate=1.87 → line 2", solidLine2?.line, 2);
 
-// Design Sun at offset 1.88 into Gate 30 (past boundary, should be line 3)
-// shifted=328.13 → raw=326.255
-const pastBoundary = getGateAndLine(326.255);
-assert("offset=1.88 → line 3", pastBoundary?.line, 3);
+// Design Sun at degIntoGate=1.88 in Gate 30 (past boundary at 1.875, should be line 3)
+// shifted = 326.25 + 1.88 = 328.13, raw = 328.13 - 1.75 = 326.38
+const pastBoundary = getGateAndLine(326.38);
+assert("degIntoGate=1.88 → line 3", pastBoundary?.line, 3);
+
+// ── Test 5: Moni Design Earth (Gate 29 Line 2) ─────────────────
+console.log("\n[Test 5] Moni Design Earth");
+const moniDEarthLon = normalizeDeg(326.325783 + 180); // 146.325783
+const dEarthResult = getGateAndLine(moniDEarthLon);
+assert("D.Earth gate", dEarthResult?.gate, 29);
+assert("D.Earth line", dEarthResult?.line, 2);
 
 // ═══════════════════════════════════════════════════════════════════
 console.log("\n" + "=".repeat(60));
