@@ -440,7 +440,7 @@ function ThresholdPanel({ onRestart }: { onRestart: () => void }) {
           </div>
         )}
 
-        <div className="pt-4 text-center">
+        <div className="pt-4 flex flex-col items-center gap-2">
           <button
             onClick={onRestart}
             className="text-xs"
@@ -448,6 +448,28 @@ function ThresholdPanel({ onRestart }: { onRestart: () => void }) {
           >
             Review the introduction
           </button>
+          <div className="flex items-center gap-3 mt-1">
+            <Link
+              href="/terms"
+              className="text-[10px] tracking-wide"
+              style={{ color: "var(--ura-text-muted)" }}
+            >
+              Terms of Service
+            </Link>
+            <span
+              className="text-[10px]"
+              style={{ color: "var(--ura-text-muted)", opacity: 0.4 }}
+            >
+              |
+            </span>
+            <Link
+              href="/privacy"
+              className="text-[10px] tracking-wide"
+              style={{ color: "var(--ura-text-muted)" }}
+            >
+              Privacy Policy
+            </Link>
+          </div>
         </div>
       </div>
     </div>
