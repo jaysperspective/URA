@@ -14,6 +14,14 @@ export const GATE_SPAN = 5.625;
 export const LINE_SPAN = GATE_SPAN / 6; // 0.9375° per line
 
 /**
+ * Floating-point epsilon for line boundary stability.
+ * Values within EPS of a line boundary snap to the higher line,
+ * preventing non-deterministic results from floating-point subtraction.
+ * 1e-9° ≈ 0.004 milliarcseconds — astronomically negligible.
+ */
+export const LINE_EPS = 1e-9;
+
+/**
  * Canonical Human Design mandala offset.
  * The HD wheel starts Gate 25 Line 1 at 358°07'30" tropical (1°52'30" before 0° Aries).
  * This 1.875° offset aligns the gate/line boundaries with the Jovian Archive standard.
@@ -203,7 +211,9 @@ export function lineForDegWithinGate(
   }
 
   // Calculate line (1-6)
-  const lineIndex = Math.floor(offset / LINE_SPAN);
+  // EPS guards against floating-point jitter at exact line boundaries:
+  // e.g., offset=0.93749999999999 (should be 0.9375) → without EPS gives line 1, with EPS gives line 2
+  const lineIndex = Math.floor((offset + LINE_EPS) / LINE_SPAN);
   const line = Math.min(Math.max(lineIndex + 1, 1), 6);
 
   return line;

@@ -11,7 +11,9 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "build:doctrine": "tsx scripts/build-doctrine.ts",
-    "hd:debug": "tsx scripts/hd_debug.ts"
+    "hd:debug": "tsx scripts/hd_debug.ts",
+    "hd:debug:moni": "tsx scripts/hd_debug_moni.ts",
+    "hd:regression": "tsx scripts/hd_regression.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",

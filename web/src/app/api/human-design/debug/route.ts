@@ -10,6 +10,7 @@ import {
   gateForDeg,
   MANDALA_OFFSET,
   LINE_SPAN,
+  LINE_EPS,
 } from "@/lib/humandesign/gatesByDegree";
 import {
   birthToUtcDate,
@@ -50,6 +51,7 @@ function mappingDebug(rawLon: number) {
     gateEndDeg: range?.endDeg ?? null,
     degIntoGate,
     lineFloat,
+    lineEps: LINE_EPS,
   };
 }
 
@@ -94,6 +96,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const pActivations = longitudesToActivations(pLongs);
 
     // 3. Design time
+    const natalSunNorm = normalizeDeg(pLongs.sun);
+    const targetLon = normalizeDeg(natalSunNorm - 88);
+
     const designResult = await findDesignTime(birthUtc, pLongs.sun, lat, lon);
     if (!designResult) {
       return NextResponse.json({ error: "Failed to find design time" }, { status: 500 });
@@ -102,13 +107,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const designUtc = new Date(designResult.iso);
     const daysBeforeBirth = (birthUtc.getTime() - designUtc.getTime()) / (1000 * 60 * 60 * 24);
 
-    // 4. Design chart
+    // 4. Design chart — use fractional minutes for precision
+    const designMinuteFrac =
+      designUtc.getUTCMinutes() +
+      designUtc.getUTCSeconds() / 60 +
+      designUtc.getUTCMilliseconds() / 60000;
+
     const dChart = await fetchChart({
       year: designUtc.getUTCFullYear(),
       month: designUtc.getUTCMonth() + 1,
       day: designUtc.getUTCDate(),
       hour: designUtc.getUTCHours(),
-      minute: designUtc.getUTCMinutes(),
+      minute: designMinuteFrac,
       latitude: lat,
       longitude: lon,
     });
@@ -120,7 +130,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const dLongs = extractLongitudes(dChart.data);
     const dActivations = longitudesToActivations(dLongs);
 
-    // Fetch design Sun longitude for verification
+    // Verification
     const designSunLon = dChart.data.planets.sun.lon;
     const angularDiff = normalizeDeg(pLongs.sun - designSunLon);
 
@@ -134,7 +144,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const hdType = determineType(definedChannels, definedCenters);
     const strategy = determineStrategy(hdType);
     const authority = determineAuthority(definedCenters);
-    const profile = determineProfile(pActivations.Sun.line, dActivations.Sun.line);
+
+    const personalitySunLine = pActivations.Sun.line;
+    const designSunLine = dActivations.Sun.line;
+    const profile = determineProfile(personalitySunLine, designSunLine);
 
     // Earth longitudes
     const pEarthLon = normalizeDeg(pLongs.sun + 180);
@@ -148,6 +161,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         lat,
         lon,
         birthUTC: birthUtc.toISOString(),
+      },
+      personalitySun: mappingDebug(pLongs.sun),
+      designSolver: {
+        natalSunLongitude: natalSunNorm,
+        targetLongitude: targetLon,
+        designTimeUTC: designResult.iso,
+        daysBeforeBirth: Math.round(daysBeforeBirth * 10000) / 10000,
+        designSunLongitude: designSunLon,
+        angularDiff: Math.round(angularDiff * 10000) / 10000,
+      },
+      designSun: mappingDebug(designSunLon),
+      profileDerivation: {
+        personalitySunLine,
+        designSunLine,
+        profileString: profile,
       },
       personalityChart: {
         sunLon: pLongs.sun,
@@ -164,17 +192,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         northNodeLon: pLongs.northNode,
         southNodeLon: pLongs.southNode,
       },
-      designTime: {
-        designTimeUTC: designResult.iso,
-        daysBeforeBirth: Math.round(daysBeforeBirth * 100) / 100,
-        targetSunLongitude: designResult.sunTargetDeg,
-        transitingSunLongitude: designSunLon,
-        angularDiff: Math.round(angularDiff * 1000) / 1000,
-      },
       mappingDebug: {
         personalitySun: mappingDebug(pLongs.sun),
         personalityEarth: mappingDebug(pEarthLon),
-        designSun: mappingDebug(dLongs.sun),
+        designSun: mappingDebug(designSunLon),
         designEarth: mappingDebug(dEarthLon),
       },
       computed: {
@@ -205,6 +226,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         profile,
         definitionType,
       },
+      isMockData: !!pChart.data._mock,
     });
   } catch (err) {
     return NextResponse.json(

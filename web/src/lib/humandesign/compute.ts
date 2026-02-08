@@ -34,11 +34,13 @@ import type {
 const SOLAR_ARC_DEGREES = 88.0;
 const DESIGN_SEARCH_START_DAYS = -110; // Start search ~110 days before birth
 const DESIGN_SEARCH_END_DAYS = -70; // End search ~70 days before birth
-const DESIGN_SEARCH_TOLERANCE_DEG = 0.01; // 0.01° tolerance
+const DESIGN_SEARCH_TOLERANCE_DEG = 0.0001; // 0.0001° tolerance (~0.01% of a line)
+const DESIGN_SEARCH_MIN_INTERVAL_MS = 1000; // 1 second minimum interval
 
 // Current version for cache invalidation
 // v2: Fixed mandala offset (1.875°), added missing channels 10-34, 20-57
-export const HD_VERSION = 2;
+// v3: Fixed design-time solver precision (fractional minutes, tighter tolerance)
+export const HD_VERSION = 3;
 
 // ============================================================================
 // TIMEZONE CONVERSION HELPERS
@@ -78,6 +80,19 @@ export function birthToUtcDate(birth: BirthData): Date {
   const offsetMs = utcDate.getTime() - tzDate.getTime();
 
   return new Date(localDate.getTime() + offsetMs);
+}
+
+/**
+ * Get minute value with fractional seconds for precise chart fetches.
+ * Date.getUTCMinutes() returns integer 0-59, dropping seconds/ms.
+ * This preserves sub-minute precision critical for design-time accuracy.
+ */
+function getMinuteWithFraction(date: Date): number {
+  return (
+    date.getUTCMinutes() +
+    date.getUTCSeconds() / 60 +
+    date.getUTCMilliseconds() / 60000
+  );
 }
 
 /**
@@ -123,7 +138,7 @@ async function fetchSunLongitude(
       month: utcDate.getUTCMonth() + 1,
       day: utcDate.getUTCDate(),
       hour: utcDate.getUTCHours(),
-      minute: utcDate.getUTCMinutes(),
+      minute: getMinuteWithFraction(utcDate),
       latitude: lat,
       longitude: lon,
     });
@@ -155,32 +170,25 @@ export async function findDesignTime(
   let startDate = addDays(birthUtc, DESIGN_SEARCH_START_DAYS);
   let endDate = addDays(birthUtc, DESIGN_SEARCH_END_DAYS);
 
-  // Binary search
+  // Binary search — only fetch midpoint Sun each iteration (1 API call, not 3)
   let iterations = 0;
   const maxIterations = 50;
 
   while (iterations < maxIterations) {
     iterations++;
 
-    const startSunLon = await fetchSunLongitude(startDate, lat, lon);
-    const endSunLon = await fetchSunLongitude(endDate, lat, lon);
-
-    if (startSunLon === null || endSunLon === null) {
-      console.error("[HD compute] Failed to fetch Sun longitude during design search");
-      return null;
-    }
-
     const midDate = new Date((startDate.getTime() + endDate.getTime()) / 2);
     const midSunLon = await fetchSunLongitude(midDate, lat, lon);
 
     if (midSunLon === null) {
+      console.error("[HD compute] Failed to fetch Sun longitude during design search");
       return null;
     }
 
     const distToTarget = angularDistance(midSunLon, targetLon);
 
     if (distToTarget < DESIGN_SEARCH_TOLERANCE_DEG) {
-      // Found it!
+      // Found it with sufficient precision
       return {
         iso: midDate.toISOString(),
         sunTargetDeg: targetLon,
@@ -188,24 +196,18 @@ export async function findDesignTime(
     }
 
     // Determine which half to search
-    // The Sun moves forward (increasing longitude) over time
-    // We want to find when Sun was at targetLon
-
-    // Check if target is between start and mid
-    const startDist = signedAngularDistance(startSunLon, targetLon);
+    // Sun moves forward (increasing longitude) over time.
+    // If target is ahead of mid Sun, search later (closer to birth).
     const midDist = signedAngularDistance(midSunLon, targetLon);
 
     if (midDist > 0) {
-      // Target is ahead of mid position, search later (closer to birth)
       startDate = midDate;
     } else {
-      // Target is behind mid position, search earlier
       endDate = midDate;
     }
 
-    // Check if interval is too small
-    if (endDate.getTime() - startDate.getTime() < 60000) {
-      // Less than 1 minute difference
+    // Safety: stop if time interval collapses below 1 second
+    if (endDate.getTime() - startDate.getTime() < DESIGN_SEARCH_MIN_INTERVAL_MS) {
       return {
         iso: midDate.toISOString(),
         sunTargetDeg: targetLon,
@@ -634,14 +636,14 @@ export async function computeHumanDesign(
       return null;
     }
 
-    // 5. Fetch design chart
+    // 5. Fetch design chart (use fractional minutes to preserve sub-minute precision)
     const designUtc = new Date(designTimeResult.iso);
     const designChart = await fetchChart({
       year: designUtc.getUTCFullYear(),
       month: designUtc.getUTCMonth() + 1,
       day: designUtc.getUTCDate(),
       hour: designUtc.getUTCHours(),
-      minute: designUtc.getUTCMinutes(),
+      minute: getMinuteWithFraction(designUtc),
       latitude: birth.lat,
       longitude: birth.lon,
     });

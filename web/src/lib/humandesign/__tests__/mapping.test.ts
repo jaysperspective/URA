@@ -7,6 +7,7 @@ import {
   MANDALA_OFFSET,
   GATE_SPAN,
   LINE_SPAN,
+  LINE_EPS,
   validateGateRanges,
 } from "../gatesByDegree";
 import {
@@ -280,5 +281,128 @@ describe("Asun profile fixture", () => {
     const centers = getDefinedCenters(channels);
     const defType = getDefinitionType(channels, centers);
     expect(defType).toBe("split");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Moni profile fixture (deterministic — no API calls)
+// Verifies Profile 6/2 with longitudes near a line boundary.
+// This is the regression test for the design-sun-line +1 drift bug.
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Moni profile fixture (6/2 regression)", () => {
+  // Personality Sun → line 6
+  // Gate 23: table range 50.625–56.25.
+  // Line 6: offset [4.6875, 5.625) → shifted [55.3125, 56.25)
+  // raw = 53.9 → shifted = 55.775 → degIntoGate = 5.15 → lineFloat = 5.493 → line 6
+  const pSunLon = 53.9;
+
+  // Design Sun → line 2 (near the line 2/3 boundary at offset 1.875)
+  // Gate 30: table range 326.25–331.875.
+  // Line 2: offset [0.9375, 1.875) → shifted [327.1875, 328.125)
+  // raw = 325.9 → shifted = 327.775 → degIntoGate = 1.525 → lineFloat = 1.627 → line 2
+  const dSunLon = 325.9;
+
+  const personalityLongs: PlanetaryLongitudes = {
+    sun: pSunLon,
+    moon: 100.0,
+    mercury: 100.0,
+    venus: 100.0,
+    mars: 100.0,
+    jupiter: 100.0,
+    saturn: 100.0,
+    uranus: 100.0,
+    neptune: 100.0,
+    pluto: 100.0,
+    northNode: 100.0,
+    southNode: 280.0,
+  };
+
+  const designLongs: PlanetaryLongitudes = {
+    sun: dSunLon,
+    moon: 100.0,
+    mercury: 100.0,
+    venus: 100.0,
+    mars: 100.0,
+    jupiter: 100.0,
+    saturn: 100.0,
+    uranus: 100.0,
+    neptune: 100.0,
+    pluto: 100.0,
+    northNode: 100.0,
+    southNode: 280.0,
+  };
+
+  const pAct = longitudesToActivations(personalityLongs);
+  const dAct = longitudesToActivations(designLongs);
+
+  it("personality Sun is line 6", () => {
+    expect(pAct.Sun.line).toBe(6);
+  });
+
+  it("design Sun is line 2", () => {
+    expect(dAct.Sun.line).toBe(2);
+  });
+
+  it("computes profile as 6/2", () => {
+    const profile = determineProfile(pAct.Sun.line, dAct.Sun.line);
+    expect(profile).toBe("6/2");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Line boundary stability tests
+// Ensures LINE_EPS prevents floating-point jitter at exact boundaries.
+// ═══════════════════════════════════════════════════════════════════
+
+describe("line boundary stability", () => {
+  it("LINE_EPS is defined and positive", () => {
+    expect(LINE_EPS).toBeGreaterThan(0);
+    expect(LINE_EPS).toBeLessThan(1e-6);
+  });
+
+  it("exact line boundary (offset = 0.9375) maps to line 2", () => {
+    // Gate 25 starts at 0° in table. Line 2 starts at offset 0.9375.
+    // shifted = 0.9375 → raw = 0.9375 - 1.875 = -0.9375 → normalize → 359.0625
+    const result = getGateAndLine(359.0625);
+    expect(result).not.toBeNull();
+    expect(result!.gate).toBe(25);
+    expect(result!.line).toBe(2);
+  });
+
+  it("exact line boundary (offset = 1.875) maps to line 3", () => {
+    // Gate 25: line 3 starts at offset 1.875.
+    // shifted = 1.875 → raw = 1.875 - 1.875 = 0.0
+    const result = getGateAndLine(0.0);
+    expect(result).not.toBeNull();
+    expect(result!.gate).toBe(25);
+    expect(result!.line).toBe(3);
+  });
+
+  it("value infinitesimally below line boundary stays stable", () => {
+    // offset = 1.875 - 1e-14 (floating-point subtraction artifact)
+    // Without EPS this might flip to line 2; with EPS should stay line 3
+    // shifted = 1.875 - 1e-14 → raw ≈ 0.0 - 1e-14
+    // We test by constructing a degree that after offset+normalization
+    // gives degIntoGate ≈ 1.875 - tiny epsilon
+    const rawDeg = -1e-14; // normalizeDeg → ≈360 - 1e-14
+    const result = getGateAndLine(rawDeg);
+    expect(result).not.toBeNull();
+    expect(result!.gate).toBe(25);
+    // With LINE_EPS, values within 1e-9 of boundary snap to higher line
+    expect(result!.line).toBe(3);
+  });
+
+  it("all six lines are reachable within a gate", () => {
+    // Gate 25 spans 0-5.625 in table. Test each line midpoint.
+    for (let line = 1; line <= 6; line++) {
+      const midOffset = (line - 1) * LINE_SPAN + LINE_SPAN / 2; // midpoint of line
+      const shifted = 0 + midOffset; // gate 25 starts at 0
+      const raw = shifted - MANDALA_OFFSET; // undo offset
+      const result = getGateAndLine(raw);
+      expect(result).not.toBeNull();
+      expect(result!.gate).toBe(25);
+      expect(result!.line).toBe(line);
+    }
   });
 });
