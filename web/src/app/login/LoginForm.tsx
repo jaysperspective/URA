@@ -14,43 +14,81 @@ export default function LoginForm({ returnTo }: Props) {
   const [state, action, pending] = useActionState(loginAction, initialState);
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: "#333131" }}>
-      <div className="w-full max-w-md px-6">
-        <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-md p-6 shadow-xl">
-          <div className="mb-5">
-            <div className="text-white text-xl font-semibold tracking-tight">Log in</div>
-            <div className="text-white/70 text-sm mt-1">Welcome back.</div>
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-6"
+      style={{ background: "var(--ura-bg-primary)" }}
+    >
+      <div className="w-full max-w-sm">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div
+            className="text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--ura-accent-primary)" }}
+          >
+            URA
           </div>
+          <h1
+            className="text-2xl font-semibold mt-2"
+            style={{ color: "var(--ura-text-primary)" }}
+          >
+            Welcome back
+          </h1>
+          <p
+            className="text-sm mt-1"
+            style={{ color: "var(--ura-text-muted)" }}
+          >
+            Sign in to continue your orientation.
+          </p>
+        </div>
 
-          <form action={action} className="space-y-4">
-            {/* Hidden field for returnTo */}
+        {/* Card */}
+        <div className="ura-card rounded-2xl p-6">
+          <form action={action} className="space-y-5">
             {returnTo && <input type="hidden" name="returnTo" value={returnTo} />}
+
             <div>
-              <label className="block text-white/70 text-xs mb-1">Email</label>
+              <label
+                className="block text-xs font-medium mb-1.5"
+                style={{ color: "var(--ura-text-secondary)" }}
+              >
+                Email
+              </label>
               <input
                 name="email"
                 type="email"
                 autoComplete="email"
                 required
-                className="w-full rounded-xl bg-black/40 border border-white/10 px-3 py-2 text-white outline-none focus:border-white/20"
+                className="ura-input w-full"
                 placeholder="you@domain.com"
               />
             </div>
 
             <div>
-              <label className="block text-white/70 text-xs mb-1">Password</label>
+              <label
+                className="block text-xs font-medium mb-1.5"
+                style={{ color: "var(--ura-text-secondary)" }}
+              >
+                Password
+              </label>
               <input
                 name="password"
                 type="password"
                 autoComplete="current-password"
                 required
-                className="w-full rounded-xl bg-black/40 border border-white/10 px-3 py-2 text-white outline-none focus:border-white/20"
+                className="ura-input w-full"
                 placeholder="Your password"
               />
             </div>
 
             {state?.error ? (
-              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              <div
+                className="rounded-xl px-3 py-2 text-sm"
+                style={{
+                  background: "rgba(181, 106, 77, 0.15)",
+                  border: "1px solid rgba(181, 106, 77, 0.3)",
+                  color: "var(--ura-alert)",
+                }}
+              >
                 {state.error}
               </div>
             ) : null}
@@ -58,20 +96,28 @@ export default function LoginForm({ returnTo }: Props) {
             <button
               type="submit"
               disabled={pending}
-              className="w-full rounded-xl bg-white text-black py-2 font-medium disabled:opacity-60"
+              className="ura-btn-primary w-full py-2.5 font-medium disabled:opacity-50"
             >
-              {pending ? "Logging in…" : "Log in"}
+              {pending ? "Signing in..." : "Sign in"}
             </button>
-
-            <div className="flex items-center justify-between text-sm text-white/70 pt-1">
-              <Link href="/" className="hover:text-white">
-                Back
-              </Link>
-              <Link href="/signup" className="hover:text-white">
-                Create account
-              </Link>
-            </div>
           </form>
+        </div>
+
+        {/* Footer links */}
+        <div
+          className="flex items-center justify-between text-sm mt-5 px-1"
+          style={{ color: "var(--ura-text-muted)" }}
+        >
+          <Link href="/" className="hover:opacity-80 transition-opacity">
+            Back
+          </Link>
+          <Link
+            href="/signup"
+            className="hover:opacity-80 transition-opacity"
+            style={{ color: "var(--ura-accent-secondary)" }}
+          >
+            Create account
+          </Link>
         </div>
       </div>
     </div>
