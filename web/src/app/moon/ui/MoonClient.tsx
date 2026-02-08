@@ -297,6 +297,11 @@ export default function MoonClient() {
       const res = await fetch("/api/moon/synthesis", { cache: "no-store" });
       const json = await res.json();
 
+      if (res.status === 401) {
+        setSynthesisError("sign_in");
+        return;
+      }
+
       if (!res.ok || !json?.ok) {
         throw new Error(json?.error || "Failed to load synthesis");
       }
@@ -546,20 +551,41 @@ export default function MoonClient() {
 
             {synthesisError && !synthesis && (
               <div className="mt-4 text-center">
-                <div className="text-sm mb-2" style={{ color: "rgba(180,80,60,0.9)" }}>
-                  {synthesisError}
-                </div>
-                <button
-                  onClick={loadSynthesis}
-                  className="rounded-full border px-4 py-2 text-sm"
-                  style={{
-                    color: M.ink,
-                    borderColor: "rgba(18,22,32,0.14)",
-                    background: "rgba(255,255,255,0.55)",
-                  }}
-                >
-                  Try Again
-                </button>
+                {synthesisError === "sign_in" ? (
+                  <>
+                    <div className="text-sm mb-3" style={{ color: M.inkSoft }}>
+                      Sign in to unlock your daily Moon synthesis.
+                    </div>
+                    <a
+                      href="/login"
+                      className="inline-block rounded-full border px-5 py-2 text-sm font-medium"
+                      style={{
+                        color: M.ink,
+                        borderColor: "rgba(18,22,32,0.18)",
+                        background: "rgba(255,255,255,0.6)",
+                      }}
+                    >
+                      Sign in
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm mb-2" style={{ color: "rgba(180,80,60,0.9)" }}>
+                      {synthesisError}
+                    </div>
+                    <button
+                      onClick={loadSynthesis}
+                      className="rounded-full border px-4 py-2 text-sm"
+                      style={{
+                        color: M.ink,
+                        borderColor: "rgba(18,22,32,0.14)",
+                        background: "rgba(255,255,255,0.55)",
+                      }}
+                    >
+                      Try Again
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
