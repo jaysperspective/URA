@@ -23,7 +23,7 @@ function pad2(n: number) {
 
 function monthLabel(year: number, month1to12: number) {
   const dt = new Date(Date.UTC(year, month1to12 - 1, 1));
-  return dt.toLocaleString(undefined, { month: "long", year: "numeric" });
+  return dt.toLocaleString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
 function firstWeekdayIndexSun0(year: number, month1to12: number) {

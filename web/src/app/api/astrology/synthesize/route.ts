@@ -1,6 +1,7 @@
 // src/app/api/astrology/synthesize/route.ts
 import { NextResponse } from "next/server";
 import doctrine from "@/lib/doctrine/doctrine.generated.json";
+import { STANDALONE_CARDS, type StandaloneCard } from "@/lib/doctrine/standalone";
 import { synthesizeInputSchema, type Lens, type Mode, type SynthesizeInput } from "@/lib/schemas/astrology";
 
 // DoctrineCard matches the structure from doctrine.generated.json
@@ -66,13 +67,35 @@ for (const c of CARDS) {
   if (!LOOKUP_NORM.has(nk)) LOOKUP_NORM.set(nk, c);
 }
 
-// Resolve incoming keys against both maps
+// Convert a standalone card to the DoctrineCard shape used by the synthesis pipeline
+function standaloneToDoctrineCard(card: StandaloneCard): DoctrineCard {
+  return {
+    key: card.key,
+    labels: {
+      placement: card.labels.name,
+    },
+    function: { core: card.core },
+    synthesis: card.description,
+    strengths: card.strengths,
+    shadows: card.shadows,
+    directives: card.directives,
+  };
+}
+
+// Resolve incoming keys against doctrine cards and standalone cards
 function resolveCard(key: string) {
   const exact = LOOKUP_EXACT.get(key);
   if (exact) return exact;
 
   const nk = canonizeIncomingKey(key);
-  return LOOKUP_NORM.get(nk) ?? null;
+  const fromNorm = LOOKUP_NORM.get(nk);
+  if (fromNorm) return fromNorm;
+
+  // Fall back to standalone cards (sign|gemini, planet|mercury, house|1, etc.)
+  const standalone = STANDALONE_CARDS.get(key) ?? STANDALONE_CARDS.get(nk);
+  if (standalone) return standaloneToDoctrineCard(standalone);
+
+  return null;
 }
 
 function bad(msg: string, code: string = "BAD_REQUEST", status = 400) {
