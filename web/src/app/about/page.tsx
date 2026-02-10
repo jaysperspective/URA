@@ -1,6 +1,6 @@
 // src/app/about/page.tsx
-import AboutCarousel from "./ui/AboutCarousel";
+import AboutCarouselServer from "./ui/AboutCarouselServer";
 
 export default function AboutPage() {
-  return <AboutCarousel />;
+  return <AboutCarouselServer />;
 }

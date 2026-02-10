@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
@@ -232,10 +233,12 @@ function ProfileAvatar({ initialUrl, onUpload }: { initialUrl?: string | null; o
             style={{ borderColor: "rgba(244,239,230,0.3)", borderTopColor: "#F4EFE6" }}
           />
         ) : imageUrl ? (
-          <img
+          <Image
             src={imageUrl}
             alt="Profile"
-            className="h-full w-full object-cover"
+            fill
+            sizes="48px"
+            className="object-cover"
           />
         ) : (
           <svg

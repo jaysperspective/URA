@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { withStandardRateLimit } from "@/lib/withRateLimit";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type Marker = {
   kind: "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
@@ -150,7 +149,6 @@ async function chartAtUTC(d: Date, latitude: number, longitude: number) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-    cache: "no-store",
   });
 
   if (!r.ok) {
@@ -478,8 +476,8 @@ async function handleGet(req: NextRequest) {
         moonEntersLocal: "—",
       },
       lunation: { markers },
-      // Optional debug (comment out once satisfied)
-      // _debug: { chartCacheSize: chartCache.size(), ingressCacheSize: ariesIngressCache.size(), markerCacheSize: markerCache.size() },
+    }, {
+      headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=600" },
     });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message ?? "Unknown error" }, { status: 500 });

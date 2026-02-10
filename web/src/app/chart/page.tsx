@@ -1,5 +1,7 @@
 // src/app/chart/page.tsx
-import ChartClient from "@/components/gann/ChartClient";
+import dynamic from "next/dynamic";
+
+const ChartClient = dynamic(() => import("@/components/gann/ChartClient"));
 
 export default function Page() {
   return <ChartClient />;

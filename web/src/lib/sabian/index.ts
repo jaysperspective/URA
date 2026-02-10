@@ -29,6 +29,13 @@ function norm360(d: number) {
  */
 export type UraSabianEntry = (typeof SABIAN_360)[number];
 
+// Build O(1) lookup maps at module load
+const mapByIdx = new Map<number, UraSabianEntry>();
+const mapByKey = new Map<string, UraSabianEntry>();
+for (const entry of SABIAN_360) {
+  mapByIdx.set(entry.idx, entry);
+  mapByKey.set(entry.key, entry);
+}
 
 export function sabianIndexFromLon(lon: number): number {
   const x = norm360(lon);
@@ -54,10 +61,10 @@ export function sabianKeyFromLon(lon: number): {
 export function sabianFromLon(lon: number): UraSabianEntry {
   const { idx, key, sign, degree } = sabianKeyFromLon(lon);
 
-  const byIdx = SABIAN_360[idx];
-  if (byIdx && typeof byIdx === "object") return byIdx;
+  const direct = SABIAN_360[idx];
+  if (direct && typeof direct === "object") return direct;
 
-  const found = SABIAN_360.find((x) => x.idx === idx || x.key === key);
+  const found = mapByIdx.get(idx) ?? mapByKey.get(key);
   if (found) return found;
 
   // Safety fallback (should never hit with full dataset)
@@ -66,12 +73,12 @@ export function sabianFromLon(lon: number): UraSabianEntry {
     key,
     sign,
     degree,
-    symbol: "—",
-    signal: "—",
-    shadow: "—",
-    directive: "—",
-    practice: "—",
-    journal: "—",
+    symbol: "\u2014",
+    signal: "\u2014",
+    shadow: "\u2014",
+    directive: "\u2014",
+    practice: "\u2014",
+    journal: "\u2014",
     tags: [],
   } as UraSabianEntry;
 }

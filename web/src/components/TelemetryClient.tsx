@@ -16,6 +16,14 @@ function getOrCreateAnonId() {
   }
 }
 
+function whenIdle(cb: () => void) {
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(cb);
+  } else {
+    setTimeout(cb, 2000);
+  }
+}
+
 export default function TelemetryClient() {
   const pathname = usePathname();
   const lastPath = useRef<string | null>(null);
@@ -25,22 +33,24 @@ export default function TelemetryClient() {
     if (lastPath.current === pathname) return;
     lastPath.current = pathname;
 
-    const sessionToken = getOrCreateAnonId();
+    whenIdle(() => {
+      const sessionToken = getOrCreateAnonId();
 
-    // pageview event
-    fetch("/api/event", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        type: "pageview",
-        path: pathname,
-        sessionToken,
-        meta: { ts: Date.now() },
-      }),
-    }).catch(() => {});
+      // pageview event
+      fetch("/api/event", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "pageview",
+          path: pathname,
+          sessionToken,
+          meta: { ts: Date.now() },
+        }),
+      }).catch(() => {});
 
-    // optional: keep your lastSeenAt alive if you already have /api/seen
-    fetch("/api/seen", { method: "POST" }).catch(() => {});
+      // optional: keep your lastSeenAt alive if you already have /api/seen
+      fetch("/api/seen", { method: "POST" }).catch(() => {});
+    });
   }, [pathname]);
 
   return null;

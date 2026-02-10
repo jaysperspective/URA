@@ -190,6 +190,8 @@ export async function POST(req: Request) {
         pivotISO,
         bucketRule: "UTC day (00:00–24:00 UTC)",
         ...res,
+      }, {
+        headers: { "Cache-Control": "public, max-age=300, s-maxage=300" },
       });
     } else {
       const pivotNYDay = ymdInTimeZone(pivotDate, "America/New_York");
@@ -203,6 +205,8 @@ export async function POST(req: Request) {
         pivotISO,
         bucketRule: "America/New_York session day (TradingView-style day label)",
         ...res,
+      }, {
+        headers: { "Cache-Control": "public, max-age=300, s-maxage=300" },
       });
     }
   } catch (e: any) {

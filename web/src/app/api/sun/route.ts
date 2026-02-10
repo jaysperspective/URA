@@ -5,7 +5,6 @@ import { withStandardRateLimit } from "@/lib/withRateLimit";
 import { getCollectiveData } from "@/lib/sun/collectiveData";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 async function handleGet(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -20,7 +19,9 @@ async function handleGet(req: NextRequest) {
     return NextResponse.json(data, { status: 500 });
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json(data, {
+    headers: { "Cache-Control": "public, max-age=600, s-maxage=600" },
+  });
 }
 
 export const GET = withStandardRateLimit(handleGet);

@@ -104,10 +104,8 @@ async function postToCore(req: NextRequest, body: string, contentType: string) {
     method: "POST",
     headers: {
       "content-type": contentType || "text/plain",
-      "cache-control": "no-store",
     },
     body,
-    cache: "no-store",
   });
 
   const core = await r.json().catch(async () => {
@@ -238,7 +236,7 @@ async function handleGet(req: NextRequest) {
           lunation: null,
           input: null,
         },
-        { status: 200, headers: { "Cache-Control": "no-store" } }
+        { status: 200, headers: { "Cache-Control": "private, no-cache" } }
       );
     }
 
@@ -254,7 +252,7 @@ async function handleGet(req: NextRequest) {
     if (!normalized.ok) {
       return NextResponse.json(
         { ok: false, error: normalized.error },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
+        { status: 400, headers: { "Cache-Control": "private, no-cache" } }
       );
     }
 
@@ -263,7 +261,7 @@ async function handleGet(req: NextRequest) {
     if (!r.ok || core?.ok === false) {
       return NextResponse.json(
         { ok: false, error: core?.error || `core failed (${r.status})`, core },
-        { status: 500, headers: { "Cache-Control": "no-store" } }
+        { status: 500, headers: { "Cache-Control": "private, no-cache" } }
       );
     }
 
@@ -275,12 +273,12 @@ async function handleGet(req: NextRequest) {
         lunation: core?.derived?.lunation ?? null,
         input: core?.input ?? normalized.payload ?? null,
       },
-      { status: 200, headers: { "Cache-Control": "no-store" } }
+      { status: 200, headers: { "Cache-Control": "private, no-cache" } }
     );
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || String(e) },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
+      { status: 400, headers: { "Cache-Control": "private, no-cache" } }
     );
   }
 }
@@ -304,7 +302,7 @@ async function handlePost(req: NextRequest) {
       if (!normalized.ok) {
         return NextResponse.json(
           { ok: false, error: normalized.error },
-          { status: 400, headers: { "Cache-Control": "no-store" } }
+          { status: 400, headers: { "Cache-Control": "private, no-cache" } }
         );
       }
 
@@ -313,7 +311,7 @@ async function handlePost(req: NextRequest) {
       if (!r.ok || core?.ok === false) {
         return NextResponse.json(
           { ok: false, error: core?.error || `core failed (${r.status})`, core },
-          { status: 500, headers: { "Cache-Control": "no-store" } }
+          { status: 500, headers: { "Cache-Control": "private, no-cache" } }
         );
       }
 
@@ -325,7 +323,7 @@ async function handlePost(req: NextRequest) {
           lunation: core?.derived?.lunation ?? null,
           input: core?.input ?? normalized.payload ?? null,
         },
-        { status: 200, headers: { "Cache-Control": "no-store" } }
+        { status: 200, headers: { "Cache-Control": "private, no-cache" } }
       );
     }
 
@@ -335,7 +333,7 @@ async function handlePost(req: NextRequest) {
     if (!r.ok || core?.ok === false) {
       return NextResponse.json(
         { ok: false, error: core?.error || `core failed (${r.status})`, core },
-        { status: 500, headers: { "Cache-Control": "no-store" } }
+        { status: 500, headers: { "Cache-Control": "private, no-cache" } }
       );
     }
 
@@ -347,12 +345,12 @@ async function handlePost(req: NextRequest) {
         lunation: core?.derived?.lunation ?? null,
         input: core?.input ?? null,
       },
-      { status: 200, headers: { "Cache-Control": "no-store" } }
+      { status: 200, headers: { "Cache-Control": "private, no-cache" } }
     );
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || String(e) },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
+      { status: 400, headers: { "Cache-Control": "private, no-cache" } }
     );
   }
 }

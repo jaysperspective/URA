@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 
 type Tab = "chart" | "read" | "code";
 
@@ -23,10 +23,12 @@ export default function HumanDesignReads({ children }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [fetched, setFetched] = useState(false);
+  const retryCount = useRef(0);
 
   const fetchReads = useCallback(async (force: boolean) => {
     if (force) {
       setRegenerating(true);
+      retryCount.current = 0;
     } else {
       setLoading(true);
     }
@@ -42,10 +44,14 @@ export default function HumanDesignReads({ children }: Props) {
       const data = await res.json();
 
       if (data.status === "generating") {
-        // Poll after short delay
-        setTimeout(() => fetchReads(false), 3000);
+        // Exponential backoff: 3s, 4.5s, 6.75s... capped at 30s
+        const delay = Math.min(3000 * Math.pow(1.5, retryCount.current), 30000);
+        retryCount.current += 1;
+        setTimeout(() => fetchReads(false), delay);
         return;
       }
+
+      retryCount.current = 0;
 
       if (data.ok && data.status === "ready") {
         setReads({

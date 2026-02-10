@@ -796,8 +796,8 @@ export default function AboutCarousel() {
         className="absolute inset-0 transition-opacity duration-700"
         style={{
           backgroundImage: showThreshold
-            ? `url('/about-slides/slide-13.png')`
-            : `url('/about-slides/slide-${String(currentSlide + 1).padStart(2, "0")}.png')`,
+            ? `url('/about-slides/slide-13.webp')`
+            : `url('/about-slides/slide-${String(currentSlide + 1).padStart(2, "0")}.webp')`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           filter: "blur(8px)",

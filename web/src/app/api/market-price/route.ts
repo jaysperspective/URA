@@ -57,6 +57,8 @@ export async function POST(req: Request) {
         price,
         asOfISO: new Date().toISOString(),
         note: "Spot ticker price (Coinbase Exchange).",
+      }, {
+        headers: { "Cache-Control": "public, max-age=60, s-maxage=60" },
       });
     }
 
@@ -105,6 +107,8 @@ export async function POST(req: Request) {
       price,
       asOfISO: Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString(),
       note: "Most recent completed session close (Polygon prev daily agg).",
+    }, {
+      headers: { "Cache-Control": "public, max-age=60, s-maxage=60" },
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ? String(e.message) : "Unknown error" }, { status: 500 });

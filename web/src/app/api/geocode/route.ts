@@ -114,7 +114,9 @@ async function handlePost(req: NextRequest) {
     };
 
     setCache(cacheKey, payload);
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, {
+      headers: { "Cache-Control": "public, max-age=86400, s-maxage=86400" },
+    });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || "unknown error" },

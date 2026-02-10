@@ -233,5 +233,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: `No doctrine card found for ${canonizeIncomingKey(key)}.` }, { status: 404 });
   }
 
-  return NextResponse.json({ ok: true, key: card.key, card });
+  return NextResponse.json({ ok: true, key: card.key, card }, {
+    headers: { "Cache-Control": "public, max-age=86400, s-maxage=86400" },
+  });
 }

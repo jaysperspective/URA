@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { withStandardRateLimit } from "@/lib/withRateLimit";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type DayRow = {
   dateISO: string;
@@ -75,7 +74,6 @@ async function chartAtUTC(d: Date, latitude: number, longitude: number) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-    cache: "no-store",
   });
 
   if (!r.ok) {
@@ -142,7 +140,7 @@ async function handleGet(req: NextRequest) {
     const key = cacheKey(input);
     const hit = CACHE.get(key);
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
-      return NextResponse.json(hit.data, { status: 200, headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json(hit.data, { status: 200, headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=300" } });
     }
 
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -192,7 +190,7 @@ async function handleGet(req: NextRequest) {
 
     CACHE.set(key, { at: Date.now(), data });
 
-    return NextResponse.json(data, { status: 200, headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(data, { status: 200, headers: { "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=300" } });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message ?? "Unknown error" }, { status: 500 });
   }

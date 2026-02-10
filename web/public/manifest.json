@@ -1,0 +1,16 @@
+{
+  "name": "URA",
+  "short_name": "URA",
+  "description": "A Seasonal Orientation System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#243E36",
+  "theme_color": "#243E36",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ]
+}
