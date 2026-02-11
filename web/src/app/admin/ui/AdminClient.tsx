@@ -130,6 +130,23 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
     }
   }
 
+  async function deleteUser(userId: number) {
+    if (!confirm(`Permanently delete user ${userId}? This cannot be undone.`)) return;
+
+    const res = await fetch("/api/admin/users/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId }),
+    }).catch(() => null);
+
+    if (!res || !res.ok) {
+      setToast("Delete failed");
+      return;
+    }
+    setToast(`User ${userId} deleted`);
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+  }
+
   async function setUserStatus(userId: number, status: "ACTIVE" | "DISABLED" | "BANNED") {
     const res = await fetch("/api/admin/users/status", {
       method: "POST",
@@ -616,7 +633,7 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
 
                         <div className="col-span-3 text-white/70">{u.lastSeenAt ? fmtIso(u.lastSeenAt) : "—"}</div>
 
-                        <div className="col-span-2 flex justify-end gap-2">
+                        <div className="col-span-2 flex flex-wrap justify-end gap-2">
                           <button
                             onClick={() => setUserStatus(u.id, "ACTIVE")}
                             className="rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
@@ -634,6 +651,12 @@ export default function AdminClient({ unlocked, masterKey, metrics, serverHasCon
                             className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs"
                           >
                             Ban
+                          </button>
+                          <button
+                            onClick={() => deleteUser(u.id)}
+                            className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs hover:bg-red-500/20"
+                          >
+                            Delete
                           </button>
                         </div>
                       </div>

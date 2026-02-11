@@ -252,7 +252,7 @@ function normalizeCalendarPayload(raw: any): CalendarAPI | null {
 async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { ok: false; error: string }> {
   let res: Response;
   try {
-    res = await fetch(url, { cache: "no-store" });
+    res = await fetch(url, { cache: "no-cache" });
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "fetch failed" };
   }
@@ -294,7 +294,13 @@ export default function MoonClient() {
     setSynthesisLoading(true);
     setSynthesisError(null);
     try {
-      const res = await fetch("/api/moon/synthesis", { cache: "no-store" });
+      const synthParams = new URLSearchParams();
+      if (data?.astro?.moonSign) synthParams.set("moonSign", data.astro.moonSign);
+      if (data?.lunar?.phaseAngleDeg !== undefined) synthParams.set("phaseAngleDeg", String(data.lunar.phaseAngleDeg));
+      if (data?.lunar?.phaseName) synthParams.set("phaseName", data.lunar.phaseName);
+      if (data?.lunar?.lunarDay !== undefined) synthParams.set("lunarDay", String(data.lunar.lunarDay));
+      const synthUrl = `/api/moon/synthesis${synthParams.toString() ? `?${synthParams}` : ""}`;
+      const res = await fetch(synthUrl, { cache: "no-store" });
       const json = await res.json();
 
       if (res.status === 401) {

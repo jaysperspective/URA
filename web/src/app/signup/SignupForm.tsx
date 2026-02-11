@@ -122,11 +122,17 @@ export default function SignupForm() {
             Back
           </Link>
           <Link
+            href="/sun"
+            className="hover:opacity-80 transition-opacity"
+          >
+            Continue as guest
+          </Link>
+          <Link
             href="/login"
             className="hover:opacity-80 transition-opacity"
             style={{ color: "var(--ura-accent-secondary)" }}
           >
-            Already have an account? Sign in
+            Sign in
           </Link>
         </div>
       </div>

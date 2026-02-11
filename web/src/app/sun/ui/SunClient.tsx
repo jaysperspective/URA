@@ -129,7 +129,7 @@ const C = {
 async function fetchJsonLoose(url: string): Promise<{ ok: true; json: any } | { ok: false; error: string }> {
   let res: Response;
   try {
-    res = await fetch(url, { cache: "no-store" });
+    res = await fetch(url, { cache: "no-cache" });
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "fetch failed" };
   }

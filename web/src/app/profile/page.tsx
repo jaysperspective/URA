@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth/requireUser";
 import { prisma } from "@/lib/prisma";
 import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 import ProfileClient from "./ui/ProfileClient";
+import DeleteAccountButton from "./ui/DeleteAccountButton";
 import { logoutAction } from "./actions";
 
 // Handoff params from /sun
@@ -326,6 +327,8 @@ export default async function ProfilePage({ searchParams }: PageProps) {
                 <ActionPill>Log out</ActionPill>
               </button>
             </form>
+
+            <DeleteAccountButton />
           </div>
         </div>
 

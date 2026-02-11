@@ -519,9 +519,46 @@ export async function GET(req: Request) {
   const tz = profile?.timezone || "America/New_York";
   const todayKey = getLocalDayKey(tz);
 
-  // 3. Fetch CURRENT moon data from canonical source (/api/calendar)
-  const origin = buildOrigin(req);
-  const moonDataResult = await getCurrentMoonData(origin);
+  // 3. Try to use moon data from query params (passed by MoonClient to avoid
+  //    a duplicate /api/calendar round-trip). Fall back to internal fetch.
+  const url = new URL(req.url);
+  const qMoonSign = url.searchParams.get("moonSign");
+  const qPhaseAngleDeg = url.searchParams.get("phaseAngleDeg");
+  const qPhaseName = url.searchParams.get("phaseName");
+  const qLunarDay = url.searchParams.get("lunarDay");
+
+  let moonDataResult: MoonData | { error: string };
+
+  if (qMoonSign && qPhaseName && qPhaseAngleDeg !== null) {
+    // All required params present — use them directly
+    const angleDeg = parseFloat(qPhaseAngleDeg);
+    const lDay = qLunarDay ? parseInt(qLunarDay, 10) : null;
+
+    let lunarPhaseId: PhaseId;
+    if (!isNaN(angleDeg)) {
+      lunarPhaseId = phaseIdFromAngle(angleDeg);
+    } else {
+      const mapped = phaseIdFromPhaseName(qPhaseName);
+      if (!mapped) {
+        return NextResponse.json({ ok: false, error: `Unknown phase name: ${qPhaseName}` }, { status: 400 });
+      }
+      lunarPhaseId = mapped;
+    }
+
+    moonDataResult = {
+      moonSign: qMoonSign,
+      moonElement: getMoonElement(qMoonSign),
+      phaseAngleDeg: isNaN(angleDeg) ? 0 : angleDeg,
+      phaseName: qPhaseName,
+      lunarPhaseId,
+      lunarDay: lDay !== null && !isNaN(lDay) ? lDay : null,
+    };
+    console.log(`${LOG_PREFIX} Using moon data from query params (skipped /api/calendar fetch)`);
+  } else {
+    // Fallback: fetch from /api/calendar internally
+    const origin = buildOrigin(req);
+    moonDataResult = await getCurrentMoonData(origin);
+  }
 
   if ("error" in moonDataResult) {
     console.error(`${LOG_PREFIX} Moon data error:`, moonDataResult.error);

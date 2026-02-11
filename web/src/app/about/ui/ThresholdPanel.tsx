@@ -61,16 +61,30 @@ export default function ThresholdPanel({ onRestart }: { onRestart: () => void })
       </div>
 
       <div className="mt-6 space-y-3">
-        <Link href="/signup" className="block">
+        <Link href="/sun" className="block">
           <button className="ura-btn-primary w-full py-3 text-sm font-medium">
-            Sign in / Create account
+            Continue as Guest
           </button>
         </Link>
         <div
           className="text-xs text-center"
           style={{ color: "var(--ura-text-muted)" }}
         >
-          Access your personal timing and cycles.
+          Explore phases, cycles, and doctrine without an account.
+        </div>
+
+        <div className="pt-2">
+          <Link href="/signup" className="block">
+            <button className="ura-btn-secondary w-full py-3 text-sm font-medium">
+              Sign in / Create account
+            </button>
+          </Link>
+          <div
+            className="text-xs text-center mt-2"
+            style={{ color: "var(--ura-text-muted)" }}
+          >
+            Access your personal timing and cycles.
+          </div>
         </div>
 
         <div className="pt-2">
@@ -107,8 +121,8 @@ export default function ThresholdPanel({ onRestart }: { onRestart: () => void })
           >
             <WhereToStartItem
               condition="If you want personal timing"
-              action="Enter birth details to calculate your Ascendant Year"
-              href="/profile/setup"
+              action="Create an account, then enter birth details"
+              href="/signup"
             />
             <WhereToStartItem
               condition="If you want to understand the system"

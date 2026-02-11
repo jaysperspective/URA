@@ -112,6 +112,12 @@ export default function LoginForm({ returnTo }: Props) {
             Back
           </Link>
           <Link
+            href="/sun"
+            className="hover:opacity-80 transition-opacity"
+          >
+            Continue as guest
+          </Link>
+          <Link
             href="/signup"
             className="hover:opacity-80 transition-opacity"
             style={{ color: "var(--ura-accent-secondary)" }}

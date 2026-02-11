@@ -1,6 +1,7 @@
 // src/lib/sun/collectiveData.ts
 // Shared logic for collective sun/lunar data - NO personal data
 import { microcopyForPhase, type PhaseId } from "@/lib/phaseMicrocopy";
+import { getIngress, setIngress } from "@/lib/astro/ingressCache";
 
 // Simple TTL cache
 type CacheEntry<T> = { exp: number; value: T };
@@ -26,7 +27,6 @@ const TTL_10_MIN = 10 * 60 * 1000;
 const TTL_30_DAYS = 30 * 24 * 60 * 60 * 1000;
 
 const chartCache = makeTTLCache<{ sunLon: number; moonLon: number; phaseAngleDeg: number }>();
-const ariesIngressCache = makeTTLCache<string>();
 
 function normalize360(deg: number) {
   const v = deg % 360;
@@ -118,10 +118,10 @@ function chartKey(d: Date, lat: number, lon: number) {
   const m = d.getUTCMonth() + 1;
   const day = d.getUTCDate();
   const hh = d.getUTCHours();
-  const mm = d.getUTCMinutes();
+  const mm10 = Math.floor(d.getUTCMinutes() / 10) * 10;
   const la = Math.round(lat * 10000) / 10000;
   const lo = Math.round(lon * 10000) / 10000;
-  return `sun:${y}-${m}-${day}T${hh}:${mm}|${la}|${lo}`;
+  return `sun:${y}-${m}-${day}T${hh}:${mm10}|${la}|${lo}`;
 }
 
 async function chartAtUTC(d: Date, latitude: number, longitude: number) {
@@ -178,7 +178,7 @@ async function findAriesIngressUTC(params: {
   const lo = Math.round(longitude * 10) / 10;
   const cacheKey = `ariesIngress:${year}|${la}|${lo}`;
 
-  const cachedISO = ariesIngressCache.get(cacheKey);
+  const cachedISO = getIngress(cacheKey);
   if (cachedISO) return new Date(cachedISO);
 
   const start = new Date(Date.UTC(year, 2, 18, 0, 0, 0));
@@ -218,7 +218,7 @@ async function findAriesIngressUTC(params: {
       }
 
       const out = new Date(hiMs);
-      ariesIngressCache.set(cacheKey, out.toISOString(), TTL_30_DAYS);
+      setIngress(cacheKey, out.toISOString(), TTL_30_DAYS);
       return out;
     }
 
@@ -227,7 +227,7 @@ async function findAriesIngressUTC(params: {
   }
 
   const fallback = new Date(Date.UTC(year, 2, 20, 12, 0, 0));
-  ariesIngressCache.set(cacheKey, fallback.toISOString(), TTL_30_DAYS);
+  setIngress(cacheKey, fallback.toISOString(), TTL_30_DAYS);
   return fallback;
 }
 
@@ -310,19 +310,21 @@ export async function getCollectiveData(params: {
     const sunDegreeInSign = Math.floor(degInSign(sunLon));
     const sunMinuteInSign = Math.floor((degInSign(sunLon) - sunDegreeInSign) * 60);
 
-    // Solar year calculation (0 Aries start)
+    // Solar year calculation (0 Aries start) — all 3 years in parallel
     const guessYear = asOfUTC.getUTCFullYear();
-    const thisYearIngress = await findAriesIngressUTC({ year: guessYear, latitude, longitude });
+    const [thisYearIngress, prevYearIngress, nextYearIngressGuess] = await Promise.all([
+      findAriesIngressUTC({ year: guessYear, latitude, longitude }),
+      findAriesIngressUTC({ year: guessYear - 1, latitude, longitude }),
+      findAriesIngressUTC({ year: guessYear + 1, latitude, longitude }),
+    ]);
 
-    let solarYearStart = thisYearIngress;
-    if (asOfUTC.getTime() < thisYearIngress.getTime()) {
-      solarYearStart = await findAriesIngressUTC({ year: guessYear - 1, latitude, longitude });
-    }
-    const nextSolarYearStart = await findAriesIngressUTC({
-      year: solarYearStart.getUTCFullYear() + 1,
-      latitude,
-      longitude,
-    });
+    const solarYearStart = asOfUTC.getTime() < thisYearIngress.getTime()
+      ? prevYearIngress
+      : thisYearIngress;
+
+    const nextSolarYearStart = asOfUTC.getTime() < thisYearIngress.getTime()
+      ? thisYearIngress
+      : nextYearIngressGuess;
 
     const dayIndexInSolarYear = Math.max(
       0,
