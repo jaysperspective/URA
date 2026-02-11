@@ -281,7 +281,7 @@ It's the subconscious of civilization—the emotional body that responds to what
 export default function MoonClient() {
   const [ymd, setYmd] = useState<string | null>(null);
   const [data, setData] = useState<CalendarAPI | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Synthesis state
@@ -423,6 +423,12 @@ export default function MoonClient() {
             <div style={{ color: M.inkMuted }}>{error}</div>
           </div>
         ) : null}
+
+        {loading && !error && (
+          <div className="mt-6 text-center text-sm" style={{ color: M.inkMuted }}>
+            Loading moon data...
+          </div>
+        )}
 
         <div className="mt-5 flex justify-center">
           <MoonDisc phaseName={data?.lunar?.phaseName ?? "—"} phaseAngleDeg={data?.lunar?.phaseAngleDeg} />
