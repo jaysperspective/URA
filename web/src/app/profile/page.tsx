@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/requireUser";
+import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ensureProfileCaches } from "@/lib/profile/ensureProfileCaches";
 import ProfileClient from "./ui/ProfileClient";
@@ -180,7 +180,52 @@ type PageProps = {
 
 export default async function ProfilePage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const user = await requireUser();
+  const user = await getCurrentUser();
+
+  // Guest landing page — no auth required
+  if (!user) {
+    return (
+      <div className="min-h-screen px-4 py-8">
+        <div className="mx-auto w-full max-w-5xl">
+          <div className="mb-5">
+            <div className="ura-section-label">URA</div>
+            <div className="ura-page-title mt-1">Profile</div>
+          </div>
+
+          <div className="ura-card rounded-2xl p-6">
+            <div className="text-2xl font-semibold tracking-tight" style={{ color: "var(--ura-text-primary)" }}>
+              Sign in to access your profile
+            </div>
+            <div className="mt-3 text-sm" style={{ color: "var(--ura-text-secondary)" }}>
+              Your profile holds your personal timing, birth data, and live cycle. Create an account or sign in to get started.
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link href="/login" className="ura-btn-secondary inline-block py-2.5 px-5 text-sm font-medium">
+                Sign in
+              </Link>
+              <Link href="/signup" className="ura-btn-secondary inline-block py-2.5 px-5 text-sm font-medium">
+                Create account
+              </Link>
+            </div>
+
+            <div className="mt-5 pt-4" style={{ borderTop: "1px solid var(--ura-border-subtle)" }}>
+              <div className="text-xs" style={{ color: "var(--ura-text-muted)" }}>
+                Just browsing?
+              </div>
+              <Link
+                href="/sun"
+                className="inline-block mt-2 text-sm font-medium"
+                style={{ color: "var(--ura-accent-secondary)" }}
+              >
+                Continue exploring as guest
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Check if this is a handoff from /sun
   const isHandoff = params.from === "sun";
@@ -200,6 +245,20 @@ export default async function ProfilePage({ searchParams }: PageProps) {
     return (
       <div className="min-h-screen px-4 py-8">
         <div className="mx-auto w-full max-w-5xl">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <div className="ura-section-label">URA</div>
+              <div className="ura-page-title mt-1">Profile</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <form action={logoutAction}>
+                <button type="submit" aria-label="Log out">
+                  <ActionPill>Log out</ActionPill>
+                </button>
+              </form>
+              <DeleteAccountButton />
+            </div>
+          </div>
           <div className="ura-card p-6">
             <div className="text-sm ura-text-secondary">
               No profile found.
@@ -236,6 +295,20 @@ export default async function ProfilePage({ searchParams }: PageProps) {
     return (
       <div className="min-h-screen px-4 py-8">
         <div className="mx-auto w-full max-w-5xl">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <div className="ura-section-label">URA</div>
+              <div className="ura-page-title mt-1">Profile</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <form action={logoutAction}>
+                <button type="submit" aria-label="Log out">
+                  <ActionPill>Log out</ActionPill>
+                </button>
+              </form>
+              <DeleteAccountButton />
+            </div>
+          </div>
           <div className="ura-card p-6">
             <div className="text-sm ura-text-secondary">
               No profile found.
@@ -251,9 +324,19 @@ export default async function ProfilePage({ searchParams }: PageProps) {
     return (
       <div className="min-h-screen px-4 py-8">
         <div className="mx-auto w-full max-w-5xl">
-          <div className="mb-5">
-            <div className="ura-section-label">URA</div>
-            <div className="ura-page-title mt-1">Profile</div>
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <div className="ura-section-label">URA</div>
+              <div className="ura-page-title mt-1">Profile</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <form action={logoutAction}>
+                <button type="submit" aria-label="Log out">
+                  <ActionPill>Log out</ActionPill>
+                </button>
+              </form>
+              <DeleteAccountButton />
+            </div>
           </div>
 
           <div className="ura-card p-6">
